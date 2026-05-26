@@ -137,217 +137,64 @@
          * @param {Object} options 提取选项
          * @returns {Promise<Object>} 提取的内容
          */
+        /**
+         * 确保 defuddle bundle 已注入到目标页面
+         * @param {number} tabId 标签页ID
+         * @returns {Promise<void>}
+         */
+        async ensureDefuddleInjected(tabId) {
+            const isInjected = await new Promise((resolve) => {
+                chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: () => typeof window.__defuddleExtract === 'function'
+                }, (results) => {
+                    resolve(results && results[0] && results[0].result === true);
+                });
+            });
+
+            if (!isInjected) {
+                await new Promise((resolve, reject) => {
+                    chrome.scripting.executeScript({
+                        target: { tabId },
+                        files: ['lib/defuddle.bundle.js']
+                    }, () => {
+                        if (chrome.runtime.lastError) {
+                            reject(new Error('注入 defuddle 失败: ' + chrome.runtime.lastError.message));
+                        } else {
+                            resolve();
+                        }
+                    });
+                });
+            }
+        }
+
+        /**
+         * 使用通用算法提取内容（基于 defuddle）
+         * @param {number} tabId 标签页ID
+         * @param {Object} options 提取选项
+         * @returns {Promise<Object>} 提取的内容
+         */
         async extractWithGeneralAlgorithm(tabId, options) {
+            // 确保 defuddle 已注入
+            await this.ensureDefuddleInjected(tabId);
+
             return new Promise((resolve, reject) => {
                 chrome.scripting.executeScript({
                     target: { tabId },
-                    function: (opts) => {
-                        // 通用内容提取算法
-                        function findMainContent() {
-                            // 候选元素评分
-                            const candidates = [];
-
-                            // 常见内容容器选择器
-                            const contentSelectors = [
-                                'article',
-                                '.article',
-                                '.post',
-                                '.content',
-                                '.main-content',
-                                'main',
-                                '#content',
-                                '#main',
-                                '.entry-content',
-                                '.post-content'
-                            ];
-
-                            // 首先尝试常见内容选择器
-                            for (const selector of contentSelectors) {
-                                const elements = document.querySelectorAll(selector);
-                                for (const el of elements) {
-                                    // 忽略隐藏元素
-                                    if (el.offsetParent === null) continue;
-
-                                    // 计算文本密度和内容长度
-                                    const textLength = el.innerText.trim().length;
-                                    const childNodes = el.childNodes.length || 1;
-                                    const textDensity = textLength / childNodes;
-
-                                    // 评分因素：文本长度、文本密度、图片数量
-                                    const images = el.querySelectorAll('img').length;
-                                    const score = textLength * 0.5 + textDensity * 0.3 + images * 50;
-
-                                    candidates.push({
-                                        element: el,
-                                        score: score,
-                                        textLength: textLength
-                                    });
-                                }
-                            }
-
-                            // 如果没有找到候选元素，尝试分析所有段落
-                            if (candidates.length === 0) {
-                                // 获取所有段落
-                                const paragraphs = document.querySelectorAll('p');
-
-                                // 查找段落密集区域
-                                const clusters = [];
-                                let currentCluster = [];
-
-                                for (const p of paragraphs) {
-                                    // 忽略短文本和隐藏元素
-                                    if (p.innerText.trim().length < 20 || p.offsetParent === null) continue;
-
-                                    // 如果当前段落与上一个段落在同一区域，加入当前簇
-                                    if (currentCluster.length > 0) {
-                                        const lastP = currentCluster[currentCluster.length - 1];
-                                        const lastRect = lastP.getBoundingClientRect();
-                                        const currentRect = p.getBoundingClientRect();
-
-                                        // 判断是否在同一区域（垂直距离较近）
-                                        if (Math.abs(currentRect.top - lastRect.bottom) < 100) {
-                                            currentCluster.push(p);
-                                            continue;
-                                        }
-                                    }
-
-                                    // 开始新簇
-                                    if (currentCluster.length > 0) {
-                                        clusters.push([...currentCluster]);
-                                    }
-                                    currentCluster = [p];
-                                }
-
-                                // 添加最后一个簇
-                                if (currentCluster.length > 0) {
-                                    clusters.push(currentCluster);
-                                }
-
-                                // 找出最大的簇
-                                let maxCluster = null;
-                                let maxLength = 0;
-
-                                for (const cluster of clusters) {
-                                    const totalLength = cluster.reduce((sum, p) => sum + p.innerText.trim().length, 0);
-                                    if (totalLength > maxLength) {
-                                        maxLength = totalLength;
-                                        maxCluster = cluster;
-                                    }
-                                }
-
-                                // 如果找到了最大簇，找到它们的共同父元素
-                                if (maxCluster && maxCluster.length > 0) {
-                                    const commonParent = findCommonParent(maxCluster);
-                                    if (commonParent) {
-                                        const textLength = commonParent.innerText.trim().length;
-                                        const childNodes = commonParent.childNodes.length || 1;
-                                        const textDensity = textLength / childNodes;
-                                        const images = commonParent.querySelectorAll('img').length;
-                                        const score = textLength * 0.5 + textDensity * 0.3 + images * 50;
-
-                                        candidates.push({
-                                            element: commonParent,
-                                            score: score,
-                                            textLength: textLength
-                                        });
-                                    }
-                                }
-                            }
-
-                            // 查找共同父元素
-                            function findCommonParent(elements) {
-                                if (!elements || elements.length === 0) return null;
-                                if (elements.length === 1) return elements[0].parentElement;
-
-                                // 获取第一个元素的所有父元素
-                                const parents = [];
-                                let parent = elements[0].parentElement;
-
-                                while (parent) {
-                                    parents.push(parent);
-                                    parent = parent.parentElement;
-                                }
-
-                                // 检查其他元素是否共享这些父元素
-                                for (let i = 1; i < elements.length; i++) {
-                                    let currentParent = elements[i].parentElement;
-                                    let found = false;
-
-                                    while (currentParent && !found) {
-                                        if (parents.includes(currentParent)) {
-                                            found = true;
-                                            // 保留共同父元素及其上层
-                                            const index = parents.indexOf(currentParent);
-                                            parents.splice(0, index);
-                                        } else {
-                                            currentParent = currentParent.parentElement;
-                                        }
-                                    }
-
-                                    if (!found) return null;
-                                }
-
-                                return parents[0];
-                            }
-
-                            // 按分数排序并返回最高分的元素
-                            candidates.sort((a, b) => b.score - a.score);
-                            return candidates.length > 0 ? candidates[0].element : null;
-                        }
-
-                        // 获取meta标签内容
-                        function getMetaContent(name) {
-                            const meta = document.querySelector(`meta[name="${name}"], meta[property="og:${name}"], meta[property="twitter:${name}"]`);
-                            return meta ? meta.content : null;
-                        }
-
-                        // 提取主要内容
-                        const mainElement = findMainContent();
-
-                        if (!mainElement) {
-                            return {
-                                title: getMetaContent('title') || document.title,
-                                description: getMetaContent('description'),
-                                url: window.location.href,
-                                content: document.body.innerText.substring(0, 1000) + '...',
-                                error: '无法识别主要内容区域'
-                            };
-                        }
-
-                        // 提取图片
-                        const images = Array.from(mainElement.querySelectorAll('img'))
-                            .filter(img => {
-                                // 过滤掉小图标和装饰图片
-                                const width = img.naturalWidth || img.width;
-                                const height = img.naturalHeight || img.height;
-                                return width > 100 && height > 100;
-                            })
-                            .map(img => ({
-                                src: img.src,
-                                alt: img.alt,
-                                width: img.naturalWidth || img.width,
-                                height: img.naturalHeight || img.height
-                            }));
-
-                        // 提取链接
-                        const links = Array.from(mainElement.querySelectorAll('a'))
-                            .filter(a => a.href && a.innerText.trim().length > 0)
-                            .map(a => ({
-                                href: a.href,
-                                text: a.innerText.trim()
-                            }));
-
-                        // 返回结构化内容
-                        return {
-                            title: getMetaContent('title') || document.title,
-                            description: getMetaContent('description'),
+                    func: (opts) => {
+                        // 调用 defuddle 进行提取，直接返回 Markdown
+                        const result = window.__defuddleExtract({
+                            markdown: true,
                             url: window.location.href,
-                            content: mainElement.innerText,
-                            html: mainElement.innerHTML,
-                            images: images,
-                            links: links,
-                            textLength: mainElement.innerText.length
-                        };
+                            standardize: true,
+                            removeExactSelectors: true,
+                            removePartialSelectors: true,
+                            removeHiddenElements: true,
+                            removeLowScoring: true,
+                            removeSmallImages: true,
+                            ...opts
+                        });
+                        return result;
                     },
                     args: [options]
                 }, (results) => {
@@ -356,7 +203,29 @@
                     } else if (!results || !results[0]) {
                         reject(new Error('内容提取失败'));
                     } else {
-                        resolve(results[0].result);
+                        const d = results[0].result;
+                        // 适配为原有格式，content 现在是 Markdown
+                        // title/url 由调用方（background.js）从 tab 信息补充
+                        resolve({
+                            title: d.title || '',
+                            description: d.description || '',
+                            url: d.domain ? ('https://' + d.domain) : '',
+                            content: d.content || '',           // Markdown
+                            markdown: d.content || '',          // 冗余字段，明确标识为 Markdown
+                            author: d.author || '',
+                            published: d.published || '',
+                            site: d.site || '',
+                            language: d.language || '',
+                            wordCount: d.wordCount || 0,
+                            image: d.image || '',
+                            favicon: d.favicon || '',
+                            domain: d.domain || '',
+                            // 向后兼容字段
+                            html: '',
+                            images: [],
+                            links: [],
+                            textLength: d.wordCount || 0
+                        });
                     }
                 });
             });

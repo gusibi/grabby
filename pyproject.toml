@@ -1,0 +1,24 @@
+[project]
+name = "mcp-web-capture"
+version = "0.1.0"
+description = "MCP Web Capture - 网页内容自动化采集系统"
+readme = "readme.md"
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi",
+    "fastapi-mcp==0.1.4",
+    "uvicorn",
+    "websockets>=11.0",
+    "aiohttp>=3.9",
+    "pydantic-settings",
+    "markdownify>=1.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "httpx",
+]
+
+[tool.uv]
+default-groups = []

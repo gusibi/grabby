@@ -25,6 +25,8 @@ let connectionStatus = {
 
 // 初始化后台脚本
 function init() {
+    // 设置初始图标为未连接状态（灰色）
+    updateToolbarIcon('disconnected');
 
     // 监听来自弹出窗口和选项页面的消息
     chrome.runtime.onMessage.addListener(handleMessage);
@@ -142,6 +144,25 @@ async function disconnectFromServer() {
     }
 }
 
+// 状态到图标文件的映射
+const STATUS_ICON_MAP = {
+    connected: 'connected',
+    error: 'error',
+    disconnected: 'disconnected',
+    connecting: 'disconnected'
+};
+
+// 更新工具栏图标
+function updateToolbarIcon(status) {
+    const iconSuffix = STATUS_ICON_MAP[status] || 'disconnected';
+    const iconPaths = {
+        '16': `icons/icon16_${iconSuffix}.png`,
+        '48': `icons/icon48_${iconSuffix}.png`,
+        '128': `icons/icon128_${iconSuffix}.png`
+    };
+    chrome.action.setIcon({ path: iconPaths });
+}
+
 // 处理WebSocket连接状态变化
 function handleConnectionStatusChange(status) {
     // 确保status对象包含所需属性
@@ -154,6 +175,9 @@ function handleConnectionStatusChange(status) {
         lastConnected: (status.connected || status.status === 'connected') ? new Date().toISOString() : connectionStatus.lastConnected,
         lastError: status.error || status.errorMessage || null
     };
+
+    // 更新工具栏图标以反映连接状态
+    updateToolbarIcon(connectionStatus.status);
 
     // 通知弹出窗口连接状态变化
     try {
@@ -280,11 +304,14 @@ async function handleWebSocketMessage(message) {
 async function handleCaptureCommand(data) {
     logger.log('capture', 'info', '开始处理截图指令', data);
     try {
+        let targetTabId = null;
+
         // 如果指定了URL，先导航到该URL
         if (data.url) {
             logger.log('capture', 'info', '准备导航到URL', { url: data.url });
-            await navigateToUrl(data.url);
-            logger.log('capture', 'info', 'URL导航完成');
+            const tab = await navigateToUrl(data.url);
+            targetTabId = tab.id;
+            logger.log('capture', 'info', 'URL导航完成', { tabId: targetTabId });
         }
 
         // 执行截图
@@ -294,7 +321,7 @@ async function handleCaptureCommand(data) {
         };
         logger.log('capture', 'info', '准备执行截图', captureOptions);
 
-        const captureResult = await captureCurrentTab(captureOptions);
+        const captureResult = await captureCurrentTab(captureOptions, targetTabId);
         const responseMessage = {
             success: true, type: 'response',
             message_id: data.message_id,
@@ -321,25 +348,30 @@ async function handleCaptureCommand(data) {
 
 // 处理内容提取指令
 async function handleExtractCommand(data) {
+    let targetTabId = null;
+    let shouldCloseTab = false;
+
     try {
         logger.log('extract', 'info', '开始处理内容提取指令', { message_id: data.message_id, url: data.url });
 
-        // 如果指定了URL，先导航到该URL
+        // 如果指定了URL，先导航到新标签页
         if (data.url) {
             logger.log('extract', 'info', '准备导航到URL', { url: data.url });
-            await navigateToUrl(data.url);
-            logger.log('extract', 'info', 'URL导航完成');
+            const tab = await navigateToUrl(data.url);
+            targetTabId = tab.id;
+            shouldCloseTab = true;
+            logger.log('extract', 'info', 'URL导航完成', { tabId: targetTabId });
         }
 
-        // 执行内容提取
+        // 执行内容提取（用导航返回的 tabId，避免用户切走标签页导致提取错误页面）
         const extractOptions = {
             extractImages: data.extractImages !== false,
             extractLinks: data.extractLinks !== false,
             customSelectors: data.selectors || null
         };
 
-        logger.log('extract', 'info', '准备执行内容提取', extractOptions);
-        const extractResult = await extractTabContent(extractOptions);
+        logger.log('extract', 'info', '准备执行内容提取', { tabId: targetTabId, ...extractOptions });
+        const extractResult = await extractTabContent(extractOptions, targetTabId);
         logger.log('extract', 'info', '内容提取完成', { result: extractResult });
 
         // 发送结果回服务器
@@ -364,6 +396,16 @@ async function handleExtractCommand(data) {
             error: error.message
         });
         logger.log('extract', 'error', '错误信息已发送到服务器');
+    } finally {
+        // 如果是新打开的标签页，提取完成后自动关闭
+        if (shouldCloseTab && targetTabId !== null) {
+            try {
+                await chrome.tabs.remove(targetTabId);
+                logger.log('extract', 'info', '已关闭临时标签页', { tabId: targetTabId });
+            } catch (e) {
+                logger.log('extract', 'warn', '关闭临时标签页失败', { tabId: targetTabId, error: e.message });
+            }
+        }
     }
 }
 
@@ -426,32 +468,36 @@ async function handleOpenCommand(data) {
 }
 
 // 导航到指定URL
+// 返回创建的 tab 对象，调用方可直接用 tab.id 提取内容
 async function navigateToUrl(url) {
     return new Promise((resolve, reject) => {
         try {
-            // 创建新标签页或更新当前标签页
-            chrome.tabs.create({ url }, (tab) => {
+            chrome.tabs.create({ url, active: true }, (tab) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
                     return;
                 }
 
-                // 等待页面加载完成
-                const tabId = tab.id;
-                const listener = (tabId, changeInfo) => {
-                    if (tabId === tab.id && changeInfo.status === 'complete') {
+                const listener = async (updatedTabId, changeInfo) => {
+                    if (updatedTabId === tab.id && changeInfo.status === 'complete') {
                         chrome.tabs.onUpdated.removeListener(listener);
-                        resolve(tab);
+                        // 页面框架加载完成，再等待内容稳定
+                        try {
+                            await waitForPageStable(tab.id);
+                            resolve(tab);
+                        } catch (e) {
+                            resolve(tab); // 即使等待失败也继续
+                        }
                     }
                 };
 
                 chrome.tabs.onUpdated.addListener(listener);
 
-                // 设置超时，防止无限等待
+                // 30秒超时兜底
                 setTimeout(() => {
                     chrome.tabs.onUpdated.removeListener(listener);
-                    resolve(tab); // 即使未完全加载也继续执行
-                }, 30000); // 30秒超时
+                    resolve(tab);
+                }, 30000);
             });
         } catch (error) {
             reject(error);
@@ -459,11 +505,110 @@ async function navigateToUrl(url) {
     });
 }
 
-// 截图当前标签页
-async function captureCurrentTab(options = {}) {
+// 等待页面内容稳定
+// 通过轮询页面文本长度 + 滚动触发懒加载，直到内容连续稳定
+async function waitForPageStable(tabId, maxWaitMs = 20000) {
+    const checkInterval = 1500;
+    const stableThreshold = 2; // 连续2次稳定
+    const minContentLength = 100;
+    const lengthTolerance = 50;
+
+    let lastLength = 0;
+    let stableCount = 0;
+    let elapsed = 0;
+    const scrollPositions = [0.3, 0.6, 0.9, 0.0]; // 30%, 60%, 90%, 回到顶部
+    let scrollIndex = 0;
+
+    return new Promise((resolve) => {
+        const timer = setInterval(async () => {
+            elapsed += checkInterval;
+
+            // 滚动页面触发懒加载
+            if (scrollIndex < scrollPositions.length) {
+                await scrollPage(tabId, scrollPositions[scrollIndex]);
+                scrollIndex++;
+            }
+
+            // 获取页面文本长度
+            const currentLength = await getPageTextLength(tabId);
+            const lengthDiff = Math.abs(currentLength - lastLength);
+
+            if (lengthDiff < lengthTolerance && currentLength >= minContentLength) {
+                stableCount++;
+                logger.log('background', 'debug', '页面内容稳定', {
+                    tabId, currentLength, lastLength, diff: lengthDiff, stableCount, elapsed
+                });
+                if (stableCount >= stableThreshold) {
+                    clearInterval(timer);
+                    resolve({ length: currentLength, elapsed });
+                }
+            } else {
+                if (currentLength > 0) {
+                    logger.log('background', 'debug', '页面内容变化', {
+                        tabId, lastLength, currentLength, diff: lengthDiff, elapsed
+                    });
+                }
+                stableCount = 0;
+            }
+            lastLength = currentLength;
+
+            // 超时
+            if (elapsed >= maxWaitMs) {
+                clearInterval(timer);
+                logger.log('background', 'warn', '页面加载超时', { tabId, length: currentLength, elapsed });
+                resolve({ length: currentLength, elapsed });
+            }
+        }, checkInterval);
+    });
+}
+
+// 滚动页面到指定位置（触发懒加载）
+function scrollPage(tabId, ratio) {
+    return new Promise((resolve) => {
+        chrome.scripting.executeScript({
+            target: { tabId },
+            func: (scrollRatio) => {
+                const scrollTo = scrollRatio * (document.body.scrollHeight || document.documentElement.scrollHeight);
+                window.scrollTo({ top: scrollTo, behavior: 'smooth' });
+            },
+            args: [ratio]
+        }, () => resolve());
+    });
+}
+
+// 获取页面文本内容长度
+function getPageTextLength(tabId) {
+    return new Promise((resolve) => {
+        chrome.scripting.executeScript({
+            target: { tabId },
+            func: () => {
+                const body = document.body;
+                if (!body) return 0;
+                const text = body.innerText || body.textContent || '';
+                return text.trim().length;
+            }
+        }, (results) => {
+            if (results && results[0] && typeof results[0].result === 'number') {
+                resolve(results[0].result);
+            } else {
+                resolve(0);
+            }
+        });
+    });
+}
+
+// 截图指定标签页
+// tabId: 可选，不传则取当前活动标签页
+async function captureCurrentTab(options = {}, tabId = null) {
     try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) {
+        let targetTab = null;
+        if (tabId) {
+            targetTab = await chrome.tabs.get(tabId);
+        } else {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            targetTab = tab;
+        }
+        if (!targetTab) {
             throw new Error('无法获取当前标签页');
         }
 
@@ -480,14 +625,15 @@ async function captureCurrentTab(options = {}) {
         // 合并配置和传入的选项
         const captureOptions = {
             fullPage: options.fullPage,
-            area: options.area || null
+            area: options.area || null,
+            tabId: targetTab.id
         };
 
         const imageData = await captureManager.captureTab(captureOptions);
 
         return {
-            url: tab.url,
-            title: tab.title,
+            url: targetTab.url,
+            title: targetTab.title,
             timestamp: new Date().toISOString(),
             imageData,
             format: imageFormat,
@@ -499,15 +645,23 @@ async function captureCurrentTab(options = {}) {
     }
 }
 
-// 提取当前标签页内容
-async function extractTabContent(options = {}) {
+// 提取指定标签页内容
+// tabId: 可选，不传则取当前活动标签页
+async function extractTabContent(options = {}, tabId = null) {
     try {
-        const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-        if (!tab) {
-            throw new Error('无法获取当前标签页');
+        let targetTabId = tabId;
+        if (!targetTabId) {
+            const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (!tab) {
+                throw new Error('无法获取当前标签页');
+            }
+            targetTabId = tab.id;
         }
 
-        const content = await contentExtractor.extractContent(tab.id, options);
+        const content = await contentExtractor.extractContent(targetTabId, options);
+
+        // 获取标签页最新信息
+        const tab = await chrome.tabs.get(targetTabId);
 
         return {
             url: tab.url,

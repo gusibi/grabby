@@ -1,0 +1,27 @@
+info:
+  name: register
+  type: http
+  seq: 1
+
+http:
+  method: post
+  url: http://localhost:5040/api/browsers/register
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: your_api_key
+  body:
+    type: json
+    data: |-
+      {
+        "connect_id": "browser-tools",
+        "name": "chrome-office"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

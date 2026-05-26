@@ -23,14 +23,29 @@
         
         <div class="form-group">
           <label for="serverUrl">WebSocket 服务器地址</label>
-          <input type="text" id="serverUrl" placeholder="例如: ws://localhost:8765">
+          <input type="text" id="serverUrl" placeholder="ws://localhost:5040/ws_browser">
         </div>
         
         <div class="form-group">
-          <label for="apiKey">API 密钥</label>
-          <input type="password" id="apiKey" placeholder="输入API密钥">
+          <label for="apiKey">API 密钥（可选）</label>
+          <input type="password" id="apiKey" placeholder="与服务器 API_KEY 一致，未配置可留空">
         </div>
-        
+
+        <div class="form-group">
+          <label for="browserName">浏览器名称</label>
+          <input type="text" id="browserName" placeholder="例如: chrome-office">
+          <small>用于在多浏览器环境中标识此浏览器实例</small>
+        </div>
+
+        <div class="form-group">
+          <label for="browserConnectId">浏览器连接标识</label>
+          <div class="input-with-button">
+            <input type="text" id="browserConnectId" placeholder="未设置，点击按钮生成" readonly>
+            <button id="generateConnectIdBtn" class="btn secondary" type="button">随机生成</button>
+          </div>
+          <small>用于服务端浏览器注册的唯一标识，生成后请妥善保存</small>
+        </div>
+
         <div class="form-group">
           <div class="checkbox-group">
             <input type="checkbox" id="autoConnect">
@@ -38,7 +53,7 @@
           </div>
         </div>
       </div>
-      
+
       <!-- 图片设置 -->
       <div class="form-section">
         <h2 class="section-title">

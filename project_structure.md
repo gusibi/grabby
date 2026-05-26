@@ -37,7 +37,25 @@ browser-tools-mcp/
 │       ├── icon16.png           # 16x16 图标
 │       ├── icon48.png           # 48x48 图标
 │       └── icon128.png          # 128x128 图标
-└── mcp-server/                 # Python 后端服务目录
+├── python-server/              # Python 后端服务目录
+│   ├── requirements.txt         # 依赖包列表
+│   ├── config.py                # 配置文件
+│   ├── main.py                  # 主服务器入口
+│   ├── mcp_protocol.py          # MCP 协议处理
+│   ├── websocket_manager.py     # WebSocket 管理
+│   ├── logger.py                # 日志模块
+│   ├── decorators.py            # 装饰器
+│   ├── handlers/                # 请求处理器
+│   │   ├── __init__.py         # 初始化文件
+│   │   ├── capture_handler.py   # 截图处理器
+│   │   └── extract_handler.py   # 内容提取处理器
+│   └── pyproject.toml           # 项目配置
+└── go-server/                  # Go 后端服务目录
+    ├── main.go                  # 主服务器入口
+    ├── websocket_manager.go     # WebSocket 管理
+    ├── config.go                # 配置文件
+    ├── logger.go                # 日志模块
+    └── types.go                 # 类型定义
     ├── requirements.txt         # 依赖包列表
     ├── config.py                # 配置文件
     ├── main.py                  # 主服务器入口

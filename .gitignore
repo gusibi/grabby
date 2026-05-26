@@ -23,9 +23,13 @@ wheels/
 *.manifest
 *.spec
 
+# Node
+node_modules/
+
 # Chrome Extension
 *.crx
 *.pem
+chrome-extension/icons/temp_svgs/
 
 # IDE
 .vscode/
@@ -55,6 +59,7 @@ Thumbs.db
 # Local development files
 local_settings.py
 local_config.json
+browser_registry.json
 
 # Screenshots and outputs
 /output/

@@ -1,0 +1,26 @@
+info:
+  name: extra
+  type: http
+  seq: 2
+
+http:
+  method: post
+  url: http://localhost:5040/api/extract
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: your_api_key
+  body:
+    type: json
+    data: |-
+      {
+        "url": "https://momo.eztoolab.com/guide/"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

@@ -2,8 +2,9 @@ class WebSocketManager {
     constructor() {
         this.socket = null;
         this.serverUrl = null;
-        this.apiKey = null; // 用作连接ID
-        this.connId = null; // 存储实际使用的连接ID (可能由服务器确认)
+        this.apiKey = null;
+        this.connId = null;
+        this.browserName = '';
         this.reconnectAttempts = 0;
         this.maxReconnectAttempts = 5;
         this.reconnectInterval = 3000; // 3秒
@@ -21,7 +22,7 @@ class WebSocketManager {
 
         // 监听配置变化
         chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName === 'sync' && (changes.serverUrl || changes.apiKey)) {
+            if (areaName === 'sync' && (changes.serverUrl || changes.apiKey || changes.browserName)) {
                 console.log('检测到配置更改，将重新加载并连接...');
                 this.updateConfig();
             }
@@ -33,9 +34,10 @@ class WebSocketManager {
      */
     loadConfig() {
         return new Promise((resolve) => { // 返回 Promise 以便知道加载完成
-            chrome.storage.sync.get(['serverUrl', 'apiKey'], (result) => {
+            chrome.storage.sync.get(['serverUrl', 'apiKey', 'browserName'], (result) => {
                 const oldServerUrl = this.serverUrl;
                 const oldApiKey = this.apiKey;
+                const oldBrowserName = this.browserName;
                 let configChanged = false;
 
                 if (result.serverUrl && result.serverUrl !== oldServerUrl) {
@@ -54,9 +56,20 @@ class WebSocketManager {
                     if (oldApiKey) configChanged = true;
                 }
 
-                console.log('配置已加载:', { serverUrl: this.serverUrl, apiKey: this.apiKey ? '***' : null });
+                this.browserName = (result.browserName || '').trim();
+                if (this.browserName !== oldBrowserName) {
+                    configChanged = true;
+                }
 
-                resolve(configChanged); // 解析 Promise，告知配置是否变化
+                const finish = (browserConnectId) => {
+                    this.connId = browserConnectId || null;
+                    console.log('配置已加载:', { serverUrl: this.serverUrl, apiKey: this.apiKey ? '***' : null, browserName: this.browserName, connId: this.connId });
+                    resolve(configChanged);
+                };
+
+                chrome.storage.local.get(['browserConnectId'], (localResult) => {
+                    finish(localResult.browserConnectId || null);
+                });
             });
         });
     }
@@ -74,7 +87,7 @@ class WebSocketManager {
         const changed = await this.loadConfig();
 
         // 如果配置有效且已更改或之前未连接，则尝试连接
-        if (this.serverUrl && this.apiKey) {
+        if (this.serverUrl && this.browserName) {
             console.log('配置有效，尝试连接...');
             this.connect();
         } else {
@@ -87,7 +100,7 @@ class WebSocketManager {
      * 建立WebSocket连接
      * 确保只创建一个WebSocket连接实例
      */
-    connect() {
+    async connect() {
         // 清除之前的连接超时计时器
         clearTimeout(this.connectTimeoutTimer);
         this.connectTimeoutTimer = null;
@@ -98,13 +111,19 @@ class WebSocketManager {
             return;
         }
 
+        await this.loadConfig();
+
         // 检查配置
         if (!this.serverUrl) {
             this.updateStatus('error', '未配置服务器地址');
             return;
         }
-        if (!this.apiKey) {
-            this.updateStatus('error', '未配置API密钥(连接ID)');
+        if (!this.browserName) {
+            this.updateStatus('error', '未配置浏览器名称');
+            return;
+        }
+        if (!this.connId) {
+            this.updateStatus('error', '未设置浏览器连接标识，请在扩展设置页面中点击"随机生成"按钮生成');
             return;
         }
 
@@ -133,15 +152,19 @@ class WebSocketManager {
             return;
         }
 
-        // 设置初始连接ID为apiKey
-        this.connId = this.apiKey;
         this.updateStatus('connecting');
         console.log(`尝试连接到: ${parsedUrl.origin}${parsedUrl.pathname}?conn_id=${this.connId}`);
 
         try {
-            // 创建WebSocket连接，将conn_id作为查询参数附加到URL
+            await this.registerBrowser();
+
+            // 创建WebSocket连接，将conn_id、name和api_key作为查询参数附加到URL
             const urlWithConnId = new URL(this.serverUrl);
             urlWithConnId.searchParams.append('conn_id', this.connId);
+            urlWithConnId.searchParams.append('name', this.browserName);
+            if (this.apiKey) {
+                urlWithConnId.searchParams.append('api_key', this.apiKey);
+            }
 
             this.socket = new WebSocket(urlWithConnId.toString());
 
@@ -172,6 +195,43 @@ class WebSocketManager {
     }
 
     /**
+     * 连接 WebSocket 前注册当前浏览器实例
+     */
+    async registerBrowser() {
+        const registerUrl = this.getRegisterUrl();
+        const headers = { 'Content-Type': 'application/json' };
+        if (this.apiKey) {
+            headers['X-API-Key'] = this.apiKey;
+        }
+
+        const response = await fetch(registerUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                connect_id: this.connId,
+                name: this.browserName
+            })
+        });
+
+        if (!response.ok) {
+            let errorText = await response.text();
+            try {
+                const data = JSON.parse(errorText);
+                errorText = data.detail || data.error || response.statusText;
+            } catch (_) {}
+            throw new Error(`浏览器注册失败: ${errorText}`);
+        }
+    }
+
+    getRegisterUrl() {
+        const url = new URL(this.serverUrl);
+        url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+        url.pathname = '/api/browsers/register';
+        url.search = '';
+        return url.toString();
+    }
+
+    /**
      * 处理WebSocket连接成功事件
      */
     handleOpen(event) {
@@ -188,8 +248,8 @@ class WebSocketManager {
         if (this.apiKey) {
             this.sendMessage({
                 type: 'auth',
-                apiKey: this.apiKey,
-                conn_id: this.connId // 再次确认连接ID
+                conn_id: this.connId,
+                name: this.browserName
             });
             console.log('已发送认证消息');
         }
@@ -525,7 +585,8 @@ class WebSocketManager {
             errorMessage: this.errorMessage,
             connected: this.connectionStatus === 'connected',
             serverUrl: this.serverUrl,
-            connId: this.connId
+            connId: this.connId,
+            browserName: this.browserName
         };
 
         console.log('WebSocket 状态更新:', statusObj);
@@ -572,6 +633,7 @@ class WebSocketManager {
             serverUrl: this.serverUrl,
             connId: this.connId,
             apiKey: this.apiKey ? '***' : null, // 不直接暴露 key
+            browserName: this.browserName,
             errorMessage: this.errorMessage
         };
     }

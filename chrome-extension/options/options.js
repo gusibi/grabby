@@ -6,6 +6,7 @@
 // DOM 元素
 const serverUrlInput = document.getElementById('serverUrl');
 const apiKeyInput = document.getElementById('apiKey');
+const browserNameInput = document.getElementById('browserName');
 const autoConnectCheckbox = document.getElementById('autoConnect');
 const fullPageCapture = document.getElementById('fullPageCapture');
 const imageFormatSelect = document.getElementById('imageFormat');
@@ -17,6 +18,8 @@ const saveBtn = document.getElementById('saveBtn');
 const resetBtn = document.getElementById('resetBtn');
 const saveNotification = document.getElementById('saveNotification');
 const manageRulesBtn = document.getElementById('manageRulesBtn');
+const browserConnectIdInput = document.getElementById('browserConnectId');
+const generateConnectIdBtn = document.getElementById('generateConnectIdBtn');
 
 // 规则管理对话框元素
 const rulesDialog = document.getElementById('rulesDialog');
@@ -55,6 +58,7 @@ function loadSettings() {
     chrome.storage.sync.get([
         'serverUrl',
         'apiKey',
+        'browserName',
         'autoConnect',
         'imageFormat',
         'imageQuality',
@@ -62,11 +66,14 @@ function loadSettings() {
         'extractLinks',
         'fullPageCapture'
     ], (result) => {
-        // 设置服务器URL - 无论是否为空字符串都设置值
-        serverUrlInput.value = result.serverUrl || '';
+        // 设置服务器URL
+        serverUrlInput.value = result.serverUrl || 'ws://localhost:5040/ws_browser';
 
-        // 设置API密钥 - 无论是否为空字符串都设置值
+        // 设置API密钥
         apiKeyInput.value = result.apiKey || '';
+
+        // 设置浏览器名称
+        browserNameInput.value = result.browserName || '';
 
         // 设置自动连接
         autoConnectCheckbox.checked = result.autoConnect === true;
@@ -87,7 +94,14 @@ function loadSettings() {
         extractLinksCheckbox.checked = result.extractLinks !== false;
 
         // 设置全屏截图选项
-        fullPageCapture.checked = result.fullPageCapture !== false;
+        if (fullPageCapture) {
+            fullPageCapture.checked = result.fullPageCapture !== false;
+        }
+    });
+
+    // 从 local storage 加载浏览器连接标识（独立于 sync storage）
+    chrome.storage.local.get(['browserConnectId'], (localResult) => {
+        browserConnectIdInput.value = localResult.browserConnectId || '';
     });
 }
 
@@ -121,6 +135,11 @@ function setupEventListeners() {
 
     // 取消规则按钮
     cancelRuleBtn.addEventListener('click', hideRuleForm);
+
+    // 随机生成浏览器连接标识
+    generateConnectIdBtn.addEventListener('click', () => {
+        browserConnectIdInput.value = crypto.randomUUID();
+    });
 }
 
 // 更新质量值显示
@@ -148,17 +167,18 @@ async function saveSettings() {
                     imageQuality: parseInt(imageQualityInput.value),
                     extractImages: extractImagesCheckbox.checked,
                     extractLinks: extractLinksCheckbox.checked,
-                    fullPageCapture: fullPageCapture.checked
+                    fullPageCapture: fullPageCapture ? fullPageCapture.checked : true
                 })
             chrome.storage.sync.set({
                 serverUrl: serverUrlInput.value, // 即使为空字符串也会保存
                 apiKey: apiKeyInput.value, // 即使为空字符串也会保存
+                browserName: browserNameInput.value,
                 autoConnect: autoConnectCheckbox.checked,
                 imageFormat: imageFormatSelect.value,
                 imageQuality: parseInt(imageQualityInput.value),
                 extractImages: extractImagesCheckbox.checked,
                 extractLinks: extractLinksCheckbox.checked,
-                fullPageCapture: fullPageCapture.checked
+                fullPageCapture: fullPageCapture ? fullPageCapture.checked : true
             }, () => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
@@ -166,6 +186,13 @@ async function saveSettings() {
                     resolve();
                 }
             });
+        });
+
+        // 同时保存浏览器连接标识到 local storage
+        await new Promise((resolve) => {
+            chrome.storage.local.set({
+                browserConnectId: browserConnectIdInput.value.trim()
+            }, resolve);
         });
 
         // 通知后台脚本设置已更新
@@ -188,9 +215,11 @@ function resetSettings() {
     // 重置输入字段
     serverUrlInput.value = '';
     apiKeyInput.value = '';
+    browserNameInput.value = '';
     autoConnectCheckbox.checked = false;
     imageFormatSelect.value = 'png';
     imageQualityInput.value = 90;
+    browserConnectIdInput.value = '';
 
     extractImagesCheckbox.checked = true;
     extractLinksCheckbox.checked = true;

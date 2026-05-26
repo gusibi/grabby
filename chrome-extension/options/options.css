@@ -143,6 +143,20 @@ input[type="range"]::-webkit-slider-thumb {
     color: var(--primary-color);
 }
 
+.input-with-button {
+    display: flex;
+    gap: 8px;
+}
+
+.input-with-button input {
+    flex: 1;
+}
+
+.input-with-button .btn {
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
 .checkbox-group {
     display: flex;
     align-items: center;
