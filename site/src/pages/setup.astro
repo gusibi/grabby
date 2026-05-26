@@ -1,0 +1,194 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout page="setup">
+  <main class="pt-32 pb-24">
+    <div class="max-w-3xl mx-auto px-8">
+      <!-- Header -->
+      <div class="mb-16 fade-in">
+        <span class="inline-block font-mono text-xs uppercase tracking-[0.15em] text-accent mb-4 px-3 py-1.5 bg-accent/10 rounded">Setup Guide</span>
+        <h1 class="font-mono font-semibold text-4xl sm:text-5xl mb-4">使用指南</h1>
+        <p class="text-lg text-mute dark:text-[#888]">从安装到运行，完整的 Grabby 配置流程。</p>
+      </div>
+
+      <!-- Quick Start -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">前置要求</h2>
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <ul class="space-y-3 text-mute dark:text-[#888]">
+            <li class="flex items-start gap-3">
+              <span class="text-accent mt-0.5">-</span>
+              <span><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Chrome 浏览器</strong>（或基于 Chromium 的浏览器）</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="text-accent mt-0.5">-</span>
+              <span><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Node.js</strong> — 用于构建浏览器扩展</span>
+            </li>
+            <li class="flex items-start gap-3">
+              <span class="text-accent mt-0.5">-</span>
+              <span><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Python 3.13+</strong> 或 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Go 1.23+</strong> — 后端运行环境（二选一）</span>
+            </li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- Step 1: Clone -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">1. 克隆项目</h2>
+        <pre><code>git clone https://github.com/gusibi/grabby.git
+cd grabby</code></pre>
+      </section>
+
+      <!-- Step 2: Chrome Extension -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">2. 安装浏览器扩展</h2>
+
+        <div class="space-y-6">
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3">方式一：Chrome 网上应用店（推荐）</h3>
+            <p class="text-mute dark:text-[#888] mb-4">一键安装，自动更新。</p>
+            <a
+              href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+              class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-lg font-mono text-sm font-semibold hover:bg-accent-hover transition-all"
+              target="_blank" rel="noopener"
+            >
+              安装 Grabby 扩展
+            </a>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3">方式二：开发模式加载</h3>
+            <p class="text-mute dark:text-[#888] mb-3">如果你需要修改源码或进行开发调试：</p>
+            <ol class="list-decimal list-inside space-y-2 text-mute dark:text-[#888]">
+              <li>打开 Chrome，访问 <code>chrome://extensions</code></li>
+              <li>开启右上角 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">"开发者模式"</strong></li>
+              <li>点击 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">"加载已解压的扩展程序"</strong></li>
+              <li>选择项目中的 <code>chrome-extension/</code> 目录</li>
+            </ol>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 3: Backend Server -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">3. 安装后端服务</h2>
+
+        <div class="space-y-6">
+          <!-- Python -->
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3">Python 后端（推荐新手）</h3>
+            <p class="text-mute dark:text-[#888] mb-4">使用 uv 包管理器一键运行：</p>
+            <pre><code>cd python-server
+cp .env.example .env
+uv run python main.py</code></pre>
+            <p class="text-sm text-mute dark:text-[#888] mt-3">服务默认监听 <code>http://localhost:5040</code></p>
+          </div>
+
+          <!-- Go -->
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3">Go 后端（推荐资源受限环境）</h3>
+            <pre><code>cd go-server
+cp .env.example .env
+go build -o go-server .
+./go-server</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Step 4: Configuration -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">4. 配置扩展</h2>
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <ol class="list-decimal list-inside space-y-3 text-mute dark:text-[#888]">
+            <li>点击 Chrome 工具栏的 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Grabby 图标</strong></li>
+            <li>选择 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">选项 / Options</strong></li>
+            <li>配置以下参数：
+              <ul class="list-disc list-inside ml-6 mt-2 space-y-2">
+                <li><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">WebSocket 地址</strong>：<code>ws://localhost:5040/ws_browser?conn_id=browser-tools</code></li>
+                <li><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">API Key</strong>：与服务器 <code>.env</code> 中的 <code>API_KEY</code> 一致（未配置则留空）</li>
+              </ul>
+            </li>
+            <li>看到 <strong class="text-[#059669]">"连接状态：已连接"</strong> 即表示成功</li>
+          </ol>
+        </div>
+      </section>
+
+      <!-- Step 5: Verify -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">5. 验证安装</h2>
+        <div class="space-y-4">
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-sm mb-3 text-accent">健康检查</h3>
+            <pre><code>curl http://localhost:5040/api/health
+
+# 预期响应
+{"status":"ok","browser_connected":true,"timestamp":"..."}</code></pre>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-sm mb-3 text-accent">测试提取</h3>
+            <pre><code>curl -X POST http://localhost:5040/api/extract \
+  -H "Content-Type: application/json" \
+  -d '{"url": "https://example.com"}'
+
+# 预期响应
+{"success":true,"url":"https://example.com","title":"Example Domain","markdown":"# Example Domain\n\n..."}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- MCP Config -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">6. 配置 Claude Desktop</h2>
+        <p class="text-mute dark:text-[#888] mb-4">在 Claude Desktop 的配置文件中添加 Grabby MCP Server：</p>
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <pre><code>{
+  "mcpServers": {
+    "grabby": {
+      "url": "http://localhost:5040/mcp/sse"
+    }
+  }
+}</code></pre>
+        </div>
+        <p class="text-sm text-mute dark:text-[#888] mt-3">
+          配置文件位置：<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS)
+        </p>
+      </section>
+
+      <!-- Troubleshooting -->
+      <section class="fade-in">
+        <h2 class="font-mono font-semibold text-2xl mb-4">常见问题</h2>
+        <div class="space-y-4">
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold mb-2">扩展无法连接服务器</h3>
+            <ol class="list-decimal list-inside space-y-1 text-mute dark:text-[#888] text-sm">
+              <li>确认后端服务已启动</li>
+              <li>检查 WebSocket 地址和端口是否正确</li>
+              <li>确认 API 密钥与服务器 <code>.env</code> 中的配置一致</li>
+              <li>检查防火墙是否放行端口</li>
+            </ol>
+          </div>
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold mb-2">Python 依赖安装失败</h3>
+            <p class="text-mute dark:text-[#888] text-sm">推荐使用 <code>uv</code> 替代 <code>pip</code>，uv 会自动创建虚拟环境并解析依赖。</p>
+          </div>
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold mb-2">Go 编译失败</h3>
+            <p class="text-mute dark:text-[#888] text-sm">确保 Go 版本 &gt;= 1.23。如果模块下载失败，设置代理：<code>go env -w GOPROXY=https://goproxy.cn,direct</code></p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "Article",
+      "headline": "Grabby Setup Guide",
+      "description": "Complete installation and configuration guide for Grabby — Chrome extension, backend server, and MCP integration.",
+      "author": { "@type": "Person", "name": "gusibi" }
+    }
+  </script>
+</BaseLayout>

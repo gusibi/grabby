@@ -1,0 +1,377 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout page="api">
+  <main class="pt-32 pb-24">
+    <div class="max-w-3xl mx-auto px-8">
+      <!-- Header -->
+      <div class="mb-16 fade-in">
+        <span class="inline-block font-mono text-xs uppercase tracking-[0.15em] text-accent mb-4 px-3 py-1.5 bg-accent/10 rounded">API Reference</span>
+        <h1 class="font-mono font-semibold text-4xl sm:text-5xl mb-4">API 参考</h1>
+        <p class="text-lg text-mute dark:text-[#888]">Grabby 提供 HTTP REST API、MCP 工具和 WebSocket 协议三套接口。</p>
+      </div>
+
+      <!-- TOC -->
+      <nav class="fade-in mb-16 p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+        <h2 class="font-mono font-semibold text-sm mb-4 text-accent uppercase tracking-wider">目录</h2>
+        <ul class="space-y-2 font-mono text-sm text-mute dark:text-[#888]">
+          <li><a href="#basics" class="hover:text-accent transition-colors">基础信息</a></li>
+          <li><a href="#http-extract" class="hover:text-accent transition-colors">POST /api/extract</a></li>
+          <li><a href="#http-health" class="hover:text-accent transition-colors">GET /api/health</a></li>
+          <li><a href="#http-browsers" class="hover:text-accent transition-colors">GET /api/browsers</a></li>
+          <li><a href="#http-register" class="hover:text-accent transition-colors">POST /api/browsers/register</a></li>
+          <li><a href="#mcp" class="hover:text-accent transition-colors">MCP 工具</a></li>
+          <li><a href="#websocket" class="hover:text-accent transition-colors">WebSocket 协议</a></li>
+          <li><a href="#errors" class="hover:text-accent transition-colors">错误码</a></li>
+        </ul>
+      </nav>
+
+      <!-- Basics -->
+      <section id="basics" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4">基础信息</h2>
+        <div class="overflow-x-auto">
+          <table class="w-full font-mono text-sm border-collapse">
+            <tbody>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="py-3 pr-6 text-mute">基础 URL</td>
+                <td><code>http://{HOST}:{PORT}</code></td>
+              </tr>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="py-3 pr-6 text-mute">默认地址</td>
+                <td><code>http://localhost:5040</code></td>
+              </tr>
+              <tr>
+                <td class="py-3 pr-6 text-mute">内容类型</td>
+                <td><code>application/json</code></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="font-mono font-semibold text-lg mt-8 mb-3">认证</h3>
+        <p class="text-mute dark:text-[#888] mb-4">
+          当后端配置了 <code>API_KEY</code> 时，所有请求需在 header 中携带 <code>X-API-Key</code>。<code>API_KEY</code> 留空时关闭认证。
+        </p>
+        <pre><code>X-API-Key: your_api_key</code></pre>
+      </section>
+
+      <!-- HTTP API -->
+      <section id="http-extract" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">
+          <span class="inline-block px-3 py-1 bg-[#059669]/10 text-[#059669] rounded text-xs mr-3 align-middle">POST</span>
+          /api/extract
+        </h2>
+        <p class="text-mute dark:text-[#888] mb-6">提取指定 URL 的网页内容并返回 Markdown。</p>
+
+        <h3 class="font-mono font-semibold text-sm mb-3 text-accent">请求示例</h3>
+        <pre><code>curl -X POST http://localhost:5040/api/extract \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{"url": "https://example.com"}'</code></pre>
+
+        <h3 class="font-mono font-semibold text-sm mt-6 mb-3 text-accent">请求参数</h3>
+        <div class="overflow-x-auto mb-6">
+          <table class="w-full font-mono text-sm border-collapse">
+            <thead>
+              <tr class="text-xs uppercase tracking-[0.1em] text-mute dark:text-[#888]">
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">字段</th>
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">类型</th>
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">必填</th>
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">说明</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="p-3"><code>url</code></td>
+                <td class="p-3 text-mute">string</td>
+                <td class="p-3 text-[#059669]">是</td>
+                <td class="p-3 text-mute">要提取的网页 URL</td>
+              </tr>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="p-3"><code>browser</code></td>
+                <td class="p-3 text-mute">string</td>
+                <td class="p-3">否</td>
+                <td class="p-3 text-mute">指定浏览器名称（为空时使用默认浏览器）</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="font-mono font-semibold text-sm mb-3 text-accent">成功响应 (200)</h3>
+        <pre><code>{
+  "success": true,
+  "url": "https://example.com",
+  "title": "Example Domain",
+  "markdown": "# Example Domain\n\nThis domain is for use..."
+}</code></pre>
+
+        <h3 class="font-mono font-semibold text-sm mt-6 mb-3 text-accent">错误响应</h3>
+        <div class="space-y-3">
+          <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <span class="font-mono text-xs text-[#dc2626]">503 Service Unavailable</span>
+            <pre class="mt-2 !p-3"><code>{"error": "Browser extension not connected"}</code></pre>
+          </div>
+          <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <span class="font-mono text-xs text-[#dc2626]">504 Gateway Timeout</span>
+            <pre class="mt-2 !p-3"><code>{"error": "Extract timeout or connection lost"}</code></pre>
+          </div>
+        </div>
+      </section>
+
+      <!-- Health -->
+      <section id="http-health" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">
+          <span class="inline-block px-3 py-1 bg-[#0284c7]/10 text-[#0284c7] rounded text-xs mr-3 align-middle">GET</span>
+          /api/health
+        </h2>
+        <p class="text-mute dark:text-[#888] mb-6">健康检查端点。</p>
+        <pre><code>curl http://localhost:5040/api/health
+
+# 响应
+{
+  "status": "ok",
+  "browser_connected": true,
+  "timestamp": "2026-05-27T12:00:00Z"
+}</code></pre>
+      </section>
+
+      <!-- Browsers -->
+      <section id="http-browsers" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">
+          <span class="inline-block px-3 py-1 bg-[#0284c7]/10 text-[#0284c7] rounded text-xs mr-3 align-middle">GET</span>
+          /api/browsers
+        </h2>
+        <p class="text-mute dark:text-[#888] mb-6">获取当前已连接的浏览器列表。</p>
+        <pre><code>{
+  "browsers": [
+    {"conn_id": "ws_browser:browser-tools", "name": "chrome-home"},
+    {"conn_id": "ws_browser:browser-tools", "name": "chrome-office"}
+  ],
+  "count": 2
+}</code></pre>
+      </section>
+
+      <!-- Register -->
+      <section id="http-register" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">
+          <span class="inline-block px-3 py-1 bg-[#059669]/10 text-[#059669] rounded text-xs mr-3 align-middle">POST</span>
+          /api/browsers/register
+        </h2>
+        <p class="text-mute dark:text-[#888] mb-6">注册一个新的浏览器实例。浏览器在通过 WebSocket 连接之前需要先注册。</p>
+        <pre><code>curl -X POST http://localhost:5040/api/browsers/register \
+  -H "Content-Type: application/json" \
+  -H "X-API-Key: your_api_key" \
+  -d '{"connect_id": "browser-tools", "name": "chrome-office"}'
+
+# 响应
+{
+  "success": true,
+  "browser": {
+    "connect_id": "browser-tools",
+    "name": "chrome-office"
+  }
+}</code></pre>
+      </section>
+
+      <!-- MCP Tools -->
+      <section id="mcp" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">MCP 工具</h2>
+        <p class="text-mute dark:text-[#888] mb-6">
+          MCP Server 挂载在 <code>http://localhost:5040/mcp</code>，使用 SSE 传输。可被 Claude Desktop、Cursor 等 AI Agent 直接调用。
+        </p>
+
+        <!-- extract -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222] mb-6">
+          <h3 class="font-mono font-semibold text-lg mb-4">
+            <span class="text-accent">tool:</span> extract
+          </h3>
+          <p class="text-mute dark:text-[#888] mb-4">提取指定网页的内容并返回 Markdown。</p>
+
+          <h4 class="font-mono font-semibold text-sm mb-2 text-accent">参数</h4>
+          <div class="overflow-x-auto mb-4">
+            <table class="w-full font-mono text-sm border-collapse">
+              <thead>
+                <tr class="text-xs uppercase tracking-[0.1em] text-mute dark:text-[#888]">
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">参数</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">类型</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">必填</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="p-3"><code>url</code></td>
+                  <td class="p-3 text-mute">string</td>
+                  <td class="p-3 text-[#059669]">是</td>
+                  <td class="p-3 text-mute">要提取的网页 URL</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="p-3"><code>browser</code></td>
+                  <td class="p-3 text-mute">string</td>
+                  <td class="p-3">否</td>
+                  <td class="p-3 text-mute">指定浏览器名称</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="font-mono font-semibold text-sm mb-2 text-accent">返回</h4>
+          <p class="text-mute dark:text-[#888]">Markdown 格式的网页内容。</p>
+        </div>
+
+        <!-- screenshot -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222] mb-6">
+          <h3 class="font-mono font-semibold text-lg mb-4">
+            <span class="text-accent">tool:</span> screenshot
+          </h3>
+          <p class="text-mute dark:text-[#888] mb-4">捕获指定网页的截图。</p>
+
+          <h4 class="font-mono font-semibold text-sm mb-2 text-accent">参数</h4>
+          <div class="overflow-x-auto mb-4">
+            <table class="w-full font-mono text-sm border-collapse">
+              <thead>
+                <tr class="text-xs uppercase tracking-[0.1em] text-mute dark:text-[#888]">
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">参数</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">类型</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">必填</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">默认</th>
+                  <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="p-3"><code>url</code></td>
+                  <td class="p-3 text-mute">string</td>
+                  <td class="p-3 text-[#059669]">是</td>
+                  <td class="p-3">—</td>
+                  <td class="p-3 text-mute">要截图的网页 URL</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="p-3"><code>fullPage</code></td>
+                  <td class="p-3 text-mute">boolean</td>
+                  <td class="p-3">否</td>
+                  <td class="p-3"><code>false</code></td>
+                  <td class="p-3 text-mute">是否截取整个页面</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h4 class="font-mono font-semibold text-sm mb-2 text-accent">返回</h4>
+          <p class="text-mute dark:text-[#888]">Base64 编码的 PNG 图片数据。</p>
+        </div>
+
+        <!-- other tools -->
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <h3 class="font-mono font-semibold text-lg mb-4">其他工具</h3>
+          <div class="space-y-3 text-mute dark:text-[#888] text-sm">
+            <div class="flex items-start gap-3">
+              <code class="shrink-0">add(a, b)</code>
+              <span>计算两个数字的和，返回结果。</span>
+            </div>
+            <div class="flex items-start gap-3">
+              <code class="shrink-0">get_server_time()</code>
+              <span>获取服务器当前时间，返回 ISO 8601 格式时间字符串。</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- WebSocket -->
+      <section id="websocket" class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-6">WebSocket 协议</h2>
+
+        <h3 class="font-mono font-semibold text-lg mb-3 text-accent">连接端点</h3>
+        <div class="overflow-x-auto mb-6">
+          <table class="w-full font-mono text-sm border-collapse">
+            <thead>
+              <tr class="text-xs uppercase tracking-[0.1em] text-mute dark:text-[#888]">
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">端点</th>
+                <th class="text-left p-3 border-b border-bord dark:border-[#222] font-medium">用途</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="p-3"><code>ws://{host}:{port}/ws_browser?conn_id={ID}</code></td>
+                <td class="p-3 text-mute">浏览器扩展连接</td>
+              </tr>
+              <tr class="border-b border-bord dark:border-[#222]">
+                <td class="p-3"><code>ws://{host}:{port}/ws_command?conn_id={ID}</code></td>
+                <td class="p-3 text-mute">命令客户端连接</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <h3 class="font-mono font-semibold text-lg mb-3 text-accent">消息格式</h3>
+        <p class="text-mute dark:text-[#888] mb-3">服务端发送给浏览器的请求消息：</p>
+        <pre class="mb-6"><code>{
+  "source": "mcp_client",
+  "action": "mcp_request",
+  "command": "extract",
+  "url": "https://example.com",
+  "fullPage": false,
+  "message_id": "msg-xxx"
+}</code></pre>
+
+        <p class="text-mute dark:text-[#888] mb-3">浏览器返回的响应消息：</p>
+        <pre><code>{
+  "type": "response",
+  "message_id": "msg-xxx",
+  "command": "extract",
+  "success": true,
+  "result": {
+    "url": "https://example.com",
+    "title": "Example Domain",
+    "content": {
+      "content": "# Markdown content...",
+      "wordCount": 42
+    }
+  }
+}</code></pre>
+      </section>
+
+      <!-- Error Codes -->
+      <section id="errors" class="fade-in">
+        <h2 class="font-mono font-semibold text-2xl mb-6">错误码</h2>
+        <div class="grid sm:grid-cols-2 gap-4">
+          <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-sm mb-3 text-accent">HTTP 状态码</h3>
+            <table class="w-full font-mono text-sm">
+              <tbody>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>200</code></td><td class="py-2 text-mute">请求成功</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>400</code></td><td class="py-2 text-mute">请求参数错误</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>401</code></td><td class="py-2 text-mute">API Key 校验失败</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>403</code></td><td class="py-2 text-mute">connect_id 验证失败</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>502</code></td><td class="py-2 text-mute">浏览器扩展执行错误</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>503</code></td><td class="py-2 text-mute">浏览器扩展未连接</td></tr>
+                <tr><td class="py-2 pr-4"><code>504</code></td><td class="py-2 text-mute">请求超时</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-sm mb-3 text-accent">WebSocket 关闭码</h3>
+            <table class="w-full font-mono text-sm">
+              <tbody>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>1000</code></td><td class="py-2 text-mute">正常关闭</td></tr>
+                <tr class="border-b border-bord dark:border-[#222]"><td class="py-2 pr-4"><code>1002</code></td><td class="py-2 text-mute">API Key 校验失败</td></tr>
+                <tr><td class="py-2 pr-4"><code>4001</code></td><td class="py-2 text-mute">connect_id 验证失败</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "TechArticle",
+      "headline": "Grabby API Reference",
+      "description": "Complete API reference for Grabby — HTTP REST endpoints, MCP tools, WebSocket protocol, and error codes.",
+      "author": { "@type": "Person", "name": "gusibi" }
+    }
+  </script>
+</BaseLayout>

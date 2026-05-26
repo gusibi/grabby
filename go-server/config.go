@@ -16,7 +16,6 @@ type Settings struct {
 	Host             string
 	Port             int
 	ConnectID        string
-	APIKey           string
 	Debug            bool
 	WebsocketTimeout float64
 	APIExtractTimeout float64
@@ -44,7 +43,6 @@ func loadSettings() *Settings {
 		Host:              getEnv("HOST", "0.0.0.0"),
 		Port:              getEnvInt("PORT", 5040),
 		ConnectID:         getEnv("CONNECT_ID", "browser-tools"),
-		APIKey:            getEnv("API_KEY", ""),
 		Debug:             getEnvBool("DEBUG", false),
 		WebsocketTimeout:  getEnvFloat("WEBSOCKET_TIMEOUT", 5.0),
 		APIExtractTimeout: getEnvFloat("API_EXTRACT_TIMEOUT", 60.0),

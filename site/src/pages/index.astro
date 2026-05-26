@@ -1,0 +1,306 @@
+---
+import BaseLayout from '../layouts/BaseLayout.astro';
+---
+
+<BaseLayout page="home">
+  <main>
+    <!-- Hero -->
+    <section class="pt-40 pb-24 relative overflow-hidden">
+      <div class="absolute inset-0 pointer-events-none">
+        <div
+          class="absolute -top-1/2 -left-[20%] w-[140%] h-[200%] bg-[radial-gradient(ellipse_at_30%_20%,rgba(99,102,241,0.12)_0%,transparent_50%),radial-gradient(ellipse_at_70%_80%,rgba(129,140,248,0.06)_0%,transparent_50%)]"
+        ></div>
+      </div>
+      <div class="max-w-7xl mx-auto px-8 relative z-10">
+        <div class="grid lg:grid-cols-2 gap-16 items-center">
+          <div>
+            <div
+              class="inline-flex items-center gap-2 px-4 py-1.5 bg-white dark:bg-[#161616] border border-bord dark:border-[#2a2a2a] rounded-full font-mono text-xs text-accent mb-6"
+            >
+              <span class="w-1.5 h-1.5 bg-accent rounded-full animate-pulse"></span>
+              <span>v1.0.0 — Chrome Extension + MCP Server</span>
+            </div>
+            <h1
+              class="font-mono font-semibold text-5xl sm:text-6xl lg:text-7xl leading-none tracking-tight mb-6"
+            >
+              URL<br />
+              <span class="text-accent">to Markdown</span><br />
+              <span class="text-mute dark:text-[#888]">in seconds.</span>
+            </h1>
+            <p
+              class="text-lg text-mute dark:text-[#888] max-w-xl mb-10 leading-relaxed"
+            >
+              Grabby 通过真实 Chrome 浏览器将任意网页转换为干净的 Markdown。支持 JavaScript 渲染、需要登录的页面、全页截图、AI Agent MCP 协议集成。
+            </p>
+            <div class="flex gap-4 flex-wrap">
+              <a
+                href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+                class="inline-flex items-center gap-2 px-8 py-3.5 bg-accent text-white rounded-lg font-mono font-semibold hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(99,102,241,0.25)] transition-all"
+                target="_blank" rel="noopener"
+              >
+                <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                  <polyline points="7 10 12 15 17 10" />
+                  <line x1="12" y1="15" x2="12" y2="3" />
+                </svg>
+                安装扩展
+              </a>
+              <a
+                href="/setup"
+                class="inline-flex items-center gap-2 px-8 py-3.5 bg-white dark:bg-[#161616] border border-bord dark:border-[#2a2a2a] rounded-lg font-mono font-semibold hover:border-accent hover:-translate-y-0.5 transition-all"
+              >
+                使用指南 →
+              </a>
+            </div>
+          </div>
+          <div
+            class="rounded-2xl overflow-hidden border border-bord dark:border-[#2a2a2a] bg-white dark:bg-[#161616] shadow-sm"
+          >
+            <div class="p-6 font-mono text-sm">
+              <div class="flex items-center gap-2 mb-4 pb-4 border-b border-bord dark:border-[#222]">
+                <span class="text-accent">POST</span>
+                <span class="text-mute">/api/extract</span>
+              </div>
+              <div class="space-y-1 text-mute dark:text-[#888]">
+                <div><span class="text-accent">{</span></div>
+                <div class="pl-4"><span class="text-[#059669]">"url"</span>: <span class="text-[#d4a853]">"https://example.com"</span>,</div>
+                <div class="pl-4"><span class="text-[#059669]">"browser"</span>: <span class="text-[#d4a853]">"chrome"</span></div>
+                <div><span class="text-accent">}</span></div>
+              </div>
+              <div class="mt-4 flex items-center gap-2">
+                <span class="text-[#059669]">→ 200 OK</span>
+              </div>
+              <div class="mt-2 space-y-1 text-mute dark:text-[#888]">
+                <div><span class="text-accent">{</span></div>
+                <div class="pl-4"><span class="text-[#059669]">"success"</span>: <span class="text-[#4F46E5]">true</span>,</div>
+                <div class="pl-4"><span class="text-[#059669]">"title"</span>: <span class="text-[#d4a853]">"Example Domain"</span>,</div>
+                <div class="pl-4"><span class="text-[#059669]">"markdown"</span>: <span class="text-[#d4a853]">"# Example Domain</span></div>
+                <div class="pl-8 text-[#d4a853]">This domain is for use..."</div>
+                <div><span class="text-accent">}</span></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Features -->
+    <section id="features" class="py-24">
+      <div class="max-w-7xl mx-auto px-8">
+        <div class="text-center mb-16 fade-in">
+          <span
+            class="inline-block font-mono text-xs uppercase tracking-[0.15em] text-accent mb-4 px-3 py-1.5 bg-accent/10 rounded"
+          >Features</span
+          >
+          <h2 class="font-mono font-semibold text-3xl sm:text-4xl mb-4">
+            为什么选择 Grabby
+          </h2>
+          <p class="text-mute dark:text-[#888] max-w-xl mx-auto">
+            与简单的 HTTP 请求不同，Grabby 使用真实浏览器渲染页面，无惧 JS 动态内容和登录墙。
+          </p>
+        </div>
+
+        <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <!-- Feature 1: Real Browser -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">真实浏览器渲染</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              在 Chrome 中实际加载页面，JS 渲染、SPA 应用、懒加载内容全都能拿到。不是简单的 HTTP 抓取。
+            </p>
+          </div>
+
+          <!-- Feature 2: Smart Content Extraction -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">智能内容解析</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              基于 defuddle 引擎自动识别文章主内容区域，过滤广告和导航，输出干净的 Markdown，支持代码块、表格、数学公式。
+            </p>
+          </div>
+
+          <!-- Feature 3: Screenshots -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">全页截图</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              支持可见区域、完整滚动页面、指定区域截图。输出 Base64 PNG，直接可用。
+            </p>
+          </div>
+
+          <!-- Feature 4: MCP Protocol -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">AI Agent 集成</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              原生 MCP 协议支持。Claude、Cursor 等 AI 工具可直接调用 <code>extract</code> 和 <code>screenshot</code> 工具获取网页内容。
+            </p>
+          </div>
+
+          <!-- Feature 5: Session Sharing -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><polyline points="17 11 19 13 23 9" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">复用浏览器登录态</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              扩展使用你浏览器的 Cookie 和 Session，需要登录的页面直接就能抓。无需配置 Cookie。
+            </p>
+          </div>
+
+          <!-- Feature 6: Dual Backend -->
+          <div
+            class="feature-card fade-in rounded-2xl p-8 bg-white dark:bg-[#161616] border border-bord dark:border-[#222] relative overflow-hidden hover:-translate-y-1 hover:border-bord dark:hover:border-[#2a2a2a] hover:shadow-[0_4px_24px_rgba(0,0,0,0.06)] dark:hover:shadow-[0_20px_60px_rgba(0,0,0,0.3)] transition-all duration-300 before:absolute before:top-0 before:inset-x-0 before:h-0.5 before:bg-gradient-to-r before:from-accent before:to-accent-light before:opacity-0 hover:before:opacity-100 before:transition-opacity"
+          >
+            <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
+              <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+              </svg>
+            </div>
+            <h3 class="font-mono font-semibold text-lg mb-3">双后端选择</h3>
+            <p class="text-sm text-mute dark:text-[#888] leading-relaxed">
+              提供 Python (FastAPI) 和 Go 两种后端实现。Python 适合快速上手，Go 适合资源受限和高并发场景。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- How it Works -->
+    <section id="how-it-works" class="py-24 bg-surf-elevated dark:bg-[#111] border-y border-bord dark:border-[#222]">
+      <div class="max-w-3xl mx-auto px-8">
+        <div class="text-center mb-16 fade-in">
+          <span
+            class="inline-block font-mono text-xs uppercase tracking-[0.15em] text-accent mb-4 px-3 py-1.5 bg-accent/10 rounded"
+          >Workflow</span
+          >
+          <h2 class="font-mono font-semibold text-3xl sm:text-4xl">
+            三步搞定
+          </h2>
+        </div>
+        <div
+          class="grid sm:grid-cols-3 gap-8 relative before:absolute before:top-12 before:left-[15%] before:right-[15%] before:h-px before:bg-gradient-to-r before:from-transparent before:via-accent before:to-accent-light before:opacity-30 max-sm:before:hidden fade-in"
+        >
+          <div class="text-center relative z-10">
+            <span
+              class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
+              >01</span
+            >
+            <h3 class="font-mono font-semibold text-lg mb-3">安装扩展</h3>
+            <p class="text-sm text-mute dark:text-[#888]">
+              Chrome Web Store 一键安装，或开发模式加载。配置服务器地址即可。
+            </p>
+          </div>
+          <div class="text-center relative z-10">
+            <span
+              class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
+              >02</span
+            >
+            <h3 class="font-mono font-semibold text-lg mb-3">启动后端</h3>
+            <p class="text-sm text-mute dark:text-[#888]">
+              Python 或 Go，一行命令启动。服务端做消息路由，解析在浏览器端完成。
+            </p>
+          </div>
+          <div class="text-center relative z-10">
+            <span
+              class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
+              >03</span
+            >
+            <h3 class="font-mono font-semibold text-lg mb-3">抓取内容</h3>
+            <p class="text-sm text-mute dark:text-[#888]">
+              通过 HTTP API 或 MCP 工具调用，浏览器自动打开页面、解析内容、返回 Markdown。
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- CTA -->
+    <section class="py-24">
+      <div class="max-w-xl mx-auto px-8 text-center fade-in">
+        <h2 class="font-mono font-semibold text-3xl sm:text-4xl mb-4">
+          开始使用 Grabby
+        </h2>
+        <p class="text-mute dark:text-[#888] mb-10">
+          开源免费，MIT 协议。支持 macOS / Windows / Linux，Chrome 浏览器即可。
+        </p>
+        <div class="flex justify-center gap-4 flex-wrap mb-10">
+          <a
+            href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+            class="inline-flex items-center gap-2 px-8 py-3.5 bg-accent text-white rounded-lg font-mono font-semibold hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(99,102,241,0.25)] transition-all"
+            target="_blank" rel="noopener"
+          >
+            安装 Chrome 扩展
+          </a>
+          <a
+            href="https://github.com/gusibi/grabby"
+            class="inline-flex items-center gap-2 px-8 py-3.5 bg-white dark:bg-[#161616] border border-bord dark:border-[#2a2a2a] rounded-lg font-mono font-semibold hover:border-accent hover:-translate-y-0.5 transition-all"
+            target="_blank" rel="noopener"
+          >
+            <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
+            </svg>
+            View on GitHub
+          </a>
+        </div>
+        <div class="flex justify-center gap-8 font-mono text-xs text-mute-dim dark:text-[#555] flex-wrap">
+          <span>MIT License</span>
+          <span>Python + Go</span>
+          <span>Chrome Extension</span>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- JSON-LD -->
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Grabby",
+      "description": "Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Supports MCP protocol for AI agent integration.",
+      "applicationCategory": "DeveloperApplication",
+      "operatingSystem": "All",
+      "url": "https://grabby.eztoolab.com",
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+      "author": { "@type": "Person", "name": "gusibi", "url": "https://github.com/gusibi" }
+    }
+  </script>
+  <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Grabby",
+      "url": "https://grabby.eztoolab.com",
+      "description": "Grabby — URL to Markdown, powered by real browser"
+    }
+  </script>
+</BaseLayout>

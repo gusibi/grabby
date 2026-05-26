@@ -1,0 +1,139 @@
+---
+import SEO from '../components/SEO.astro';
+import Nav from '../components/Nav.astro';
+import Footer from '../components/Footer.astro';
+
+export interface Props {
+  page: 'home' | 'setup' | 'api';
+}
+
+const { page } = Astro.props;
+---
+
+<!doctype html>
+<html lang="zh-CN" class="scroll-smooth">
+  <head>
+    <SEO pageType={page} />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@300;400;500;600;700&family=Space+Grotesk:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body
+    data-page={page}
+    class="font-sans bg-surf dark:bg-[#0a0a0a] text-[#1a1a1a] dark:text-[#e0e0e0] min-h-screen overflow-x-hidden antialiased leading-relaxed"
+  >
+    <!-- Nav -->
+    <nav
+      class="fixed top-0 inset-x-0 z-50 border-b backdrop-blur-xl transition-colors bg-surf/85 dark:bg-[#0a0a0a]/85 border-bord dark:border-[#222]"
+    >
+      <div class="max-w-6xl mx-auto px-8 h-16 flex items-center justify-between">
+        <a
+          href="/"
+          class="flex items-center gap-3 font-mono font-bold text-lg text-[#1a1a1a] dark:text-[#e0e0e0]"
+        >
+          <svg class="w-7 h-7" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <defs>
+              <radialGradient id="gg" cx="35%" cy="30%" r="75%" fx="30%" fy="25%">
+                <stop offset="0%" stop-color="#818CF8" />
+                <stop offset="100%" stop-color="#4F46E5" />
+              </radialGradient>
+            </defs>
+            <rect width="1024" height="1024" rx="230" fill="url(#gg)" />
+            <path d="M320 400 L704 400 C740 400 768 428 768 464 L768 560 C768 596 740 624 704 624 L320 624 C284 624 256 596 256 560 L256 464 C256 428 284 400 320 400 Z" fill="#F8FAFC" opacity="0.9" />
+            <path d="M360 440 L664 440 C682 440 696 454 696 472 L696 552 C696 570 682 584 664 584 L360 584 C342 584 328 570 328 552 L328 472 C328 454 342 440 360 440 Z" fill="#6366F1" opacity="0.7" />
+            <line x1="380" y1="480" x2="644" y2="480" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.8" />
+            <line x1="380" y1="510" x2="580" y2="510" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.5" />
+            <line x1="380" y1="540" x2="520" y2="540" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.3" />
+          </svg>
+          Grabby
+        </a>
+        <Nav page={page} />
+      </div>
+    </nav>
+
+    <slot />
+
+    <Footer />
+  </body>
+</html>
+
+<script>
+  import '../styles/global.css';
+
+  function getTheme() {
+    try {
+      const stored = localStorage.getItem('grabby-theme');
+      if (stored === 'light' || stored === 'dark') return stored;
+    } catch (e) {}
+    if (window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches) return 'light';
+    return 'dark';
+  }
+
+  function applyTheme(theme) {
+    if (theme === 'dark') {
+      document.documentElement.classList.add('dark');
+    } else {
+      document.documentElement.classList.remove('dark');
+    }
+    try { localStorage.setItem('grabby-theme', theme); } catch (e) {}
+  }
+
+  function toggleTheme() {
+    const isDark = document.documentElement.classList.contains('dark');
+    applyTheme(isDark ? 'light' : 'dark');
+  }
+
+  function init() {
+    applyTheme(getTheme());
+    if (window.matchMedia) {
+      window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+        if (!localStorage.getItem('grabby-theme')) {
+          applyTheme(e.matches ? 'dark' : 'light');
+        }
+      });
+    }
+
+    // Theme toggle
+    const themeBtn = document.querySelector('.theme-toggle');
+    if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
+
+    // Mobile nav
+    const toggle = document.querySelector('.nav-toggle');
+    const links = document.querySelector('.nav-links');
+    if (toggle && links) {
+      toggle.addEventListener('click', () => {
+        const open = links.classList.toggle('!flex');
+        toggle.setAttribute('aria-expanded', String(open));
+      });
+      links.addEventListener('click', (e) => {
+        if (e.target.tagName === 'A') {
+          links.classList.remove('!flex');
+          toggle.setAttribute('aria-expanded', 'false');
+        }
+      });
+    }
+
+    // Fade-in on scroll
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('visible');
+            observer.unobserve(entry.target);
+          }
+        });
+      },
+      { threshold: 0.1, rootMargin: '0px 0px -40px 0px' }
+    );
+    document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+</script>

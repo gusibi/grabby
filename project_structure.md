@@ -1,12 +1,12 @@
-# MCP 工具项目结构
+# Grabby 项目结构
 
 ## 项目概述
-MCP 工具是一个分布式网页内容采集系统，由 Chrome 浏览器扩展和 Python 后端服务组成，用于自动化网页内容获取和处理。
+Grabby 是一个分布式网页内容采集系统，由 Chrome 浏览器扩展和 Python 后端服务组成，用于自动化网页内容获取和处理。
 
 ## 目录结构
 
 ```
-browser-tools-mcp/
+grabby/
 ├── README.md                     # 项目说明文档
 ├── chrome-extension/            # Chrome 浏览器扩展目录
 │   ├── manifest.json            # 扩展配置文件

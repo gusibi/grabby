@@ -1,7 +1,7 @@
 [project]
-name = "mcp-web-capture"
+name = "grabby"
 version = "0.1.0"
-description = "MCP Web Capture - 网页内容自动化采集系统"
+description = "Grabby - 网页内容自动化采集系统"
 readme = "readme.md"
 requires-python = ">=3.13"
 dependencies = [

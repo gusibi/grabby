@@ -142,12 +142,12 @@ http://localhost:5040/mcp
 ```json
 {
   "mcpServers": {
-    "web-capture": {
+    "grabby": {
       "command": "uv",
       "args": [
         "run",
         "--directory",
-        "/path/to/mcp-web-capture/python-server",
+        "/path/to/grabby/python-server",
         "python",
         "main.py"
       ]
@@ -161,8 +161,8 @@ http://localhost:5040/mcp
 ```json
 {
   "mcpServers": {
-    "web-capture": {
-      "command": "/path/to/mcp-web-capture/go-server/go-server"
+    "grabby": {
+      "command": "/path/to/grabby/go-server/go-server"
     }
   }
 }
@@ -230,13 +230,13 @@ curl -X POST http://localhost:5040/api/extract \
 ### 手动提取当前页面
 
 1. 打开任意网页
-2. 点击 Chrome 工具栏的 MCP 图标
+2. 点击 Chrome 工具栏的 Grabby 图标
 3. 点击 **"提取内容"** 按钮
 4. 查看提取结果
 
 ### 手动截图
 
 1. 打开任意网页
-2. 点击 MCP 图标
+2. 点击 Grabby 图标
 3. 选择截图模式（可见区域 / 全页面 / 选择区域）
 4. 截图自动下载或发送到后端

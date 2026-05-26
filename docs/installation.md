@@ -18,8 +18,8 @@
 ## 1. 克隆项目
 
 ```bash
-git clone https://github.com/your-repo/mcp-web-capture.git
-cd mcp-web-capture
+git clone https://github.com/your-repo/grabby.git
+cd grabby
 ```
 
 ---
@@ -30,9 +30,9 @@ cd mcp-web-capture
 
 一键安装，自动更新：
 
-[**点击安装 — MCP 网页内容采集工具**](https://chromewebstore.google.com/detail/mcp-网页内容采集工具/hfimnafeekedoeeflppddlkbhcbbnfab)
+[**点击安装 — Grabby - 网页内容采集助手**](https://chromewebstore.google.com/detail/mcp-网页内容采集工具/hfimnafeekedoeeflppddlkbhcbbnfab)
 
-安装后点击 Chrome 工具栏的 MCP 图标，打开 **选项 / Options** 页面配置服务器地址。
+安装后点击 Chrome 工具栏的 Grabby 图标，打开 **选项 / Options** 页面配置服务器地址。
 
 ### 方式二：开发模式加载
 
@@ -49,7 +49,7 @@ cd mcp-web-capture
 # 构建并打包
 make all
 
-# 然后在 chrome://extensions 页面拖拽 dist/mcp-web-capture-v*.zip 安装
+# 然后在 chrome://extensions 页面拖拽 dist/grabby-v*.zip 安装
 ```
 
 ### 构建依赖安装
@@ -118,7 +118,7 @@ curl -H "X-API-Key: your_api_key" http://localhost:5040/api/health
 
 ### 检查浏览器扩展连接
 
-1. 点击 Chrome 工具栏的 MCP 图标
+1. 点击 Chrome 工具栏的 Grabby 图标
 2. 打开 **选项 / Options** 页面
 3. 配置服务器地址和连接 ID
 4. 看到 **"连接状态：已连接"** 即表示成功

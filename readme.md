@@ -1,10 +1,10 @@
-# MCP Web Automation Toolkit
+# Grabby
 
 MCP is a distributed web content harvesting system consisting of a Chrome extension and Python backend service, designed for automated web content collection and processing.
 
 ## 项目背景
 
-MCP工具旨在解决大规模网页内容采集的自动化需求，特别适用于数据分析、内容聚合和自动化工作流程场景。通过浏览器扩展与后端服务的协同工作，实现了高效可靠的网页内容获取解决方案。
+Grabby 旨在解决大规模网页内容采集的自动化需求，特别适用于数据分析、内容聚合和自动化工作流程场景。通过浏览器扩展与后端服务的协同工作，实现了高效可靠的网页内容获取解决方案。
 
 ## 快速开始
 
@@ -23,8 +23,8 @@ curl -LsSf https://astral.sh/uv/install.sh | sh
 1. 克隆仓库
 
 ```bash
-git clone https://github.com/your-repo/browser-tools-mcp.git
-cd browser-tools-mcp
+git clone https://github.com/your-repo/grabby.git
+cd grabby
 ```
 
 2. 加载浏览器扩展
@@ -123,7 +123,7 @@ MCP Server:
 
 **打开设置：**
 
-右键点击 Chrome 工具栏中的 MCP 图标 → **选项 / Options**，打开扩展设置页面。
+右键点击 Chrome 工具栏中的 Grabby 图标 → **选项 / Options**，打开扩展设置页面。
 
 **填写连接信息：**
 
@@ -320,7 +320,7 @@ wait
 ## 项目架构
 
 ```
-mcp-web-capture/
+grabby/
 ├── python-server/       # Python 后端服务
 │   ├── main.py          # FastAPI 主应用 + HTTP API
 │   ├── websocket_manager.py  # WebSocket 连接管理

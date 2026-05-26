@@ -1,0 +1,45 @@
+---
+export interface Props {
+  pageType: 'home' | 'setup' | 'api';
+}
+
+const { pageType } = Astro.props;
+
+const titles: Record<string, string> = {
+  home: 'Grabby — URL to Markdown, powered by real browser | Web Content Capture',
+  setup: 'Grabby Setup Guide — Installation & Configuration',
+  api: 'Grabby API Reference — HTTP, MCP & WebSocket',
+};
+
+const descriptions: Record<string, string> = {
+  home: 'Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Supports MCP protocol for AI agent integration, full-page screenshots, and dual backend (Python/Go).',
+  setup: 'Install and configure Grabby — Chrome extension, backend server (Python or Go), WebSocket connection, and API key setup.',
+  api: 'Complete API reference for Grabby — HTTP REST endpoints, MCP tools (screenshot, extract), WebSocket protocol, and error codes.',
+};
+
+const title = titles[pageType] || titles.home;
+const description = descriptions[pageType] || descriptions.home;
+---
+
+<title>{title}</title>
+<meta name="description" content={description} />
+<meta name="keywords" content="Grabby, web capture, URL to Markdown, MCP tool, Chrome extension, web scraper, screenshot, AI agent, browser automation" />
+<meta name="author" content="gusibi" />
+<link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
+<link rel="sitemap" href="/sitemap.xml" />
+
+<!-- Open Graph -->
+<meta property="og:type" content="website" />
+<meta property="og:title" content={title} />
+<meta property="og:description" content={description} />
+<meta property="og:url" content={new URL(Astro.url.pathname, Astro.site).href} />
+<meta property="og:locale" content="zh_CN" />
+<meta property="og:site_name" content="Grabby" />
+
+<!-- Twitter -->
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content={title} />
+<meta name="twitter:description" content={description} />
+
+<!-- Favicon -->
+<link rel="icon" type="image/svg+xml" href="/favicon.svg" />

@@ -9,7 +9,6 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 5040
     connect_id: str = "browser-tools"
-    api_key: str = ""
     debug: bool = False
     websocket_timeout: float = 5.0
     api_extract_timeout: float = 60.0
@@ -19,5 +18,6 @@ class Settings(BaseSettings):
         env_file = ".env"
         env_file_encoding = "utf-8"
         case_sensitive = False
+        extra = "ignore"
 
 settings = Settings()

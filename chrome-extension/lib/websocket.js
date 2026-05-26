@@ -2,7 +2,6 @@ class WebSocketManager {
     constructor() {
         this.socket = null;
         this.serverUrl = null;
-        this.apiKey = null;
         this.connId = null;
         this.browserName = '';
         this.reconnectAttempts = 0;
@@ -22,7 +21,7 @@ class WebSocketManager {
 
         // 监听配置变化
         chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName === 'sync' && (changes.serverUrl || changes.apiKey || changes.browserName)) {
+            if (areaName === 'sync' && (changes.serverUrl || changes.browserName)) {
                 console.log('检测到配置更改，将重新加载并连接...');
                 this.updateConfig();
             }
@@ -34,9 +33,8 @@ class WebSocketManager {
      */
     loadConfig() {
         return new Promise((resolve) => { // 返回 Promise 以便知道加载完成
-            chrome.storage.sync.get(['serverUrl', 'apiKey', 'browserName'], (result) => {
+            chrome.storage.sync.get(['serverUrl', 'browserName'], (result) => {
                 const oldServerUrl = this.serverUrl;
-                const oldApiKey = this.apiKey;
                 const oldBrowserName = this.browserName;
                 let configChanged = false;
 
@@ -48,14 +46,6 @@ class WebSocketManager {
                     if (oldServerUrl) configChanged = true;
                 }
 
-                if (result.apiKey && result.apiKey !== oldApiKey) {
-                    this.apiKey = result.apiKey;
-                    configChanged = true;
-                } else if (!result.apiKey) {
-                    this.apiKey = null;
-                    if (oldApiKey) configChanged = true;
-                }
-
                 this.browserName = (result.browserName || '').trim();
                 if (this.browserName !== oldBrowserName) {
                     configChanged = true;
@@ -63,7 +53,7 @@ class WebSocketManager {
 
                 const finish = (browserConnectId) => {
                     this.connId = browserConnectId || null;
-                    console.log('配置已加载:', { serverUrl: this.serverUrl, apiKey: this.apiKey ? '***' : null, browserName: this.browserName, connId: this.connId });
+                    console.log('配置已加载:', { serverUrl: this.serverUrl, browserName: this.browserName, connId: this.connId });
                     resolve(configChanged);
                 };
 
@@ -162,9 +152,6 @@ class WebSocketManager {
             const urlWithConnId = new URL(this.serverUrl);
             urlWithConnId.searchParams.append('conn_id', this.connId);
             urlWithConnId.searchParams.append('name', this.browserName);
-            if (this.apiKey) {
-                urlWithConnId.searchParams.append('api_key', this.apiKey);
-            }
 
             this.socket = new WebSocket(urlWithConnId.toString());
 
@@ -200,9 +187,6 @@ class WebSocketManager {
     async registerBrowser() {
         const registerUrl = this.getRegisterUrl();
         const headers = { 'Content-Type': 'application/json' };
-        if (this.apiKey) {
-            headers['X-API-Key'] = this.apiKey;
-        }
 
         const response = await fetch(registerUrl, {
             method: 'POST',
@@ -243,16 +227,6 @@ class WebSocketManager {
 
         // 启动心跳机制
         this.startKeepAlive();
-
-        // 发送认证消息 (如果需要)
-        if (this.apiKey) {
-            this.sendMessage({
-                type: 'auth',
-                conn_id: this.connId,
-                name: this.browserName
-            });
-            console.log('已发送认证消息');
-        }
 
         // 触发连接事件
         this.emit('connected');
@@ -398,12 +372,12 @@ class WebSocketManager {
             if (event.code === 1015) {
                 errorMsg = "连接失败: TLS 握手错误。请检查wss://地址和服务器证书。";
             } else if (event.reason && (event.reason.toLowerCase().includes('forbidden') || event.reason.includes('403'))) {
-                errorMsg = "连接失败: 服务器拒绝连接 (403 Forbidden)。请检查 API Key 或服务器权限设置。";
+                errorMsg = "连接失败: 服务器拒绝连接 (403 Forbidden)。请检查浏览器注册状态或服务器权限设置。";
             } else if (event.reason === 'Connection Timeout') {
                 errorMsg = "连接失败: 连接超时。请检查服务器地址和网络。";
             } else {
                 // 通用握手错误消息
-                errorMsg = `连接失败 (Code: ${event.code})。请检查服务器地址 (${this.serverUrl})、API Key 是否正确，以及服务器是否正在运行。`;
+                errorMsg = `连接失败 (Code: ${event.code})。请检查服务器地址 (${this.serverUrl}) 是否正确，以及服务器是否正在运行。`;
             }
             // 对于握手错误，通常不应无限重连
             this.reconnectAttempts = this.maxReconnectAttempts;
@@ -632,7 +606,6 @@ class WebSocketManager {
             status: this.connectionStatus,
             serverUrl: this.serverUrl,
             connId: this.connId,
-            apiKey: this.apiKey ? '***' : null, // 不直接暴露 key
             browserName: this.browserName,
             errorMessage: this.errorMessage
         };

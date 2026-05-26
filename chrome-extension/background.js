@@ -48,13 +48,7 @@ function init() {
 
 // 加载设置并自动连接
 function loadSettingsAndConnect() {
-    chrome.storage.sync.get(['serverUrl', 'apiKey', 'autoConnect'], (result) => {
-        // 确保WebSocketManager实例有最新的apiKey
-        if (result.apiKey) {
-            websocketManager.apiKey = result.apiKey;
-
-        }
-
+    chrome.storage.sync.get(['serverUrl', 'autoConnect'], (result) => {
         // 确保WebSocketManager实例有最新的serverUrl
         if (result.serverUrl) {
             websocketManager.serverUrl = result.serverUrl;

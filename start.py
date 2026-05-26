@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-MCP Web Capture Server 启动脚本
+Grabby Server 启动脚本
 用法: python start.py [uv-run-args...]
 
 依赖 uv (https://docs.astral.sh/uv/):

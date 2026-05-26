@@ -1,6 +1,6 @@
 from typing import Optional
 import uvicorn
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends, Header, Query, status
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Query, status
 from fastapi_mcp import add_mcp_server
 from pydantic import BaseModel
 from datetime import datetime
@@ -11,43 +11,8 @@ from logger import get_logger
 
 logger = get_logger(__name__)
 
-
-async def validate_api_key(
-    x_api_key: Optional[str] = Header(default=None),
-):
-    """
-    HTTP API key 校验依赖 — 仅检查 X-API-Key 请求头
-
-    当 settings.api_key 配置时，要求通过 X-API-Key 请求头提供匹配的 API key。
-    未配置时跳过校验，允许所有请求。
-    """
-    if settings.api_key and x_api_key != settings.api_key:
-        logger.warning("API key validation failed")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: invalid or missing API key",
-        )
-
-
-async def validate_ws_api_key(
-    api_key: Optional[str] = Query(default=None, alias="api_key"),
-):
-    """
-    WebSocket API key 校验依赖 — 仅检查 api_key 查询参数
-
-    浏览器 WebSocket API 不支持自定义 HTTP header，因此通过 URL 查询参数传递。
-    当 settings.api_key 配置时，要求提供匹配的 api_key。
-    未配置时跳过校验，允许所有请求。
-    """
-    if settings.api_key and api_key != settings.api_key:
-        logger.warning("API key validation failed")
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Unauthorized: invalid or missing API key",
-        )
-
 """
-MCP 工具服务器 - 主模块
+Grabby 工具服务器 - 主模块
 
 本模块实现了MCP工具的服务器端功能，包括：
 - FastAPI 应用结构：提供Web API和WebSocket端点
@@ -58,8 +23,8 @@ MCP 工具服务器 - 主模块
 
 # 创建FastAPI应用实例
 app = FastAPI(
-    title="MCP工具服务器",
-    description="提供网页内容采集和处理功能的服务器",
+    title="Grabby 工具服务器",
+    description="通过真实浏览器抓取网页内容并转换为 Markdown 的服务",
     version="1.0.0"
 )
 
@@ -68,7 +33,7 @@ ws_manager = WebSocketManager()
 browser_registry = BrowserRegistry()
 
 @app.websocket("/ws_browser")
-async def websocket_browser(websocket: WebSocket, conn_id: Optional[str] = None, _: None = Depends(validate_ws_api_key)):
+async def websocket_browser(websocket: WebSocket, conn_id: Optional[str] = None):
     """
     浏览器WebSocket连接端点
 
@@ -135,7 +100,7 @@ async def websocket_browser(websocket: WebSocket, conn_id: Optional[str] = None,
         ws_manager.disconnect(conn_id)
 
 @app.websocket("/ws_command")
-async def websocket_send_command(websocket: WebSocket, conn_id: Optional[str] = None, _: None = Depends(validate_ws_api_key)):
+async def websocket_send_command(websocket: WebSocket, conn_id: Optional[str] = None):
     """
     命令WebSocket连接端点
     
@@ -213,7 +178,7 @@ class BrowserRegisterRequest(BaseModel):
 mcp_server = add_mcp_server(
     app,                                # FastAPI应用实例
     mount_path="/mcp",                  # MCP服务器挂载路径
-    name="BrowserTools",                # MCP服务器名称
+    name="Grabby",                # MCP服务器名称
     describe_all_responses=True,        # 在工具描述中包含所有可能的响应模式
     describe_full_response_schema=True  # 在工具描述中包含完整的JSON模式
 )
@@ -335,7 +300,7 @@ async def get_server_time() -> str:
 
 
 
-@app.get("/api/health", dependencies=[Depends(validate_api_key)])
+@app.get("/api/health")
 async def health_check():
     """健康检查端点"""
     browsers = ws_manager.get_browser_list()
@@ -348,7 +313,7 @@ async def health_check():
     }
 
 
-@app.get("/api/browsers", dependencies=[Depends(validate_api_key)])
+@app.get("/api/browsers")
 async def list_browsers():
     """获取已连接的浏览器列表"""
     browsers = ws_manager.get_browser_list()
@@ -358,7 +323,7 @@ async def list_browsers():
     }
 
 
-@app.post("/api/browsers/register", dependencies=[Depends(validate_api_key)])
+@app.post("/api/browsers/register")
 async def register_browser(request: BrowserRegisterRequest):
     """注册浏览器实例，浏览器 WebSocket 连接前必须先注册"""
     try:
@@ -373,7 +338,7 @@ async def register_browser(request: BrowserRegisterRequest):
     }
 
 
-@app.post("/api/extract", dependencies=[Depends(validate_api_key)])
+@app.post("/api/extract")
 async def api_extract(request: ExtractRequest):
     """
     提取指定 URL 的网页内容并返回 Markdown
@@ -437,7 +402,7 @@ if __name__ == "__main__":
             logger.debug(f"注册路由: {route.path} - {route.name}")
 
     # 启动服务器
-    logger.info(f"启动MCP工具服务器 - 监听: {settings.host}:{settings.port}")
+    logger.info(f"启动 Grabby 工具服务器 - 监听: {settings.host}:{settings.port}")
     uvicorn.run(
         app,
         host=settings.host,

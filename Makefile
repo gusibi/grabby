@@ -1,10 +1,10 @@
-# MCP Web Capture Build Makefile
+# Grabby Build Makefile
 
 EXTENSION_DIR := chrome-extension
 GO_SERVER_DIR := go-server
 DIST_DIR := dist
 VERSION := $(shell cat $(EXTENSION_DIR)/manifest.json | grep '"version"' | sed 's/.*"version": "\([^"]*\)".*/\1/')
-PACKAGE_NAME := mcp-web-capture-v$(VERSION).zip
+PACKAGE_NAME := grabby-v$(VERSION).zip
 
 .PHONY: all build package clean install dev build-go run-go clean-go
 
@@ -110,7 +110,7 @@ version:
 
 # 帮助信息
 help:
-	@echo "MCP Web Capture - Makefile"
+	@echo "Grabby - Makefile"
 	@echo ""
 	@echo "=== Chrome Extension ==="
 	@echo "  make install      - 安装 npm 依赖"

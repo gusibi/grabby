@@ -5,7 +5,6 @@
 
 // DOM 元素
 const serverUrlInput = document.getElementById('serverUrl');
-const apiKeyInput = document.getElementById('apiKey');
 const browserNameInput = document.getElementById('browserName');
 const autoConnectCheckbox = document.getElementById('autoConnect');
 const fullPageCapture = document.getElementById('fullPageCapture');
@@ -57,7 +56,6 @@ document.addEventListener('DOMContentLoaded', initOptions);
 function loadSettings() {
     chrome.storage.sync.get([
         'serverUrl',
-        'apiKey',
         'browserName',
         'autoConnect',
         'imageFormat',
@@ -68,9 +66,6 @@ function loadSettings() {
     ], (result) => {
         // 设置服务器URL
         serverUrlInput.value = result.serverUrl || 'ws://localhost:5040/ws_browser';
-
-        // 设置API密钥
-        apiKeyInput.value = result.apiKey || '';
 
         // 设置浏览器名称
         browserNameInput.value = result.browserName || '';
@@ -160,8 +155,7 @@ async function saveSettings() {
             // 即使字段为空也会保存，确保覆盖旧值
             console.log('saving settings',
                 {
-                    serverUrl: serverUrlInput.value, // 即使为空字符串也会保存
-                    apiKey: apiKeyInput.value, // 即使为空字符串也会保存
+                    serverUrl: serverUrlInput.value,
                     autoConnect: autoConnectCheckbox.checked,
                     imageFormat: imageFormatSelect.value,
                     imageQuality: parseInt(imageQualityInput.value),
@@ -171,7 +165,6 @@ async function saveSettings() {
                 })
             chrome.storage.sync.set({
                 serverUrl: serverUrlInput.value, // 即使为空字符串也会保存
-                apiKey: apiKeyInput.value, // 即使为空字符串也会保存
                 browserName: browserNameInput.value,
                 autoConnect: autoConnectCheckbox.checked,
                 imageFormat: imageFormatSelect.value,
@@ -214,7 +207,6 @@ function resetSettings() {
 
     // 重置输入字段
     serverUrlInput.value = '';
-    apiKeyInput.value = '';
     browserNameInput.value = '';
     autoConnectCheckbox.checked = false;
     imageFormatSelect.value = 'png';

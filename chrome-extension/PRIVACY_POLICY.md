@@ -1,10 +1,10 @@
-# Privacy Policy for MCP Web Content Collector
+# Privacy Policy for Grabby
 
 *Last updated: 2025-04-20*
 
 ## Introduction
 
-This Privacy Policy explains how the MCP Web Content Collector Chrome Extension ("we", "our", or "the extension") handles information when you use our tool. We are committed to protecting your privacy and ensuring transparency about our data practices.
+This Privacy Policy explains how the Grabby Chrome Extension ("we", "our", or "the extension") handles information when you use our tool. We are committed to protecting your privacy and ensuring transparency about our data practices.
 
 ## Information Collection
 
@@ -22,8 +22,8 @@ To provide its functionality, the extension needs to access or collect certain t
     *   Anonymized data representing the page structure relevant to the collection task.
 3.  **Locally Stored Data (using `chrome.storage.local`):**
     *   **User Configuration:** Settings you configure in the extension's options.
-    *   **Connection Credentials:** Credentials required to connect to your designated MCP server, stored encrypted (AES-256).
-4.  **Server-Side Data (Your Designated MCP Server):**
+    *   **Connection Credentials:** Credentials required to connect to your designated Grabby server, stored encrypted (AES-256).
+4.  **Server-Side Data (Your Designated Grabby Server):**
     *   **Task Execution Logs:** Records of collection tasks performed (retained for 7 days).
     *   **Encrypted Screenshot Data:** Temporarily stored screenshots related to tasks (retained for 24 hours).
 
@@ -46,25 +46,25 @@ The extension requires the following Chrome permissions to function:
 
 ## Data Usage
 
-Collected information is used solely for the purpose of operating the MCP Web Content Collector:
+Collected information is used solely for the purpose of operating the Grabby:
 
 *   **Content Extraction:** To identify and extract the specific web content you request.
 *   **Screenshots:** To capture visual representations of web pages or elements as requested.
 *   **Configuration:** To store your preferences and connection details locally.
-*   **Communication:** To securely transmit task data between the extension and your designated MCP server via WebSocket.
+*   **Communication:** To securely transmit task data between the extension and your designated Grabby server via WebSocket.
 *   **Logging:** To maintain temporary operational logs on the server for debugging and monitoring.
 
 ## Data Transmission and Storage
 
-*   **WebSocket:** Communication between the extension and your MCP server is encrypted using TLS 1.3.
+*   **WebSocket:** Communication between the extension and your Grabby server is encrypted using TLS 1.3.
 *   **Local Storage:** Configuration and AES-256 encrypted credentials are stored locally using `chrome.storage.local`.
-*   **Server Storage:** Task logs and encrypted screenshots are stored temporarily on your designated MCP server as described above.
+*   **Server Storage:** Task logs and encrypted screenshots are stored temporarily on your designated Grabby server as described above.
 *   **In-Memory Processing:** Web content data is primarily processed in memory and released after processing.
 *   **Hashing:** Sensitive data elements within the transmitted data may be hashed (e.g., using SHA-256) before transmission for added security, where appropriate.
 
 ## Third-Party Services
 
-This extension is designed to work with your own instance of the MCP server. It does not transmit data to any other third-party services or external APIs.
+This extension is designed to work with your own instance of the Grabby server. It does not transmit data to any other third-party services or external APIs.
 
 ## Security
 
@@ -96,4 +96,4 @@ This extension aims to comply with the Chrome Web Store Developer Program Polici
 
 ---
 
-By using the MCP Web Content Collector extension, you agree to the terms outlined in this Privacy Policy.
+By using the Grabby extension, you agree to the terms outlined in this Privacy Policy.

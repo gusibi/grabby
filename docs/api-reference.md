@@ -2,7 +2,7 @@
 
 ## 概述
 
-MCP Web Capture 提供两套接口：
+Grabby 提供两套接口：
 
 1. **HTTP REST API** — 用于外部系统直接调用
 2. **MCP (Model Context Protocol)** — 用于 AI Agent 集成

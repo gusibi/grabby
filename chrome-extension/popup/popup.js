@@ -60,7 +60,7 @@ function setupEventListeners() {
                 updateConnectionStatus();
             } else {
                 // 连接失败，显示错误消息
-                const errorMsg = response && response.error ? response.error : '连接服务器失败，请检查API密钥和服务器配置';
+                const errorMsg = response && response.error ? response.error : '连接服务器失败，请检查服务器配置';
                 showError(errorMsg);
                 updateConnectionStatus(); // 更新状态显示
             }

@@ -63,7 +63,7 @@ API_EXTRACT_TIMEOUT=60.0
 
 ### 打开设置页面
 
-右键点击 Chrome 工具栏中的 MCP 图标 → **选项 / Options**
+右键点击 Chrome 工具栏中的 Grabby 图标 → **选项 / Options**
 
 ### 配置项
 
@@ -93,7 +93,7 @@ Python 后端的依赖和项目元数据定义在 `python-server/pyproject.toml`
 
 ```toml
 [project]
-name = "mcp-web-capture"
+name = "grabby"
 version = "1.0.0"
 dependencies = [
     "fastapi",

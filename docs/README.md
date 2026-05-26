@@ -1,4 +1,4 @@
-# MCP Web Capture 文档
+# Grabby 文档
 
 ## 目录
 
@@ -14,8 +14,8 @@
 
 ```bash
 # 1. 克隆项目
-git clone https://github.com/your-repo/mcp-web-capture.git
-cd mcp-web-capture
+git clone https://github.com/your-repo/grabby.git
+cd grabby
 
 # 2. 加载浏览器扩展（Chrome → chrome://extensions → 加载已解压的扩展程序 → 选择 chrome-extension/）
 
@@ -38,7 +38,7 @@ curl -X POST http://localhost:5040/api/extract \
 ## 项目结构
 
 ```
-mcp-web-capture/
+grabby/
 ├── docs/                    # 本文档
 ├── chrome-extension/        # Chrome 浏览器扩展
 │   ├── manifest.json

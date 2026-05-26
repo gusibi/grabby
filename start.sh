@@ -1,5 +1,5 @@
 #!/bin/bash
-# MCP Web Capture Server 启动脚本
+# Grabby Server 启动脚本
 # 依赖 uv (https://docs.astral.sh/uv/)
 
 cd "$(dirname "$0")/python-server" || exit 1

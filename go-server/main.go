@@ -18,47 +18,6 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
-// validateAPIKey checks the X-API-Key header for HTTP requests.
-// When API_KEY is empty, all requests are allowed.
-func validateAPIKey(settings *Settings, logger *zap.Logger) func(http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if settings.APIKey != "" {
-				if r.Header.Get("X-API-Key") != settings.APIKey {
-					logger.Warn("API key validation failed",
-						zap.String("path", r.URL.Path),
-						zap.String("remote", r.RemoteAddr),
-					)
-					http.Error(w, `{"error":"Unauthorized: invalid or missing API key"}`, http.StatusUnauthorized)
-					return
-				}
-			}
-			next(w, r)
-		}
-	}
-}
-
-// validateWSAPIKey checks the api_key query parameter for WebSocket upgrade
-// requests (the browser WebSocket API does not support custom HTTP headers).
-// When API_KEY is empty, all requests are allowed.
-func validateWSAPIKey(settings *Settings, logger *zap.Logger) func(http.HandlerFunc) http.HandlerFunc {
-	return func(next http.HandlerFunc) http.HandlerFunc {
-		return func(w http.ResponseWriter, r *http.Request) {
-			if settings.APIKey != "" {
-				if r.URL.Query().Get("api_key") != settings.APIKey {
-					logger.Warn("API key validation failed",
-						zap.String("path", r.URL.Path),
-						zap.String("remote", r.RemoteAddr),
-					)
-					http.Error(w, `{"error":"Unauthorized: invalid or missing API key"}`, http.StatusUnauthorized)
-					return
-				}
-			}
-			next(w, r)
-		}
-	}
-}
-
 func main() {
 	settings := GetSettings()
 	logger := GetLogger()
@@ -73,12 +32,8 @@ func main() {
 	// --- HTTP Router ---
 	mux := http.NewServeMux()
 
-	// API key validation middleware — HTTP uses header, WS uses query param
-	auth := validateAPIKey(settings, logger)
-	wsAuth := validateWSAPIKey(settings, logger)
-
 	// Health check
-	mux.HandleFunc("/api/health", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -94,10 +49,10 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	})
 
 	// Browser list endpoint
-	mux.HandleFunc("/api/browsers", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/browsers", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -110,10 +65,10 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	})
 
 	// Browser registration endpoint
-	mux.HandleFunc("/api/browsers/register", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/browsers/register", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -142,10 +97,10 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	}))
+	})
 
 	// API Extract endpoint
-	mux.HandleFunc("/api/extract", auth(func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("/api/extract", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -193,14 +148,14 @@ func main() {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
-	}))
+	})
 
-	// WebSocket endpoints — use query-param auth (browser WebSocket API has no custom headers)
-	mux.HandleFunc("/ws_browser", wsAuth(handleWebSocketBrowser(wsManager, browserRegistry, logger)))
-	mux.HandleFunc("/ws_command", wsAuth(handleWebSocketCommand(wsManager, settings, logger)))
+	// WebSocket endpoints
+	mux.HandleFunc("/ws_browser", handleWebSocketBrowser(wsManager, browserRegistry, logger))
+	mux.HandleFunc("/ws_command", handleWebSocketCommand(wsManager, settings, logger))
 
 	// --- MCP Server ---
-	mcpSvr := server.NewMCPServer("BrowserTools", "1.0.0")
+	mcpSvr := server.NewMCPServer("Grabby", "1.0.0")
 
 	// Register screenshot tool
 	screenshotTool := mcp.NewTool("screenshot",

@@ -9,8 +9,6 @@ http:
   headers:
     - name: Content-Type
       value: application/json
-    - name: X-API-Key
-      value: your_api_key
   body:
     type: json
     data: |-
