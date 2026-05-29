@@ -26,6 +26,10 @@ wheels/
 # Node
 node_modules/
 
+# Astro / Site
+.astro/
+site/dist/
+
 # Chrome Extension
 *.crx
 *.pem

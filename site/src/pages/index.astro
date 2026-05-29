@@ -62,21 +62,21 @@ import BaseLayout from '../layouts/BaseLayout.astro';
                 <span class="text-mute">/api/extract</span>
               </div>
               <div class="space-y-1 text-mute dark:text-[#888]">
-                <div><span class="text-accent">{</span></div>
+                <div><span class="text-accent" set:html="{" /></span></div>
                 <div class="pl-4"><span class="text-[#059669]">"url"</span>: <span class="text-[#d4a853]">"https://example.com"</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"browser"</span>: <span class="text-[#d4a853]">"chrome"</span></div>
-                <div><span class="text-accent">}</span></div>
+                <div><span class="text-accent" set:html="}" /></div>
               </div>
               <div class="mt-4 flex items-center gap-2">
                 <span class="text-[#059669]">→ 200 OK</span>
               </div>
               <div class="mt-2 space-y-1 text-mute dark:text-[#888]">
-                <div><span class="text-accent">{</span></div>
+                <div><span class="text-accent" set:html="{" /></span></div>
                 <div class="pl-4"><span class="text-[#059669]">"success"</span>: <span class="text-[#4F46E5]">true</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"title"</span>: <span class="text-[#d4a853]">"Example Domain"</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"markdown"</span>: <span class="text-[#d4a853]">"# Example Domain</span></div>
                 <div class="pl-8 text-[#d4a853]">This domain is for use..."</div>
-                <div><span class="text-accent">}</span></div>
+                <div><span class="text-accent" set:html="}" /></div>
               </div>
             </div>
           </div>

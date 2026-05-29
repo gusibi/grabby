@@ -1,5 +1,58 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+
+const jsonExtractResp = `{
+  "success": true,
+  "url": "https://example.com",
+  "title": "Example Domain",
+  "markdown": "# Example Domain\\n\\nThis domain is for use..."
+}`;
+
+const jsonHealthResp = `{
+  "status": "ok",
+  "browser_connected": true,
+  "timestamp": "2026-05-27T12:00:00Z"
+}`;
+
+const jsonBrowsersResp = `{
+  "browsers": [
+    {"conn_id": "ws_browser:browser-tools", "name": "chrome-home"},
+    {"conn_id": "ws_browser:browser-tools", "name": "chrome-office"}
+  ],
+  "count": 2
+}`;
+
+const jsonRegisterResp = `{
+  "success": true,
+  "browser": {
+    "connect_id": "browser-tools",
+    "name": "chrome-office"
+  }
+}`;
+
+const jsonWsReq = `{
+  "source": "mcp_client",
+  "action": "mcp_request",
+  "command": "extract",
+  "url": "https://example.com",
+  "fullPage": false,
+  "message_id": "msg-xxx"
+}`;
+
+const jsonWsResp = `{
+  "type": "response",
+  "message_id": "msg-xxx",
+  "command": "extract",
+  "success": true,
+  "result": {
+    "url": "https://example.com",
+    "title": "Example Domain",
+    "content": {
+      "content": "# Markdown content...",
+      "wordCount": 42
+    }
+  }
+}`;
 ---
 
 <BaseLayout page="api">
@@ -35,7 +88,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             <tbody>
               <tr class="border-b border-bord dark:border-[#222]">
                 <td class="py-3 pr-6 text-mute">基础 URL</td>
-                <td><code>http://{HOST}:{PORT}</code></td>
+                <td><code>{`http://{HOST}:{PORT}`}</code></td>
               </tr>
               <tr class="border-b border-bord dark:border-[#222]">
                 <td class="py-3 pr-6 text-mute">默认地址</td>
@@ -56,7 +109,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <pre><code>X-API-Key: your_api_key</code></pre>
       </section>
 
-      <!-- HTTP API -->
+      <!-- HTTP API: extract -->
       <section id="http-extract" class="fade-in mb-20">
         <h2 class="font-mono font-semibold text-2xl mb-6">
           <span class="inline-block px-3 py-1 bg-[#059669]/10 text-[#059669] rounded text-xs mr-3 align-middle">POST</span>
@@ -65,10 +118,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         <p class="text-mute dark:text-[#888] mb-6">提取指定 URL 的网页内容并返回 Markdown。</p>
 
         <h3 class="font-mono font-semibold text-sm mb-3 text-accent">请求示例</h3>
-        <pre><code>curl -X POST http://localhost:5040/api/extract \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
-  -d '{"url": "https://example.com"}'</code></pre>
+        <pre><code set:html={`curl -X POST http://localhost:5040/api/extract \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: your_api_key" \\
+  -d '{"url": "https://example.com"}'`} /></pre>
 
         <h3 class="font-mono font-semibold text-sm mt-6 mb-3 text-accent">请求参数</h3>
         <div class="overflow-x-auto mb-6">
@@ -99,22 +152,17 @@ import BaseLayout from '../layouts/BaseLayout.astro';
         </div>
 
         <h3 class="font-mono font-semibold text-sm mb-3 text-accent">成功响应 (200)</h3>
-        <pre><code>{
-  "success": true,
-  "url": "https://example.com",
-  "title": "Example Domain",
-  "markdown": "# Example Domain\n\nThis domain is for use..."
-}</code></pre>
+        <pre><code set:html={jsonExtractResp} /></pre>
 
         <h3 class="font-mono font-semibold text-sm mt-6 mb-3 text-accent">错误响应</h3>
         <div class="space-y-3">
           <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <span class="font-mono text-xs text-[#dc2626]">503 Service Unavailable</span>
-            <pre class="mt-2 !p-3"><code>{"error": "Browser extension not connected"}</code></pre>
+            <pre class="mt-2 !p-3"><code set:html={`{"error": "Browser extension not connected"}`} /></pre>
           </div>
           <div class="p-4 rounded-xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <span class="font-mono text-xs text-[#dc2626]">504 Gateway Timeout</span>
-            <pre class="mt-2 !p-3"><code>{"error": "Extract timeout or connection lost"}</code></pre>
+            <pre class="mt-2 !p-3"><code set:html={`{"error": "Extract timeout or connection lost"}`} /></pre>
           </div>
         </div>
       </section>
@@ -126,14 +174,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           /api/health
         </h2>
         <p class="text-mute dark:text-[#888] mb-6">健康检查端点。</p>
-        <pre><code>curl http://localhost:5040/api/health
-
-# 响应
-{
-  "status": "ok",
-  "browser_connected": true,
-  "timestamp": "2026-05-27T12:00:00Z"
-}</code></pre>
+        <pre><code set:html={`curl http://localhost:5040/api/health\n\n# 响应\n${jsonHealthResp}`} /></pre>
       </section>
 
       <!-- Browsers -->
@@ -143,13 +184,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           /api/browsers
         </h2>
         <p class="text-mute dark:text-[#888] mb-6">获取当前已连接的浏览器列表。</p>
-        <pre><code>{
-  "browsers": [
-    {"conn_id": "ws_browser:browser-tools", "name": "chrome-home"},
-    {"conn_id": "ws_browser:browser-tools", "name": "chrome-office"}
-  ],
-  "count": 2
-}</code></pre>
+        <pre><code set:html={jsonBrowsersResp} /></pre>
       </section>
 
       <!-- Register -->
@@ -159,19 +194,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
           /api/browsers/register
         </h2>
         <p class="text-mute dark:text-[#888] mb-6">注册一个新的浏览器实例。浏览器在通过 WebSocket 连接之前需要先注册。</p>
-        <pre><code>curl -X POST http://localhost:5040/api/browsers/register \
-  -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
-  -d '{"connect_id": "browser-tools", "name": "chrome-office"}'
-
-# 响应
-{
-  "success": true,
-  "browser": {
-    "connect_id": "browser-tools",
-    "name": "chrome-office"
-  }
-}</code></pre>
+        <pre><code set:html={`curl -X POST http://localhost:5040/api/browsers/register \\
+  -H "Content-Type: application/json" \\
+  -H "X-API-Key: your_api_key" \\
+  -d '{"connect_id": "browser-tools", "name": "chrome-office"}'\n\n# 响应\n${jsonRegisterResp}`} /></pre>
       </section>
 
       <!-- MCP Tools -->
@@ -293,11 +319,11 @@ import BaseLayout from '../layouts/BaseLayout.astro';
             </thead>
             <tbody>
               <tr class="border-b border-bord dark:border-[#222]">
-                <td class="p-3"><code>ws://{host}:{port}/ws_browser?conn_id={ID}</code></td>
+                <td class="p-3"><code>{`ws://{host}:{port}/ws_browser?conn_id={ID}`}</code></td>
                 <td class="p-3 text-mute">浏览器扩展连接</td>
               </tr>
               <tr class="border-b border-bord dark:border-[#222]">
-                <td class="p-3"><code>ws://{host}:{port}/ws_command?conn_id={ID}</code></td>
+                <td class="p-3"><code>{`ws://{host}:{port}/ws_command?conn_id={ID}`}</code></td>
                 <td class="p-3 text-mute">命令客户端连接</td>
               </tr>
             </tbody>
@@ -306,30 +332,10 @@ import BaseLayout from '../layouts/BaseLayout.astro';
 
         <h3 class="font-mono font-semibold text-lg mb-3 text-accent">消息格式</h3>
         <p class="text-mute dark:text-[#888] mb-3">服务端发送给浏览器的请求消息：</p>
-        <pre class="mb-6"><code>{
-  "source": "mcp_client",
-  "action": "mcp_request",
-  "command": "extract",
-  "url": "https://example.com",
-  "fullPage": false,
-  "message_id": "msg-xxx"
-}</code></pre>
+        <pre class="mb-6"><code set:html={jsonWsReq} /></pre>
 
         <p class="text-mute dark:text-[#888] mb-3">浏览器返回的响应消息：</p>
-        <pre><code>{
-  "type": "response",
-  "message_id": "msg-xxx",
-  "command": "extract",
-  "success": true,
-  "result": {
-    "url": "https://example.com",
-    "title": "Example Domain",
-    "content": {
-      "content": "# Markdown content...",
-      "wordCount": 42
-    }
-  }
-}</code></pre>
+        <pre><code set:html={jsonWsResp} /></pre>
       </section>
 
       <!-- Error Codes -->
@@ -365,13 +371,11 @@ import BaseLayout from '../layouts/BaseLayout.astro';
     </div>
   </main>
 
-  <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "TechArticle",
-      "headline": "Grabby API Reference",
-      "description": "Complete API reference for Grabby — HTTP REST endpoints, MCP tools, WebSocket protocol, and error codes.",
-      "author": { "@type": "Person", "name": "gusibi" }
-    }
-  </script>
+  <script type="application/ld+json" set:html={JSON.stringify({
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Grabby API Reference",
+    "description": "Complete API reference for Grabby — HTTP REST endpoints, MCP tools, WebSocket protocol, and error codes.",
+    "author": { "@type": "Person", "name": "gusibi" }
+  })} />
 </BaseLayout>
