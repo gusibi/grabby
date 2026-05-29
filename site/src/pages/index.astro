@@ -1,5 +1,25 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+
+const jsonLdApp = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "Grabby",
+  "description": "Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Supports MCP protocol for AI agent integration.",
+  "applicationCategory": "DeveloperApplication",
+  "operatingSystem": "All",
+  "url": "https://grabby.eztoolab.com",
+  "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "author": { "@type": "Person", "name": "gusibi", "url": "https://github.com/gusibi" }
+});
+
+const jsonLdSite = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Grabby",
+  "url": "https://grabby.eztoolab.com",
+  "description": "Grabby — URL to Markdown, powered by real browser"
+});
 ---
 
 <BaseLayout page="home">
@@ -62,7 +82,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
                 <span class="text-mute">/api/extract</span>
               </div>
               <div class="space-y-1 text-mute dark:text-[#888]">
-                <div><span class="text-accent" set:html="{" /></span></div>
+                <div><span class="text-accent" set:html="{" /></div>
                 <div class="pl-4"><span class="text-[#059669]">"url"</span>: <span class="text-[#d4a853]">"https://example.com"</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"browser"</span>: <span class="text-[#d4a853]">"chrome"</span></div>
                 <div><span class="text-accent" set:html="}" /></div>
@@ -71,7 +91,7 @@ import BaseLayout from '../layouts/BaseLayout.astro';
                 <span class="text-[#059669]">→ 200 OK</span>
               </div>
               <div class="mt-2 space-y-1 text-mute dark:text-[#888]">
-                <div><span class="text-accent" set:html="{" /></span></div>
+                <div><span class="text-accent" set:html="{" /></div>
                 <div class="pl-4"><span class="text-[#059669]">"success"</span>: <span class="text-[#4F46E5]">true</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"title"</span>: <span class="text-[#d4a853]">"Example Domain"</span>,</div>
                 <div class="pl-4"><span class="text-[#059669]">"markdown"</span>: <span class="text-[#d4a853]">"# Example Domain</span></div>
@@ -281,26 +301,6 @@ import BaseLayout from '../layouts/BaseLayout.astro';
   </main>
 
   <!-- JSON-LD -->
-  <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "SoftwareApplication",
-      "name": "Grabby",
-      "description": "Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Supports MCP protocol for AI agent integration.",
-      "applicationCategory": "DeveloperApplication",
-      "operatingSystem": "All",
-      "url": "https://grabby.eztoolab.com",
-      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
-      "author": { "@type": "Person", "name": "gusibi", "url": "https://github.com/gusibi" }
-    }
-  </script>
-  <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "WebSite",
-      "name": "Grabby",
-      "url": "https://grabby.eztoolab.com",
-      "description": "Grabby — URL to Markdown, powered by real browser"
-    }
-  </script>
+  <script type="application/ld+json" set:html={jsonLdApp} />
+  <script type="application/ld+json" set:html={jsonLdSite} />
 </BaseLayout>

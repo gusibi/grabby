@@ -1,5 +1,33 @@
 ---
 import BaseLayout from '../layouts/BaseLayout.astro';
+
+const healthResp = `curl http://localhost:5040/api/health
+
+# 预期响应
+{"status":"ok","browser_connected":true,"timestamp":"..."}`;
+
+const extractResp = `curl -X POST http://localhost:5040/api/extract \\
+  -H "Content-Type: application/json" \\
+  -d '{"url": "https://example.com"}'
+
+# 预期响应
+{"success":true,"url":"https://example.com","title":"Example Domain","markdown":"# Example Domain\\n\\n..."}`;
+
+const claudeConfig = `{
+  "mcpServers": {
+    "grabby": {
+      "url": "http://localhost:5040/mcp/sse"
+    }
+  }
+}`;
+
+const jsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "Article",
+  "headline": "Grabby Setup Guide",
+  "description": "Complete installation and configuration guide for Grabby — Chrome extension, backend server, and MCP integration.",
+  "author": { "@type": "Person", "name": "gusibi" }
+});
 ---
 
 <BaseLayout page="setup">
@@ -120,20 +148,12 @@ go build -o go-server .
         <div class="space-y-4">
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <h3 class="font-mono font-semibold text-sm mb-3 text-accent">健康检查</h3>
-            <pre><code>curl http://localhost:5040/api/health
-
-# 预期响应
-{"status":"ok","browser_connected":true,"timestamp":"..."}</code></pre>
+            <pre><code set:html={healthResp} /></pre>
           </div>
 
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <h3 class="font-mono font-semibold text-sm mb-3 text-accent">测试提取</h3>
-            <pre><code>curl -X POST http://localhost:5040/api/extract \
-  -H "Content-Type: application/json" \
-  -d '{"url": "https://example.com"}'
-
-# 预期响应
-{"success":true,"url":"https://example.com","title":"Example Domain","markdown":"# Example Domain\n\n..."}</code></pre>
+            <pre><code set:html={extractResp} /></pre>
           </div>
         </div>
       </section>
@@ -143,13 +163,7 @@ go build -o go-server .
         <h2 class="font-mono font-semibold text-2xl mb-4">6. 配置 Claude Desktop</h2>
         <p class="text-mute dark:text-[#888] mb-4">在 Claude Desktop 的配置文件中添加 Grabby MCP Server：</p>
         <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-          <pre><code>{
-  "mcpServers": {
-    "grabby": {
-      "url": "http://localhost:5040/mcp/sse"
-    }
-  }
-}</code></pre>
+          <pre><code set:html={claudeConfig} /></pre>
         </div>
         <p class="text-sm text-mute dark:text-[#888] mt-3">
           配置文件位置：<code>~/Library/Application Support/Claude/claude_desktop_config.json</code> (macOS)
@@ -182,13 +196,5 @@ go build -o go-server .
     </div>
   </main>
 
-  <script type="application/ld+json">
-    {
-      "@context": "https://schema.org",
-      "@type": "Article",
-      "headline": "Grabby Setup Guide",
-      "description": "Complete installation and configuration guide for Grabby — Chrome extension, backend server, and MCP integration.",
-      "author": { "@type": "Person", "name": "gusibi" }
-    }
-  </script>
+  <script type="application/ld+json" set:html={jsonLd} />
 </BaseLayout>
