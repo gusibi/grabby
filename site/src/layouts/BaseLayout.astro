@@ -13,6 +13,7 @@ const { page } = Astro.props;
 <!doctype html>
 <html lang="zh-CN" class="scroll-smooth">
   <head>
+    <meta charset="UTF-8" />
     <SEO pageType={page} />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -34,20 +35,7 @@ const { page } = Astro.props;
           href="/"
           class="flex items-center gap-3 font-mono font-bold text-lg text-[#1a1a1a] dark:text-[#e0e0e0]"
         >
-          <svg class="w-7 h-7" viewBox="0 0 1024 1024" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <defs>
-              <radialGradient id="gg" cx="35%" cy="30%" r="75%" fx="30%" fy="25%">
-                <stop offset="0%" stop-color="#818CF8" />
-                <stop offset="100%" stop-color="#4F46E5" />
-              </radialGradient>
-            </defs>
-            <rect width="1024" height="1024" rx="230" fill="url(#gg)" />
-            <path d="M320 400 L704 400 C740 400 768 428 768 464 L768 560 C768 596 740 624 704 624 L320 624 C284 624 256 596 256 560 L256 464 C256 428 284 400 320 400 Z" fill="#F8FAFC" opacity="0.9" />
-            <path d="M360 440 L664 440 C682 440 696 454 696 472 L696 552 C696 570 682 584 664 584 L360 584 C342 584 328 570 328 552 L328 472 C328 454 342 440 360 440 Z" fill="#6366F1" opacity="0.7" />
-            <line x1="380" y1="480" x2="644" y2="480" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.8" />
-            <line x1="380" y1="510" x2="580" y2="510" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.5" />
-            <line x1="380" y1="540" x2="520" y2="540" stroke="#F8FAFC" stroke-width="12" stroke-linecap="round" opacity="0.3" />
-          </svg>
+          <img src="/favicon.png" alt="Grabby" class="w-7 h-7 rounded" />
           Grabby
         </a>
         <Nav page={page} />
@@ -63,6 +51,312 @@ const { page } = Astro.props;
 <script>
   import '../styles/global.css';
 
+  // --- i18n ---
+  const I18N: Record<string, any> = {
+    'zh-CN': {
+      lang: 'zh-CN',
+      langLabel: 'EN',
+      langSwitch: 'Switch to English',
+      nav: { features: '功能', setup: '使用指南', api: 'API 参考', github: 'GitHub', install: '安装扩展' },
+      footer: { home: '首页', setup: '使用指南', api: 'API 参考' },
+      home: {
+        badge: 'v1.0.0 — Chrome Extension + MCP Server',
+        heroLine1: 'URL',
+        heroLine2: 'to Markdown',
+        heroLine3: 'in seconds.',
+        heroDesc: 'Grabby 通过真实 Chrome 浏览器将任意网页转换为干净的 Markdown。支持 JavaScript 渲染、需要登录的页面、全页截图、AI Agent MCP 协议集成。',
+        install: '安装扩展',
+        setup: '使用指南 →',
+        featuresLabel: 'Features',
+        featuresTitle: '为什么选择 Grabby',
+        featuresDesc: '与简单的 HTTP 请求不同，Grabby 使用真实浏览器渲染页面，无惧 JS 动态内容和登录墙。',
+        f1Title: '真实浏览器渲染',
+        f1Desc: '在 Chrome 中实际加载页面，JS 渲染、SPA 应用、懒加载内容全都能拿到。不是简单的 HTTP 抓取。',
+        f2Title: '智能内容解析',
+        f2Desc: '基于 defuddle 引擎自动识别文章主内容区域，过滤广告和导航，输出干净的 Markdown，支持代码块、表格、数学公式。',
+        f3Title: '全页截图',
+        f3Desc: '支持可见区域、完整滚动页面、指定区域截图。输出 Base64 PNG，直接可用。',
+        f4Title: 'AI Agent 集成',
+        f4Desc: '原生 MCP 协议支持。Claude、Cursor 等 AI 工具可直接调用 extract 和 screenshot 工具获取网页内容。',
+        f5Title: '复用浏览器登录态',
+        f5Desc: '扩展使用你浏览器的 Cookie 和 Session，需要登录的页面直接就能抓。无需配置 Cookie。',
+        f6Title: '双后端选择',
+        f6Desc: '提供 Python (FastAPI) 和 Go 两种后端实现。Python 适合快速上手，Go 适合资源受限和高并发场景。',
+        workflowLabel: 'Workflow',
+        workflowTitle: '三步搞定',
+        s1Title: '安装扩展',
+        s1Desc: 'Chrome Web Store 一键安装，或开发模式加载。配置服务器地址即可。',
+        s2Title: '启动后端',
+        s2Desc: 'Python 或 Go，一行命令启动。服务端做消息路由，解析在浏览器端完成。',
+        s3Title: '抓取内容',
+        s3Desc: '通过 HTTP API 或 MCP 工具调用，浏览器自动打开页面、解析内容、返回 Markdown。',
+        ctaTitle: '开始使用 Grabby',
+        ctaDesc: '开源免费，MIT 协议。支持 macOS / Windows / Linux，Chrome 浏览器即可。',
+        ctaInstall: '安装 Chrome 扩展',
+        ctaGithub: 'View on GitHub',
+        meta1: 'MIT License',
+        meta2: 'Python + Go',
+        meta3: 'Chrome Extension',
+      },
+      setup: {
+        title: '使用指南',
+        subtitle: '从安装到运行，完整的 Grabby 配置流程。',
+        prerequisites: '前置要求',
+        reqChrome: 'Chrome 浏览器（或基于 Chromium 的浏览器）',
+        reqNode: 'Node.js — 用于构建浏览器扩展',
+        reqPython: 'Python 3.13+ 或 Go 1.23+ — 后端运行环境（二选一）',
+        step1: '1. 克隆项目',
+        step2: '2. 安装浏览器扩展',
+        method1: '方式一：Chrome 网上应用店（推荐）',
+        method1Desc: '一键安装，自动更新。',
+        installExt: '安装 Grabby 扩展',
+        method2: '方式二：开发模式加载',
+        method2Desc: '如果你需要修改源码或进行开发调试：',
+        dev1: '打开 Chrome，访问 chrome://extensions',
+        dev2: '开启右上角 "开发者模式"',
+        dev3: '点击 "加载已解压的扩展程序"',
+        dev4: '选择项目中的 chrome-extension/ 目录',
+        step3: '3. 安装后端服务',
+        pythonTitle: 'Python 后端（推荐新手）',
+        pythonDesc: '使用 uv 包管理器一键运行：',
+        pythonNote: '服务默认监听 http://localhost:5040',
+        goTitle: 'Go 后端（推荐资源受限环境）',
+        step4: '4. 配置扩展',
+        cfg1: '点击 Chrome 工具栏的 Grabby 图标',
+        cfg2: '选择 选项 / Options',
+        cfg3: '配置以下参数：',
+        cfgWs: 'WebSocket 地址：ws://localhost:5040/ws_browser?conn_id=browser-tools',
+        cfgKey: 'API Key：与服务器 .env 中的 API_KEY 一致（未配置则留空）',
+        cfgOk: '看到 "连接状态：已连接" 即表示成功',
+        step5: '5. 验证安装',
+        health: '健康检查',
+        testExtract: '测试提取',
+        step6: '6. 配置 Claude Desktop',
+        claudeDesc: '在 Claude Desktop 的配置文件中添加 Grabby MCP Server：',
+        claudeNote: '配置文件位置：~/Library/Application Support/Claude/claude_desktop_config.json (macOS)',
+        troubleshoot: '常见问题',
+        ts1Title: '扩展无法连接服务器',
+        ts1: '确认后端服务已启动',
+        ts2: '检查 WebSocket 地址和端口是否正确',
+        ts3: '确认 API 密钥与服务器 .env 中的配置一致',
+        ts4: '检查防火墙是否放行端口',
+        ts2Title: 'Python 依赖安装失败',
+        ts2Desc: '推荐使用 uv 替代 pip，uv 会自动创建虚拟环境并解析依赖。',
+        ts3Title: 'Go 编译失败',
+        ts3Desc: '确保 Go 版本 >= 1.23。如果模块下载失败，设置代理：go env -w GOPROXY=https://goproxy.cn,direct',
+      },
+      api: {
+        title: 'API 参考',
+        subtitle: 'Grabby 提供 HTTP REST API、MCP 工具和 WebSocket 协议三套接口。',
+        toc: '目录',
+        basics: '基础信息',
+        auth: '认证',
+        authDesc: '当后端配置了 API_KEY 时，所有请求需在 header 中携带 X-API-Key。API_KEY 留空时关闭认证。',
+        extractTitle: '提取指定 URL 的网页内容并返回 Markdown。',
+        requestExample: '请求示例',
+        params: '请求参数',
+        successResp: '成功响应 (200)',
+        errorResp: '错误响应',
+        healthDesc: '健康检查端点。',
+        browsersDesc: '获取当前已连接的浏览器列表。',
+        registerDesc: '注册一个新的浏览器实例。浏览器在通过 WebSocket 连接之前需要先注册。',
+        mcpTitle: 'MCP 工具',
+        mcpDesc: 'MCP Server 挂载在 http://localhost:5040/mcp，使用 SSE 传输。可被 Claude Desktop、Cursor 等 AI Agent 直接调用。',
+        extractTool: '提取指定网页的内容并返回 Markdown。',
+        screenshotTool: '捕获指定网页的截图。',
+        otherTools: '其他工具',
+        wsTitle: 'WebSocket 协议',
+        wsEndpoints: '连接端点',
+        wsMsgFormat: '消息格式',
+        wsReqLabel: '服务端发送给浏览器的请求消息：',
+        wsRespLabel: '浏览器返回的响应消息：',
+        errors: '错误码',
+        httpCodes: 'HTTP 状态码',
+        wsCodes: 'WebSocket 关闭码',
+      },
+    },
+    en: {
+      lang: 'en',
+      langLabel: '中文',
+      langSwitch: '切换到中文',
+      nav: { features: 'Features', setup: 'Setup', api: 'API', github: 'GitHub', install: 'Install' },
+      footer: { home: 'Home', setup: 'Setup', api: 'API' },
+      home: {
+        badge: 'v1.0.0 — Chrome Extension + MCP Server',
+        heroLine1: 'URL',
+        heroLine2: 'to Markdown',
+        heroLine3: 'in seconds.',
+        heroDesc: 'Grabby converts any webpage to clean Markdown using a real Chrome browser. Supports JS rendering, authenticated pages, full-page screenshots, and AI Agent MCP integration.',
+        install: 'Install Extension',
+        setup: 'Setup Guide →',
+        featuresLabel: 'Features',
+        featuresTitle: 'Why Grabby',
+        featuresDesc: 'Unlike simple HTTP requests, Grabby renders pages in a real browser — no problem with JS-heavy sites or login walls.',
+        f1Title: 'Real Browser Rendering',
+        f1Desc: 'Pages are loaded in Chrome with full JS execution. SPAs, lazy-loaded content — all captured. Not a simple HTTP fetch.',
+        f2Title: 'Smart Content Extraction',
+        f2Desc: 'Powered by defuddle to auto-detect main content, strip ads and navigation, output clean Markdown with code blocks, tables, and math.',
+        f3Title: 'Full-Page Screenshots',
+        f3Desc: 'Capture visible area, full scrolling page, or custom regions. Outputs Base64 PNG, ready to use.',
+        f4Title: 'AI Agent Integration',
+        f4Desc: 'Native MCP protocol support. Claude, Cursor and other AI tools can directly call extract and screenshot tools.',
+        f5Title: 'Reuse Browser Sessions',
+        f5Desc: 'The extension uses your browser\'s cookies and sessions. Pages behind login walls just work — no cookie config needed.',
+        f6Title: 'Dual Backend',
+        f6Desc: 'Python (FastAPI) and Go backends with identical features. Python for quick starts, Go for high concurrency.',
+        workflowLabel: 'Workflow',
+        workflowTitle: 'Three Steps',
+        s1Title: 'Install Extension',
+        s1Desc: 'One-click install from Chrome Web Store, or load in dev mode. Configure server address and you\'re set.',
+        s2Title: 'Start Backend',
+        s2Desc: 'Python or Go, one command to start. The server routes messages, browser does the parsing.',
+        s3Title: 'Grab Content',
+        s3Desc: 'Call via HTTP API or MCP tools. The browser opens the page, parses content, returns Markdown.',
+        ctaTitle: 'Get Started with Grabby',
+        ctaDesc: 'Open source, MIT license. Works on macOS / Windows / Linux with Chrome.',
+        ctaInstall: 'Install Chrome Extension',
+        ctaGithub: 'View on GitHub',
+        meta1: 'MIT License',
+        meta2: 'Python + Go',
+        meta3: 'Chrome Extension',
+      },
+      setup: {
+        title: 'Setup Guide',
+        subtitle: 'Complete guide from installation to running Grabby.',
+        prerequisites: 'Prerequisites',
+        reqChrome: 'Chrome browser (or Chromium-based browser)',
+        reqNode: 'Node.js — for building the browser extension',
+        reqPython: 'Python 3.13+ or Go 1.23+ — backend runtime (choose one)',
+        step1: '1. Clone Project',
+        step2: '2. Install Browser Extension',
+        method1: 'Option 1: Chrome Web Store (Recommended)',
+        method1Desc: 'One-click install, auto-updates.',
+        installExt: 'Install Grabby Extension',
+        method2: 'Option 2: Developer Mode',
+        method2Desc: 'If you need to modify the source code or debug:',
+        dev1: 'Open Chrome and visit chrome://extensions',
+        dev2: 'Enable "Developer mode" in the top right',
+        dev3: 'Click "Load unpacked"',
+        dev4: 'Select the chrome-extension/ directory',
+        step3: '3. Install Backend',
+        pythonTitle: 'Python Backend (Recommended for beginners)',
+        pythonDesc: 'Run with uv package manager in one command:',
+        pythonNote: 'Server listens on http://localhost:5040 by default',
+        goTitle: 'Go Backend (For resource-constrained environments)',
+        step4: '4. Configure Extension',
+        cfg1: 'Click the Grabby icon in the Chrome toolbar',
+        cfg2: 'Select Options',
+        cfg3: 'Configure the following:',
+        cfgWs: 'WebSocket URL: ws://localhost:5040/ws_browser?conn_id=browser-tools',
+        cfgKey: 'API Key: Must match the API_KEY in server .env (leave empty if not configured)',
+        cfgOk: 'You should see "Connection Status: Connected"',
+        step5: '5. Verify Installation',
+        health: 'Health Check',
+        testExtract: 'Test Extract',
+        step6: '6. Configure Claude Desktop',
+        claudeDesc: 'Add the Grabby MCP Server to your Claude Desktop config:',
+        claudeNote: 'Config location: ~/Library/Application Support/Claude/claude_desktop_config.json (macOS)',
+        troubleshoot: 'Troubleshooting',
+        ts1Title: 'Extension can\'t connect to server',
+        ts1: 'Make sure the backend server is running',
+        ts2: 'Check the WebSocket address and port',
+        ts3: 'Verify the API key matches the server .env',
+        ts4: 'Check firewall settings',
+        ts2Title: 'Python dependency install fails',
+        ts2Desc: 'Use uv instead of pip — it auto-creates venv and resolves dependencies.',
+        ts3Title: 'Go build fails',
+        ts3Desc: 'Ensure Go version >= 1.23. Set proxy if module download fails: go env -w GOPROXY=https://goproxy.cn,direct',
+      },
+      api: {
+        title: 'API Reference',
+        subtitle: 'Grabby provides HTTP REST API, MCP tools, and WebSocket protocol.',
+        toc: 'Contents',
+        basics: 'Basics',
+        auth: 'Authentication',
+        authDesc: 'When API_KEY is configured, all requests must include X-API-Key header. Leave empty to disable auth.',
+        extractTitle: 'Extract the webpage content at the given URL and return Markdown.',
+        requestExample: 'Request Example',
+        params: 'Parameters',
+        successResp: 'Success Response (200)',
+        errorResp: 'Error Responses',
+        healthDesc: 'Health check endpoint.',
+        browsersDesc: 'Get the list of currently connected browsers.',
+        registerDesc: 'Register a new browser instance. Must register before connecting via WebSocket.',
+        mcpTitle: 'MCP Tools',
+        mcpDesc: 'MCP Server mounted at http://localhost:5040/mcp, using SSE transport. Directly callable by Claude Desktop, Cursor, and other AI agents.',
+        extractTool: 'Extract webpage content and return Markdown.',
+        screenshotTool: 'Capture a screenshot of the specified webpage.',
+        otherTools: 'Other Tools',
+        wsTitle: 'WebSocket Protocol',
+        wsEndpoints: 'Endpoints',
+        wsMsgFormat: 'Message Format',
+        wsReqLabel: 'Request message (server → browser):',
+        wsRespLabel: 'Response message (browser → server):',
+        errors: 'Error Codes',
+        httpCodes: 'HTTP Status Codes',
+        wsCodes: 'WebSocket Close Codes',
+      },
+    },
+  };
+
+  function detectLang() {
+    try {
+      const stored = localStorage.getItem('grabby-lang');
+      if (stored && I18N[stored]) return stored;
+      const bl = navigator.language || '';
+      if (bl.startsWith('zh')) return 'zh-CN';
+      if (bl.startsWith('en')) return 'en';
+    } catch (e) {}
+    return 'zh-CN';
+  }
+
+  let currentLang = detectLang();
+
+  function t(path: string) {
+    const keys = path.split('.');
+    let val: any = I18N[currentLang];
+    for (const k of keys) {
+      if (val == null) return path;
+      val = val[k];
+    }
+    return val != null && typeof val === 'string' ? val : path;
+  }
+
+  function applyTranslations() {
+    document.documentElement.lang = currentLang;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const text = t(el.getAttribute('data-i18n') || '');
+      if (text && typeof text === 'string') el.textContent = text;
+    });
+    document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+      const text = t(el.getAttribute('data-i18n-placeholder') || '');
+      if (text && typeof text === 'string') el.setAttribute('placeholder', text);
+    });
+
+    const desc = document.querySelector('meta[name="description"]');
+    const pageType = document.body.getAttribute('data-page') || 'home';
+    const titleMap: Record<string, Record<string, string>> = {
+      home: { 'zh-CN': 'Grabby — URL 转 Markdown，真实浏览器驱动 | 网页内容采集', en: 'Grabby — URL to Markdown, powered by real browser | Web Content Capture' },
+      setup: { 'zh-CN': 'Grabby 使用指南 — 安装与配置', en: 'Grabby Setup Guide — Installation & Configuration' },
+      api: { 'zh-CN': 'Grabby API 参考 — HTTP、MCP 与 WebSocket', en: 'Grabby API Reference — HTTP, MCP & WebSocket' },
+    };
+    if (titleMap[pageType]?.[currentLang]) document.title = titleMap[pageType][currentLang];
+
+    const switchBtn = document.querySelector('.lang-switch');
+    if (switchBtn) {
+      switchBtn.textContent = t('langLabel');
+      switchBtn.setAttribute('aria-label', t('langSwitch'));
+    }
+
+    try { localStorage.setItem('grabby-lang', currentLang); } catch (e) {}
+  }
+
+  function switchLang() {
+    currentLang = currentLang === 'zh-CN' ? 'en' : 'zh-CN';
+    applyTranslations();
+  }
+
+  // --- Theme ---
   function getTheme() {
     try {
       const stored = localStorage.getItem('grabby-theme');
@@ -72,7 +366,7 @@ const { page } = Astro.props;
     return 'dark';
   }
 
-  function applyTheme(theme) {
+  function applyTheme(theme: string) {
     if (theme === 'dark') {
       document.documentElement.classList.add('dark');
     } else {
@@ -96,11 +390,14 @@ const { page } = Astro.props;
       });
     }
 
-    // Theme toggle
+    applyTranslations();
+
+    const langBtn = document.querySelector('.lang-switch');
+    if (langBtn) langBtn.addEventListener('click', switchLang);
+
     const themeBtn = document.querySelector('.theme-toggle');
     if (themeBtn) themeBtn.addEventListener('click', toggleTheme);
 
-    // Mobile nav
     const toggle = document.querySelector('.nav-toggle');
     const links = document.querySelector('.nav-links');
     if (toggle && links) {
@@ -109,14 +406,13 @@ const { page } = Astro.props;
         toggle.setAttribute('aria-expanded', String(open));
       });
       links.addEventListener('click', (e) => {
-        if (e.target.tagName === 'A') {
+        if ((e.target as Element).tagName === 'A') {
           links.classList.remove('!flex');
           toggle.setAttribute('aria-expanded', 'false');
         }
       });
     }
 
-    // Fade-in on scroll
     const observer = new IntersectionObserver(
       (entries) => {
         entries.forEach(entry => {
