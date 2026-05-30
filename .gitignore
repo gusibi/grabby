@@ -26,6 +26,10 @@ wheels/
 # Node
 node_modules/
 
+# Go
+vendor/
+go-server/go-server
+
 # Astro / Site
 .astro/
 site/dist/
