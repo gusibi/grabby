@@ -3,7 +3,7 @@ name: Release Grabby CLI
 on:
   push:
     tags:
-      - "grabby-v*"
+      - "v*"
 
 permissions:
   contents: write
