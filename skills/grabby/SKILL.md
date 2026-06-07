@@ -16,24 +16,29 @@ command -v grabby
 ```
 
 - **找到** → `grabby` 命令可用，继续下一步
-- **未找到** → 检查项目本地是否有编译好的二进制：
+- **未找到** → 按照以下步骤下载源码并完成安装：
 
-```bash
-ls ./go-cli/grabby
-```
-
-- **本地存在** → 使用 `./go-cli/grabby` 代替 `grabby`
-- **本地也不存在** → 提示用户安装：
-
-  ```bash
-  # 使用安装脚本（仅下载二进制，无需源码，推荐）
-  curl -fsSL https://raw.githubusercontent.com/gusibi/mcp-web-capture/main/scripts/install.sh | bash
-
-  # 或者已有二进制时安装自身
-  ./go-cli/grabby install
-  ```
-
-  `grabby install` 仅下载 Go 编译的二进制文件，无需 Python 或 Go 运行环境。
+  1. **克隆源码仓库**（若本地还没有源码）：
+     ```bash
+     git clone https://github.com/gusibi/mcp-web-capture.git ~/.grabby/src
+     ```
+  2. **进入源码目录**：
+     ```bash
+     cd ~/.grabby/src
+     # 注：若已经处于克隆好的本地项目根目录下，直接在根目录执行即可
+     ```
+  3. **选择安装方式并运行**：
+     - **推荐：安装 Python 版本 CLI** (免编译，适合 macOS，直接执行脚本)：
+       ```bash
+       python3 scripts/install.py --type python
+       ```
+     - **安装 Go 版本 CLI** (在本地基于源码编译)：
+       - 先执行 `command -v go` 检查是否有 Go 环境。
+       - 若无 Go 环境，提示用户先安装 Go 编译器（如 macOS 可使用 `brew install go`，或访问 https://go.dev/doc/install ）。
+       - 拥有 Go 环境后，执行编译安装：
+         ```bash
+         python3 scripts/install.py --type go
+         ```
 
 ### 2. 确定 grabby 命令
 
@@ -114,13 +119,13 @@ grabby start go
 ## 完整安装流程
 
 ```bash
-# 1. 安装 grabby CLI
-curl -fsSL https://raw.githubusercontent.com/gusibi/mcp-web-capture/main/scripts/install.sh | bash
+# 1. 安装 grabby CLI (推荐 Python 脚本版本以避免安全策略拦截)
+python3 scripts/install.py --type python
 
 # 2. 验证安装
 grabby --version
 
-# 3. 启动服务
+# 3. 启动服务 (根据需要选择 python 或 go 后端)
 grabby start python
 
 # 4. 检查状态

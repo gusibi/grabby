@@ -82,6 +82,9 @@ var browsersRegisterCmd = &cobra.Command{
 		if success, _ := data["success"].(bool); !success {
 			detail, _ := data["detail"].(string)
 			if detail == "" {
+				detail, _ = data["error"].(string)
+			}
+			if detail == "" {
 				detail = "注册失败"
 			}
 			output := map[string]any{"error": detail, "exit_code": 3}

@@ -76,7 +76,7 @@ func main() {
 
 		var req BrowserRegisterRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
 			return
 		}
 
@@ -87,7 +87,7 @@ func main() {
 				status = http.StatusConflict
 			}
 			logger.Warn("Browser registration failed", zap.Error(err))
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), status)
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), status)
 			return
 		}
 
@@ -108,14 +108,14 @@ func main() {
 
 		var req ExtractAPIRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
 			return
 		}
 
 		browserConnID, err := wsManager.ResolveBrowserConnID(req.Browser)
 		if err != nil {
 			logger.Warn("Browser not found", zap.String("browser", req.Browser), zap.Error(err))
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusServiceUnavailable)
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -130,13 +130,13 @@ func main() {
 		}, browserConnID)
 		if err != nil {
 			logger.Error("Extract operation failed", zap.Error(err))
-			http.Error(w, fmt.Sprintf(`{"error":"%s"}`, err.Error()), http.StatusGatewayTimeout)
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusGatewayTimeout)
 			return
 		}
 
 		if !resp.Success {
 			logger.Error("Browser extension returned error", zap.String("error", resp.Error))
-			http.Error(w, fmt.Sprintf(`{"error":"Browser extension error: %s"}`, resp.Error), http.StatusBadGateway)
+			http.Error(w, fmt.Sprintf(`{"detail":"Browser extension error: %s"}`, resp.Error), http.StatusBadGateway)
 			return
 		}
 
@@ -145,6 +145,57 @@ func main() {
 			URL:      firstNonEmpty(resp.Result.URL, req.URL),
 			Title:    firstNonEmpty(resp.Result.Title, resp.Result.Content.Title),
 			Markdown: resp.Result.Content.MarkdownContent(),
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(out)
+	})
+
+	// API Screenshot endpoint
+	mux.HandleFunc("/api/screenshot", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, `{"detail":"Method not allowed"}`, http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req ScreenshotAPIRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		browserConnID, err := wsManager.ResolveBrowserConnID(req.Browser)
+		if err != nil {
+			logger.Warn("Browser not found", zap.String("browser", req.Browser), zap.Error(err))
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusServiceUnavailable)
+			return
+		}
+
+		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(settings.APIExtractTimeout*float64(time.Second)))
+		defer cancel()
+
+		resp, err := wsManager.SendMessage(ctx, &BrowserRequest{
+			Source:   "http_api",
+			Action:   "mcp_request",
+			Command:  "capture",
+			URL:      req.URL,
+			FullPage: req.FullPage,
+		}, browserConnID)
+		if err != nil {
+			logger.Error("Screenshot operation failed", zap.Error(err))
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusGatewayTimeout)
+			return
+		}
+
+		if !resp.Success {
+			logger.Error("Browser extension returned error", zap.String("error", resp.Error))
+			http.Error(w, fmt.Sprintf(`{"detail":"Browser extension error: %s"}`, resp.Error), http.StatusBadGateway)
+			return
+		}
+
+		out := ScreenshotAPIResponse{
+			Success:   true,
+			URL:       firstNonEmpty(resp.Result.URL, req.URL),
+			ImageData: resp.Result.ImageData,
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)

@@ -169,6 +169,12 @@ class ExtractRequest(BaseModel):
     browser: Optional[str] = None  # 浏览器名称，为空时使用默认浏览器
 
 
+class ScreenshotRequest(BaseModel):
+    url: str
+    fullPage: bool = False
+    browser: Optional[str] = None
+
+
 class BrowserRegisterRequest(BaseModel):
     connect_id: str
     name: str
@@ -392,6 +398,59 @@ async def api_extract(request: ExtractRequest):
         raise
     except Exception as e:
         logger.error(f"提取操作失败: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
+
+
+@app.post("/api/screenshot")
+async def api_screenshot(request: ScreenshotRequest):
+    """
+    网页截图并返回 Base64 编码的图片数据
+
+    - **url**: 要截图的网页 URL
+    - **fullPage**: 是否截取整页 (默认 False)
+    - **browser**: 浏览器名称（可选，为空时使用默认浏览器）
+    """
+    try:
+        browser_conn_id = ws_manager.resolve_browser_conn_id(request.browser)
+    except ConnectionError as e:
+        logger.warning(f"浏览器不可用: {e}")
+        raise HTTPException(status_code=503, detail=str(e))
+
+    try:
+        logger.info(f"HTTP API 请求截图: {request.url} browser={request.browser} fullPage={request.fullPage}")
+        response = await ws_manager.send_message(
+            {
+                "source": "http_api",
+                "action": "mcp_request",
+                "command": "capture",
+                "url": request.url,
+                "fullPage": request.fullPage,
+            },
+            target_conn_id=browser_conn_id,
+            timeout=settings.api_extract_timeout,
+        )
+
+        if not response.get("success"):
+            error_msg = response.get("error", "截图失败")
+            logger.error(f"浏览器扩展返回错误: {error_msg}")
+            raise HTTPException(status_code=502, detail=f"浏览器扩展错误: {error_msg}")
+
+        result = response.get("result", {})
+        image_data = result.get("imageData", "")
+
+        return {
+            "success": True,
+            "url": result.get("url", request.url),
+            "imageData": image_data,
+        }
+
+    except ConnectionError as e:
+        logger.error(f"截图操作连接错误: {e}")
+        raise HTTPException(status_code=504, detail=f"截图超时或连接断开: {str(e)}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"截图操作失败: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"服务器内部错误: {str(e)}")
 
 

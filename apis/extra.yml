@@ -9,11 +9,13 @@ http:
   headers:
     - name: Content-Type
       value: application/json
+    - name: X-API-Key
+      value: your_api_key
   body:
     type: json
     data: |-
       {
-        "url": "https://momo.eztoolab.com/guide/"
+        "url": "https://x.com/Summer_trading/status/2058510963750690890"
       }
   auth: inherit
 

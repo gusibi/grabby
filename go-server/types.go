@@ -93,6 +93,20 @@ type ExtractAPIResponse struct {
 	Markdown string `json:"markdown"`
 }
 
+// ScreenshotAPIRequest is the POST /api/screenshot request body.
+type ScreenshotAPIRequest struct {
+	URL      string `json:"url"`
+	FullPage bool   `json:"fullPage"`
+	Browser  string `json:"browser,omitempty"`
+}
+
+// ScreenshotAPIResponse is the POST /api/screenshot response body.
+type ScreenshotAPIResponse struct {
+	Success   bool   `json:"success"`
+	URL       string `json:"url"`
+	ImageData string `json:"imageData"`
+}
+
 // HealthResponse is the GET /api/health response body.
 type HealthResponse struct {
 	Status           string    `json:"status"`

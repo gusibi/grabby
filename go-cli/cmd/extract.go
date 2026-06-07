@@ -55,6 +55,9 @@ var extractCmd = &cobra.Command{
 			json.Unmarshal(respBody, &errResp)
 			detail, _ := errResp["detail"].(string)
 			if detail == "" {
+				detail, _ = errResp["error"].(string)
+			}
+			if detail == "" {
 				detail = "提取失败"
 			}
 			output := map[string]any{"error": detail, "exit_code": 3}

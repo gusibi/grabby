@@ -147,11 +147,19 @@ func startPython(projectDir string) {
 	}
 	json.NewEncoder(os.Stdout).Encode(output)
 
-	cmd := exec.Command("python3", mainPy)
-	// Set working directory to ~/.grabby/ so pydantic-settings loads .env from there
-	cmd.Dir = configDir
-	// Also pass the env vars explicitly
-	cmd.Env = mergeEnv(loadEnvFile())
+	var cmd *exec.Cmd
+	mergedEnv := mergeEnv(loadEnvFile())
+
+	if uvPath, err := exec.LookPath("uv"); err == nil {
+		cmd = exec.Command(uvPath, "run", "python", "main.py")
+	} else if _, err := os.Stat(filepath.Join(projectDir, ".venv", "bin", "python")); err == nil {
+		cmd = exec.Command(filepath.Join(projectDir, ".venv", "bin", "python"), "main.py")
+	} else {
+		cmd = exec.Command("python3", "main.py")
+	}
+
+	cmd.Dir = serverDir
+	cmd.Env = mergedEnv
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
 	cmd.Stdin = os.Stdin

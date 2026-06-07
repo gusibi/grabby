@@ -39,6 +39,9 @@ site/dist/
 *.pem
 chrome-extension/icons/temp_svgs/
 
+# GoReleaser
+dist/
+
 # IDE
 .vscode/
 .idea/
@@ -46,6 +49,10 @@ chrome-extension/icons/temp_svgs/
 *.swo
 *~
 .DS_Store
+
+# AI Tools
+.claude/
+.antigravitycli/
 
 # Environment
 .env

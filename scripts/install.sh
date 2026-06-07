@@ -12,6 +12,19 @@ BINARY="grabby"
 INSTALL_DIR="${GRABBY_INSTALL_DIR:-${HOME}/.local/bin}"
 CONFIG_DIR="${HOME}/.grabby"
 
+# 1. 如果是在本地克隆的仓库中执行，且有 python3，则直接委托给 install.py
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd || true)"
+if [ -f "${SCRIPT_DIR}/install.py" ] && command -v python3 &>/dev/null; then
+  echo "🚀 检测到本地安装脚本，正在通过 python3 scripts/install.py 安装..."
+  exec python3 "${SCRIPT_DIR}/install.py" "$@"
+fi
+
+# 2. 如果是 curl|bash 执行，提示用户克隆仓库是更好的选择
+echo "💡 提示：运行 Grabby 服务需要项目源码（python-server/ 或 go-server/）。"
+echo "   推荐先克隆项目，然后在项目目录内运行：python3 scripts/install.py"
+echo "   克隆命令：git clone https://github.com/${REPO}.git"
+echo ""
+
 # Detect OS and ARCH
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
