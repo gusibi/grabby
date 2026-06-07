@@ -6,12 +6,55 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// RateLimiter controls request frequency using a token bucket algorithm.
+type RateLimiter struct {
+	mu       sync.Mutex
+	tokens   float64
+	maxToken float64
+	refill   float64 // tokens added per second
+	lastTime time.Time
+}
+
+// NewRateLimiter creates a rate limiter that allows maxPerMinute requests per minute.
+func NewRateLimiter(maxPerMinute int) *RateLimiter {
+	return &RateLimiter{
+		tokens:   float64(maxPerMinute),
+		maxToken: float64(maxPerMinute),
+		refill:   float64(maxPerMinute) / 60.0,
+		lastTime: time.Now(),
+	}
+}
+
+// Wait blocks until a token is available.
+func (r *RateLimiter) Wait() {
+	for {
+		r.mu.Lock()
+		now := time.Now()
+		elapsed := now.Sub(r.lastTime).Seconds()
+		r.lastTime = now
+		r.tokens += elapsed * r.refill
+		if r.tokens > r.maxToken {
+			r.tokens = r.maxToken
+		}
+		if r.tokens >= 1 {
+			r.tokens--
+			r.mu.Unlock()
+			return
+		}
+		waitTime := time.Duration((1 - r.tokens) / r.refill * float64(time.Second))
+		r.mu.Unlock()
+		time.Sleep(waitTime)
+	}
+}
 
 // LMStudioClient directly calls LM Studio's OpenAI-compatible API,
 // bypassing Genkit to avoid response_format issues.
@@ -109,7 +152,10 @@ var analysisResponseSchema = json.RawMessage(`{
 
 // GenerateWithSchema sends a prompt to LM Studio with optional structured output.
 // If schema is non-nil, uses response_format json_schema to force valid JSON.
+// Automatically retries on 429 errors with exponential backoff.
 func (c *LMStudioClient) GenerateWithSchema(ctx context.Context, prompt string, schema *json.RawMessage) (string, error) {
+	const maxRetries = 5
+
 	reqBody := chatRequest{
 		Model: c.model,
 		Messages: []chatMessage{
@@ -130,47 +176,69 @@ func (c *LMStudioClient) GenerateWithSchema(ctx context.Context, prompt string, 
 	}
 
 	url := c.baseURL + "/v1/chat/completions"
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
-	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(body))
+		if err != nil {
+			return "", fmt.Errorf("failed to create request: %w", err)
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		c.logger.Debug("Calling LM Studio API",
+			zap.String("url", url),
+			zap.String("model", c.model),
+			zap.Int("attempt", attempt+1))
+
+		resp, err := c.httpClient.Do(req)
+		if err != nil {
+			return "", fmt.Errorf("LM Studio API request failed: %w", err)
+		}
+
+		respBody, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return "", fmt.Errorf("failed to read response: %w", err)
+		}
+
+		c.logger.Debug("LM Studio API response",
+			zap.Int("status", resp.StatusCode),
+			zap.String("body", string(respBody)))
+
+		// Handle 429 Too Many Requests with exponential backoff
+		if resp.StatusCode == http.StatusTooManyRequests {
+			waitSec := int(math.Pow(2, float64(attempt+1))) // 2, 4, 8, 16, 32 seconds
+			c.logger.Warn("Rate limited (429), retrying after wait",
+				zap.Int("attempt", attempt+1),
+				zap.Int("wait_seconds", waitSec))
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(time.Duration(waitSec) * time.Second):
+			}
+			continue
+		}
+
+		if resp.StatusCode != http.StatusOK {
+			return "", fmt.Errorf("LM Studio API error (status %d): %s", resp.StatusCode, string(respBody))
+		}
+
+		var chatResp chatResponse
+		if err := json.Unmarshal(respBody, &chatResp); err != nil {
+			return "", fmt.Errorf("failed to parse response: %w", err)
+		}
+
+		if errMsg := chatResp.errorText(); errMsg != "" {
+			return "", fmt.Errorf("LM Studio error: %s", errMsg)
+		}
+
+		if len(chatResp.Choices) == 0 {
+			return "", fmt.Errorf("LM Studio returned no choices")
+		}
+
+		return StripMarkdownFences(chatResp.Choices[0].Message.Content), nil
 	}
-	req.Header.Set("Content-Type", "application/json")
 
-	c.logger.Debug("Calling LM Studio API", zap.String("url", url), zap.String("model", c.model))
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return "", fmt.Errorf("LM Studio API request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	c.logger.Debug("LM Studio API response",
-		zap.Int("status", resp.StatusCode),
-		zap.String("body", string(respBody)))
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("LM Studio API error (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	var chatResp chatResponse
-	if err := json.Unmarshal(respBody, &chatResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if errMsg := chatResp.errorText(); errMsg != "" {
-		return "", fmt.Errorf("LM Studio error: %s", errMsg)
-	}
-
-	if len(chatResp.Choices) == 0 {
-		return "", fmt.Errorf("LM Studio returned no choices")
-	}
-
-	return StripMarkdownFences(chatResp.Choices[0].Message.Content), nil
+	return "", fmt.Errorf("rate limit exceeded after %d retries", maxRetries)
 }
 
 // StripMarkdownFences removes ```json ... ``` wrappers that some LLMs add.

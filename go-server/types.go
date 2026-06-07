@@ -281,14 +281,15 @@ type AISettings struct {
 
 // AIProviderProfile stores one selectable AI provider connection profile.
 type AIProviderProfile struct {
-	ID       string `json:"id"`
-	Name     string `json:"name"`
-	Provider string `json:"provider"`
-	APIKey   string `json:"api_key"`
-	Model    string `json:"model"`
-	BaseURL  string `json:"base_url"`
-	Disabled bool   `json:"disabled"` // skip this profile in multi-profile strategies
-	Priority int    `json:"priority"` // lower = higher priority (for failover ordering)
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Provider           string `json:"provider"`
+	APIKey             string `json:"api_key"`
+	Model              string `json:"model"`
+	BaseURL            string `json:"base_url"`
+	Disabled           bool   `json:"disabled"`             // skip this profile in multi-profile strategies
+	Priority           int    `json:"priority"`             // lower = higher priority (for failover ordering)
+	RequestsPerMinute  int    `json:"requests_per_minute"`  // per-profile rate limit; 0 = default (10/min)
 }
 
 const DefaultSystemPrompt = `你是一位资深内容 analysis 和筛选专家。请对以下资讯进行深度分析：
@@ -360,6 +361,10 @@ func NormalizeAISettings(settings AISettings) AISettings {
 		// Assign default priority if unset (0 means unset, assign i+1)
 		if settings.Profiles[i].Priority <= 0 {
 			settings.Profiles[i].Priority = i + 1
+		}
+		// Assign default requests_per_minute if unset (0 means use default 10)
+		if settings.Profiles[i].RequestsPerMinute <= 0 {
+			settings.Profiles[i].RequestsPerMinute = 10
 		}
 		if strings.ToLower(settings.Profiles[i].Provider) == "custom" && settings.Profiles[i].Model != "" {
 			if !strings.HasPrefix(strings.ToLower(settings.Profiles[i].Model), "custom/") {

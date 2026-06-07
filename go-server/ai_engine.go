@@ -28,9 +28,10 @@ type AIAnalysisResult struct {
 
 // profileClient holds an initialized client for a single profile.
 type profileClient struct {
-	profile  AIProviderProfile
-	genkit   *genkit.Genkit   // non-nil for gemini/openai/custom
-	lmstudio *LMStudioClient  // non-nil for lmstudio
+	profile     AIProviderProfile
+	genkit      *genkit.Genkit   // non-nil for gemini/openai/custom
+	lmstudio    *LMStudioClient  // non-nil for lmstudio
+	rateLimiter *RateLimiter     // per-profile rate limiter for all providers
 }
 
 // AIEngine handles queueing and executing AI analysis requests.
@@ -97,10 +98,20 @@ func (e *AIEngine) initClients(settings AISettings) error {
 
 // buildClient creates a profileClient for a single profile.
 func (e *AIEngine) buildClient(p AIProviderProfile) (*profileClient, error) {
-	pc := &profileClient{profile: p}
+	rpm := p.RequestsPerMinute
+	if rpm <= 0 {
+		rpm = 10
+	}
+	pc := &profileClient{
+		profile:     p,
+		rateLimiter: NewRateLimiter(rpm),
+	}
 	if strings.ToLower(p.Provider) == "lmstudio" {
 		pc.lmstudio = NewLMStudioClient(p.BaseURL, p.Model, e.logger)
-		e.logger.Info("Initialized LM Studio client", zap.String("profile", p.Name), zap.String("base_url", p.BaseURL))
+		e.logger.Info("Initialized LM Studio client",
+			zap.String("profile", p.Name),
+			zap.String("base_url", p.BaseURL),
+			zap.Int("requests_per_minute", rpm))
 	} else {
 		g, err := e.initGenkit(AISettings{
 			Enabled:  true,
@@ -203,10 +214,8 @@ func (e *AIEngine) ReloadSettings(settings AISettings) error {
 	if !oldEnabled && settings.Enabled && !e.activeWorkers {
 		e.logger.Info("AI Engine was enabled. Starting workers...")
 		e.activeWorkers = true
-		for i := 0; i < 2; i++ {
-			e.wg.Add(1)
-			go e.workerLoop(i)
-		}
+		e.wg.Add(1)
+		go e.workerLoop(0)
 		go e.backfillLoop()
 	}
 
@@ -229,11 +238,9 @@ func (e *AIEngine) Start() {
 	)
 
 	e.activeWorkers = true
-	// Start 2 concurrent workers
-	for i := 0; i < 2; i++ {
-		e.wg.Add(1)
-		go e.workerLoop(i)
-	}
+	// Start a single worker to avoid concurrent rate limit issues
+	e.wg.Add(1)
+	go e.workerLoop(0)
 
 	// Start backfill check
 	go e.backfillLoop()
@@ -406,7 +413,11 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 }
 
 // callProfile invokes the appropriate client for a profile.
+// Applies per-profile rate limiting before the request.
 func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, prompt string) (string, error) {
+	// Per-profile rate limit: wait for a token before calling
+	pc.rateLimiter.Wait()
+
 	if pc.lmstudio != nil {
 		schema := json.RawMessage(analysisResponseSchema)
 		return pc.lmstudio.GenerateWithSchema(ctx, prompt, &schema)
