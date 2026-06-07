@@ -29,6 +29,8 @@ node_modules/
 # Go
 vendor/
 go-server/go-server
+go-server/grabby-server
+go-server/.tmp/
 
 # Astro / Site
 .astro/
@@ -67,6 +69,11 @@ venv.bak/
 *.log
 *.sqlite
 *.db
+*.db-shm
+*.db-wal
+
+# Artifacts
+*.artifact.json
 
 # System files
 Thumbs.db
@@ -79,3 +86,6 @@ browser_registry.json
 # Screenshots and outputs
 /output/
 /screenshots/
+
+# Generated HTML
+grabby-v2-complete-*.html

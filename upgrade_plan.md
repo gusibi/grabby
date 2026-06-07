@@ -207,7 +207,53 @@ CREATE TABLE IF NOT EXISTS fetch_logs (
 CREATE INDEX IF NOT EXISTS idx_logs_source ON fetch_logs(source_id, started_at DESC);
 ```
 
+### 4. AI 内容分析表 (`ai_analyses`)
+
+记录 AI 对每条抓取资讯进行的主观分析结果（智能分类、评分与摘要）：
+
+```sql
+CREATE TABLE IF NOT EXISTS ai_analyses (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL UNIQUE,          -- 关联 scraped_items.id
+    ai_category TEXT NOT NULL,                -- AI 智能分类（科技、AI、财经、国际、国内、社会等）
+    ai_subcategory TEXT,                      -- 二级细分分类（如 "AI/大模型"）
+    quality_score INTEGER NOT NULL,           -- 1-10 质量评分
+    ai_summary TEXT,                          -- AI 精炼摘要（100字以内）
+    ai_comment TEXT,                          -- AI 评价/推荐理由
+    ai_tags TEXT,                             -- AI 标签（英文逗号分隔）
+    model_used TEXT,                          -- 使用的 LLM 模型名
+    processed_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY(item_id) REFERENCES scraped_items(id) ON DELETE CASCADE
+);
+
+-- 索引：按分类筛选 + 评分排序
+CREATE INDEX IF NOT EXISTS idx_ai_category ON ai_analyses(ai_category, quality_score DESC);
+-- 索引：按评分筛选优质内容
+CREATE INDEX IF NOT EXISTS idx_ai_score ON ai_analyses(quality_score DESC, processed_at DESC);
+-- 索引：按处理时间
+CREATE INDEX IF NOT EXISTS idx_ai_processed ON ai_analyses(processed_at DESC);
+```
+
+### 5. AI 智能日报表 (`ai_daily_reports`)
+
+记录每日自动或手动触发生成的 Markdown 日报：
+
+```sql
+CREATE TABLE IF NOT EXISTS ai_daily_reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    report_date TEXT NOT NULL UNIQUE,         -- 日报日期，如 "2026-06-07"
+    title TEXT NOT NULL,                      -- 日报标题
+    content TEXT NOT NULL,                    -- 完整日报 Markdown 内容
+    total_items INTEGER DEFAULT 0,            -- 当日处理的总资讯数
+    quality_items INTEGER DEFAULT 0,          -- 入选日报的高分资讯数
+    categories_summary TEXT,                  -- 各分类占比 JSON 字符串，如 {"科技":12,"财经":8,...}
+    model_used TEXT,                          -- 使用的 LLM 模型名
+    generated_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+```
+
 ---
+
 
 ## 核心机制设计
 
@@ -646,50 +692,62 @@ scheduler.AddFunc("0 3 * * *", func() {
 
 ### go-server
 
-#### [NEW] [db.go](file:///Users/gusi/Github/grabby/go-server/db.go)
+#### [MODIFY] [db.go](file:///Users/gusi/Github/grabby/go-server/db.go)
 - 初始化 SQLite 数据库（WAL 模式 + busy_timeout）。
-- 使用 `PRAGMA user_version` 管理 Schema 版本，实现自动迁移。
+- 使用 `PRAGMA user_version` 管理 Schema 版本，实现自动迁移（V3 增加 `ai_analyses` 和 `ai_daily_reports`）。
 - 提供 `sources`、`scraped_items`、`fetch_logs` 三张表的完整 CRUD 接口。
+- 新增 AI 智能分类的 CRUD 函数，包括评分过滤、分类统计缩图、今日优质内容拉取。
 - 首次初始化时插入预设种子数据。
 
 #### [NEW] [classifier.go](file:///Users/gusi/Github/grabby/go-server/classifier.go)
 - 实现对内容的 `category`（分类）与 `origin_source`（出处提取）的核心匹配算法。
 - 包含聚合器模式（解析 source 字段）和直抓模式（提取域名）两种出处提取策略。
 
-#### [NEW] [scrapers.go](file:///Users/gusi/Github/grabby/go-server/scrapers.go)
-- 实现三种类型的具体抓取逻辑：
-  - `ScrapeRSS(src Source)`: 使用 `gofeed` 解析，支持 ETag/Last-Modified 条件请求减少无用拉取。
-  - `ScrapeAPI(src Source)`: 基于 `config` 字段的通用 JSON API 抓取，字段映射可配置。
-  - `ScrapeWeb(src Source)`: 两阶段抓取（列表页 → 详情页），通过 Task Queue 管理并发。
-- 包含重试逻辑（指数退避，最多 3 次）。
+#### [MODIFY] [scrapers.go](file:///Users/gusi/Github/grabby/go-server/scrapers.go)
+- 实现三种类型的具体抓取逻辑（RSS, API, Web）。
+- 在成功执行 `InsertScrapedItem` 且插入了新行时，自动将新增的文章 ID 传入 `AIEngine` 进行异步 AI 语义分析。
 
-#### [NEW] [task_queue.go](file:///Users/gusi/Github/grabby/go-server/task_queue.go)
+#### [MODIFY] [task_queue.go](file:///Users/gusi/Github/grabby/go-server/task_queue.go)
 - Web Scrape 专用任务队列，控制并发数（默认 1，串行），避免浏览器 Tab 爆炸。
-- 支持 2 秒间隔、超时处理、错误隔离（单条失败不阻塞后续）。
+- 在任务抓取解析成功入库后，如果入库了全新文章，则触发 `AIEngine.Enqueue` 压入 AI 分析通道。
 
-#### [NEW] [scheduler.go](file:///Users/gusi/Github/grabby/go-server/scheduler.go)
+#### [MODIFY] [scheduler.go](file:///Users/gusi/Github/grabby/go-server/scheduler.go)
 - 使用 `cron/v3` 管理后台定时抓取队列。
-- 维护 `entryMap` 实现增量热重载（而非全量重建）。
+- 维护 `entryMap` 实现增量热重载。
 - 集成数据清理定时任务。
+- 新增每日 22:00 定时执行 AI 智能日报生成任务（`AIDailyManager`）。
 
-#### [NEW] [web/](file:///Users/gusi/Github/grabby/go-server/web)
-- 新增 `web` 目录并使用 `go:embed` 嵌入 Go 二进制文件，包含：
-  - `templates/index.html`: 主看板页面 — 侧边栏分类/来源过滤 + 卡片流 + 无限滚动 + 搜索 + 阅读弹窗。
-  - `templates/settings.html`: 数据源管理面板 — 增删改查 + 启用/禁用 + 立即执行 + 状态展示。
-  - `templates/logs.html`: 抓取日志面板 — 历史执行记录、错误排查。
-  - `templates/partials/`: HTMX 局部渲染片段（卡片列表、单条卡片、日志行等）。
-  - `static/css/style.css`: 全局样式。
-  - `static/js/htmx.min.js`: HTMX 库（本地托管，无外部 CDN 依赖）。
+#### [NEW] [ai_engine.go](file:///Users/gusi/Github/grabby/go-server/ai_engine.go)
+- 基于 Firebase Genkit Go 框架接入 LLM 供应商。
+- 维护异步分析队列通道，启动并发 worker 协程对抓取内容进行结构化 JSON 提示词解析（包含语义分类、1-10 质量评分、中文高精摘要、推荐理由）。
+- 支持初始和定时的 Backfill 离线补偿扫表机制，处理漏抓或失败的任务。
+
+#### [NEW] [ai_daily.go](file:///Users/gusi/Github/grabby/go-server/ai_daily.go)
+- 管理 AI 智能日报编译，通过统计分析自动分类并按分类聚合精选文章（评分 ≥ 阈值）。
+- 调用 Genkit Go 对聚合的文章和摘要进行总编润色，生成优雅的 Markdown 格式个人资讯日报。
+
+#### [NEW] [ai_handlers.go](file:///Users/gusi/Github/grabby/go-server/ai_handlers.go)
+- 编写 AI 模块专用的 HTTP Handlers：
+  - `GET /api/ai/quality`: 获取最近 N 天评分 ≥ 阈值的高质量内容。
+  - `GET /api/ai/categories`: 获取 AI 智能分类的文章数量与平均分统计。
+  - `GET /api/ai/items`: 按 AI 语义分类查询文章列表。
+  - `GET /api/ai/analysis/{item_id}`: 获取特定文章的 AI 分解结果。
+  - `GET /api/ai/daily`: 查询特定日期的 AI 日报。
+  - `GET /api/ai/daily/list`: 获取历史日报列表。
+  - `POST /api/ai/daily/generate`: 手动强制触发生成指定日期的日报。
+  - `POST /api/ai/reanalyze/{item_id}`: 手动强制重新执行特定文章 of AI 分析。
+  - `GET /api/ai/stats`: 查询队列堆积状态、已分析数、平均质量分。
+
+#### [MODIFY] [config.go](file:///Users/gusi/Github/grabby/go-server/config.go)
+- 读取并维护 AI 相关的环境变量（`AI_ENABLED`, `AI_PROVIDER`, `AI_API_KEY`, `AI_MODEL`, `AI_BASE_URL`, `AI_QUALITY_THRESHOLD`）。
 
 #### [MODIFY] [types.go](file:///Users/gusi/Github/grabby/go-server/types.go)
-- 新增 `Source`、`ScrapedItem`、`FetchLog` 结构体，作为内存和数据库交互的模型。
-- 新增 API 请求/响应类型（`ItemsQuery`、`SourceForm` 等）。
+- 新增 `AIAnalysis`, `AIDailyReport`, `ScrapedItemWithAI`, `AICategoryStat`, `AISettings` 等类型结构。
 
 #### [MODIFY] [main.go](file:///Users/gusi/Github/grabby/go-server/main.go)
-- 在启动时连接数据库并初始化调度引擎和任务队列。
-- 注入 HTML 页面路由（`/`、`/settings`、`/logs`）。
-- 注入 HTMX 数据接口（`/api/items`、`/api/sources`、`/api/logs` 等完整 API 路由）。
-- 集成优雅关闭逻辑（按序停止 HTTP → Scheduler → TaskQueue → WebSocket → DB）。
+- 启动时连接数据库并初始化调度引擎、任务队列及 `AIEngine`。
+- 注册静态资源路由和 `/api/ai/*` 路由地址。
+- 退出时优雅关闭 `AIEngine` 的工作协程，确保不丢失运行中的事务。
 
 ---
 
@@ -719,7 +777,7 @@ scheduler.AddFunc("0 3 * * *", func() {
    - 确认 `sources` 预设种子数据加载成功
    - 确认 WAL 模式已启用（`PRAGMA journal_mode` 返回 `wal`）
 2. **调度测试**：
-   - 将测试数据源的 Cron 改为 `*/1 * * * *`（每分钟抓取）
+   - 将测试数据源 of Cron 改为 `*/1 * * * *`（每分钟抓取）
    - 观察控制台日志是否定时输出抓取和入库信息
    - 检查 `fetch_logs` 表是否正确记录每次执行结果
 3. **热重载测试**：
@@ -740,6 +798,12 @@ scheduler.AddFunc("0 3 * * *", func() {
 6. **错误恢复测试**：
    - 模拟网络断开，确认重试逻辑工作正常
    - 发送 `SIGTERM` 信号，确认优雅关闭流程（等待进行中的任务完成后再退出）
+7. **AI 功能与日报测试（需要配置有效 LLM 密钥）**：
+   - 启动 `go-server`，检查 `ai_analyses` 和 `ai_daily_reports` 是否成功初始化（PRAGMA user_version 为 3）。
+   - 执行抓取任务，在控制台观察是否输出 "Successfully analyzed item with AI" 信息。
+   - 检查 SQLite 数据库，确保分析数据已落盘并与新闻详情相连接。
+   - 触发日报生成 `POST /api/ai/daily/generate` 接口，确认是否可成功输出 Markdown 智能日报，并保存于 `ai_daily_reports`。
+   - 确认优雅降级：若关闭 AI 功能或未配 API Key，抓取管道和看板能照常运行，API 仅返回对应 fallback 占位错误。
 
 ---
 
@@ -771,3 +835,19 @@ scheduler.AddFunc("0 3 * * *", func() {
 - 重试策略集成
 - 数据清理定时任务
 - 端到端集成测试
+
+### Phase 6 — AI 智能辅助与个人日报（约 1.5 天）
+- `ai_engine.go` — 接入 Firebase Genkit Go 框架，支持异步工作队列与 Backfill 扫表补偿机制。
+- `ai_daily.go` — 实现高分优质内容筛选与 Markdown 日报编译生成器。
+- `ai_handlers.go` — 封装 `/api/ai/*` 9 个 REST Handlers 提供完整的接口交互能力。
+- 管道整合测试（抓取入库 -> AI 处理 -> 日报生成自动化 -> 优雅关闭）。
+
+### AI Local Model & Compat_OAI Registry Patch (Added 2026-06-07)
+
+During the integration of local and custom OpenAI-compatible models (e.g., LM Studio, Ollama, self-hosted LLMs), the following issues were resolved to ensure seamless connectivity:
+
+1. **User Input Trimming & Normalization**: Added full trimming of leading and trailing whitespace characters for `Provider`, `Model`, `BaseURL`, `APIKey`, `SystemPrompt`, and `DailyPrompt` settings. This prevents issues where copy-pasted names (e.g. `" google/gemma-4-12b"`) fail connection tests.
+2. **Dynamic Model Registration via `DefineModel`**: The Genkit Go `compat_oai` plugin does not have pre-registered models. To allow any arbitrary custom models to be resolved at runtime:
+   - We extract the raw model ID (e.g. `google/gemma-4-12b`) by stripping any `custom/` prefix.
+   - We dynamically register this raw model ID with the plugin using `DefineModel("custom", rawModelID, ai.ModelOptions{Supports: ...})` right after `genkit.Init()`.
+   - We normalize the model identifier in settings to always contain the `custom/` prefix (e.g. `custom/google/gemma-4-12b`) so that Genkit's generation calls can resolve it from the registry.

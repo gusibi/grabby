@@ -294,3 +294,16 @@ func generateID() string {
 	idCounter++
 	return fmt.Sprintf("msg-%d-%d", time.Now().UnixNano(), idCounter)
 }
+
+// CloseAll closes all active WebSocket connections.
+func (wm *WebSocketManager) CloseAll() {
+	wm.mu.Lock()
+	defer wm.mu.Unlock()
+	for connID, conn := range wm.activeConnections {
+		wm.logger.Info("Closing connection during shutdown", zap.String("conn_id", connID))
+		_ = conn.Close()
+	}
+	// Clear maps
+	wm.activeConnections = make(map[string]*WSConn)
+	wm.browserNames = make(map[string]string)
+}

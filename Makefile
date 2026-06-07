@@ -6,7 +6,7 @@ DIST_DIR := dist
 VERSION := $(shell cat $(EXTENSION_DIR)/manifest.json | grep '"version"' | sed 's/.*"version": "\([^"]*\)".*/\1/')
 PACKAGE_NAME := grabby-v$(VERSION).zip
 
-.PHONY: all build package clean install dev build-go run-go clean-go
+.PHONY: all build package clean install dev build-go run-go clean-go build-frontend run
 
 # ==================== Chrome Extension ====================
 
@@ -71,14 +71,24 @@ go-deps:
 	@echo "==> 下载 Go 依赖..."
 	cd $(GO_SERVER_DIR) && GOPROXY=$(GO_PROXY) go mod download
 
-# 构建 Go MCP Server（带源文件依赖，仅源文件变化时重建）
-build-go: $(GO_SRC)
+# 构建 React 前端
+build-frontend:
+	@echo "==> 构建 React 前端..."
+	cd $(GO_SERVER_DIR)/frontend && npm run build
+
+# 构建 Go MCP Server（依赖前端构建及 Go 源码，确保最新前端被嵌入）
+build-go: build-frontend $(GO_SRC)
 	@echo "==> 构建 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && GOPROXY=$(GO_PROXY) go build -o go-server .
 	@echo "==> Go Server 构建完成: $(GO_SERVER_DIR)/go-server"
 
 # 运行 Go MCP Server
 run-go: build-go
+	@echo "==> 启动 Go MCP Server..."
+	cd $(GO_SERVER_DIR) && ./go-server
+
+# 编译前端，再编译 Go，最后运行
+run: build-frontend build-go
 	@echo "==> 启动 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && ./go-server
 
@@ -120,9 +130,11 @@ help:
 	@echo "  make all          - 完整流程（build + package）"
 	@echo ""
 	@echo "=== Go MCP Server ==="
-	@echo "  make build-go     - 构建 Go MCP Server"
-	@echo "  make run-go       - 构建并运行 Go MCP Server"
-	@echo "  make clean-go     - 清理 Go 构建产物"
+	@echo "  make build-frontend - 仅构建 React 前端"
+	@echo "  make build-go       - 构建 Go MCP Server (自动构建前端)"
+	@echo "  make run-go         - 构建并运行 Go MCP Server"
+	@echo "  make run            - 先编译前端，再编译 Go，最后运行"
+	@echo "  make clean-go       - 清理 Go 构建产物"
 	@echo ""
 	@echo "=== Common ==="
 	@echo "  make clean        - 清理所有构建产物"

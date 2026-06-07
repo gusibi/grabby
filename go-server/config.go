@@ -13,13 +13,14 @@ import (
 // Values are read from environment variables (and .env file if present),
 // falling back to sensible defaults.
 type Settings struct {
-	Host             string
-	Port             int
-	ConnectID        string
-	Debug            bool
-	WebsocketTimeout float64
+	Host              string
+	Port              int
+	ConnectID         string
+	Debug             bool
+	WebsocketTimeout  float64
 	APIExtractTimeout float64
-	DefaultBrowser   string // default browser name for routing; empty = first active connection
+	DefaultBrowser    string // default browser name for routing; empty = first active connection
+	AISettings        AISettings
 }
 
 var (
@@ -47,6 +48,14 @@ func loadSettings() *Settings {
 		WebsocketTimeout:  getEnvFloat("WEBSOCKET_TIMEOUT", 5.0),
 		APIExtractTimeout: getEnvFloat("API_EXTRACT_TIMEOUT", 60.0),
 		DefaultBrowser:    getEnv("DEFAULT_BROWSER", ""),
+		AISettings: AISettings{
+			Enabled:          getEnvBool("AI_ENABLED", false),
+			Provider:         getEnv("AI_PROVIDER", "gemini"),
+			APIKey:           getEnv("AI_API_KEY", ""),
+			Model:            getEnv("AI_MODEL", "googleai/gemini-2.0-flash"),
+			BaseURL:          getEnv("AI_BASE_URL", ""),
+			QualityThreshold: getEnvInt("AI_QUALITY_THRESHOLD", 7),
+		},
 	}
 }
 
