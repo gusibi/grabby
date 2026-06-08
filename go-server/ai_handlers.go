@@ -3,7 +3,9 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"html"
 	"net/http"
 	"strconv"
 	"strings"
@@ -193,7 +195,7 @@ func (h *AIHandlers) HandleAnalysis(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleDaily retrieves the AI Daily Report for a date.
+// HandleDaily retrieves the AI Daily Report for a date and type.
 func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -204,8 +206,12 @@ func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
 	if dateStr == "" {
 		dateStr = time.Now().Format("2006-01-02")
 	}
+	reportType := r.URL.Query().Get("type")
+	if reportType == "" {
+		reportType = "daily"
+	}
 
-	report, err := h.db.GetAIDailyReport(dateStr)
+	report, err := h.db.GetAIDailyReport(dateStr, reportType)
 	if err != nil {
 		h.logger.Error("Failed to query daily report", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -240,8 +246,9 @@ func (h *AIHandlers) HandleDailyList(w http.ResponseWriter, r *http.Request) {
 			limit = l
 		}
 	}
+	reportType := r.URL.Query().Get("type")
 
-	reports, err := h.db.GetAIDailyReports(limit)
+	reports, err := h.db.GetAIDailyReports(limit, reportType)
 	if err != nil {
 		h.logger.Error("Failed to query daily reports list", zap.Error(err))
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -255,7 +262,7 @@ func (h *AIHandlers) HandleDailyList(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// HandleDailyGenerate manual triggers a daily report generation.
+// HandleDailyGenerate manually triggers a daily report generation.
 func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -263,7 +270,8 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 	}
 
 	var req struct {
-		Date string `json:"date"`
+		Date       string `json:"date"`
+		ReportType string `json:"report_type"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 
@@ -273,8 +281,58 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 	if req.Date == "" {
 		req.Date = time.Now().Format("2006-01-02")
 	}
+	if req.ReportType == "" {
+		req.ReportType = "daily"
+	}
 
-	report, err := h.dailyManager.GenerateDailyReport(r.Context(), req.Date)
+	var report *AIDailyReport
+	var err error
+
+	if req.ReportType == "morning" || req.ReportType == "evening" {
+		// Generate ranged report
+		settings := GetSettings().AISettings
+		now := time.Now()
+		var start, end time.Time
+
+		if req.ReportType == "morning" {
+			mt := settings.MorningReportTime
+			if mt == "" {
+				mt = "07:30"
+			}
+			var hour, min int
+			fmt.Sscanf(mt[:2], "%d", &hour)
+			if len(mt) >= 5 {
+				fmt.Sscanf(mt[3:5], "%d", &min)
+			}
+			end = time.Date(now.Year(), now.Month(), now.Day(), hour, min, 0, 0, now.Location())
+			start = end.Add(-24 * time.Hour)
+		} else {
+			mt := settings.MorningReportTime
+			if mt == "" {
+				mt = "07:30"
+			}
+			var mHour, mMin int
+			fmt.Sscanf(mt[:2], "%d", &mHour)
+			if len(mt) >= 5 {
+				fmt.Sscanf(mt[3:5], "%d", &mMin)
+			}
+			et := settings.EveningReportTime
+			if et == "" {
+				et = "20:00"
+			}
+			var eHour, eMin int
+			fmt.Sscanf(et[:2], "%d", &eHour)
+			if len(et) >= 5 {
+				fmt.Sscanf(et[3:5], "%d", &eMin)
+			}
+			start = time.Date(now.Year(), now.Month(), now.Day(), mHour, mMin, 0, 0, now.Location())
+			end = time.Date(now.Year(), now.Month(), now.Day(), eHour, eMin, 0, 0, now.Location())
+		}
+
+		report, err = h.dailyManager.GenerateRangedReport(r.Context(), req.Date, req.ReportType, start, end)
+	} else {
+		report, err = h.dailyManager.GenerateDailyReport(r.Context(), req.Date)
+	}
 	if err != nil {
 		h.logger.Error("Failed to generate daily report manually", zap.Error(err))
 		w.Header().Set("Content-Type", "application/json")
@@ -300,6 +358,97 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 		"report":       report,
 		"html_content": htmlContent,
 	})
+}
+
+// HandleDailyRSS generates an RSS 2.0 feed of recent daily reports.
+func (h *AIHandlers) HandleDailyRSS(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	limit := 20
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
+			limit = l
+		}
+	}
+
+	reports, err := h.db.GetAIDailyReports(limit, "")
+	if err != nil {
+		h.logger.Error("Failed to query reports for RSS", zap.Error(err))
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	baseURL := "http"
+	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		baseURL += "s"
+	}
+	baseURL += "://" + r.Host
+
+	var buf bytes.Buffer
+	buf.WriteString(`<?xml version="1.0" encoding="UTF-8"?>`)
+	buf.WriteString("\n")
+	buf.WriteString(`<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">`)
+	buf.WriteString("\n<channel>\n")
+	buf.WriteString("<title>Grabby AI 智能日报</title>\n")
+	buf.WriteString("<link>" + xmlEscape(baseURL) + "</link>\n")
+	buf.WriteString("<description>Grabby AI 自动生成的智能早晚报和日报 RSS 订阅</description>\n")
+	buf.WriteString("<language>zh-cn</language>\n")
+	if len(reports) > 0 {
+		buf.WriteString("<lastBuildDate>" + reports[0].GeneratedAt.Format(time.RFC1123Z) + "</lastBuildDate>\n")
+	}
+	buf.WriteString(fmt.Sprintf(`<atom:link href="%s/api/ai/daily/rss" rel="self" type="application/rss+xml"/>`, baseURL))
+	buf.WriteString("\n")
+
+	for _, r := range reports {
+		// Convert markdown content to HTML
+		var htmlBuf bytes.Buffer
+		htmlContent := r.Content
+		if err := goldmark.Convert([]byte(r.Content), &htmlBuf); err == nil {
+			htmlContent = htmlBuf.String()
+		}
+
+		typeLabel := "日报"
+		switch r.ReportType {
+		case "morning":
+			typeLabel = "早报"
+		case "evening":
+			typeLabel = "晚报"
+		}
+
+		link := fmt.Sprintf("%s/#daily?date=%s&type=%s", baseURL, r.ReportDate, r.ReportType)
+		pubDate := r.GeneratedAt.Format(time.RFC1123Z)
+
+		buf.WriteString("<item>\n")
+		buf.WriteString("<title>" + xmlEscape(r.Title) + "</title>\n")
+		buf.WriteString("<link>" + xmlEscape(link) + "</link>\n")
+		buf.WriteString("<guid isPermaLink=\"false\">grabby-daily-" + xmlEscape(r.ReportDate) + "-" + xmlEscape(r.ReportType) + "</guid>\n")
+		buf.WriteString("<pubDate>" + pubDate + "</pubDate>\n")
+		buf.WriteString("<category>" + xmlEscape(typeLabel) + "</category>\n")
+		buf.WriteString("<description>" + html.EscapeString(fmt.Sprintf("优质内容 %d 条 / 共处理 %d 条", r.QualityItems, r.TotalItems)) + "</description>\n")
+		buf.WriteString("<content:encoded xmlns:content=\"http://purl.org/rss/1.0/modules/content/\">" + xmlCdata(htmlContent) + "</content:encoded>\n")
+		buf.WriteString("</item>\n")
+	}
+
+	buf.WriteString("</channel>\n</rss>")
+
+	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
+	w.Header().Set("Cache-Control", "public, max-age=300")
+	_, _ = w.Write(buf.Bytes())
+}
+
+func xmlEscape(s string) string {
+	var b bytes.Buffer
+	_ = xml.EscapeText(&b, []byte(s))
+	return b.String()
+}
+
+func xmlCdata(s string) string {
+	// CDATA section cannot contain "]]>" so we split on that
+	s = strings.ReplaceAll(s, "]]>", "]]]]><![CDATA[>")
+	return "<![CDATA[" + s + "]]>"
 }
 
 // HandleReanalyze reanalyzes an item synchronously.

@@ -26,7 +26,8 @@ import {
   Calendar,
   Layers,
   Database,
-  Sparkles
+  Sparkles,
+  Rss
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,6 +114,231 @@ interface AIProviderProfile {
   requests_per_minute?: number;
 }
 
+interface JsonDailyReportViewProps {
+  reportData: {
+    title?: string;
+    date?: string;
+    editor?: string;
+    sections?: Record<string, {
+      title: string;
+      items: any[];
+    }>;
+  };
+}
+
+function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
+  const sections = Object.entries(reportData.sections || {});
+
+  const getSectionIcon = (key: string, title: string) => {
+    const t = (title || "").toLowerCase();
+    const k = (key || "").toLowerCase();
+    if (k.includes("top") || t.includes("头条") || t.includes("要闻")) {
+      return <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />;
+    }
+    if (k.includes("tech") || k.includes("ai") || t.includes("科技") || t.includes("ai") || t.includes("探索") || t.includes("前沿")) {
+      return <Activity className="w-5 h-5 text-cyan-500" />;
+    }
+    if (k.includes("finance") || k.includes("macro") || t.includes("财经") || t.includes("宏观") || t.includes("金")) {
+      return <Database className="w-5 h-5 text-emerald-500" />;
+    }
+    if (k.includes("international") || k.includes("social") || t.includes("国际") || t.includes("社会") || t.includes("世界")) {
+      return <Layers className="w-5 h-5 text-violet-500" />;
+    }
+    if (k.includes("dashboard") || t.includes("看板") || t.includes("数据") || t.includes("统计")) {
+      return <LayoutGrid className="w-5 h-5 text-amber-500" />;
+    }
+    return <FileText className="w-5 h-5 text-zinc-500" />;
+  };
+
+  return (
+    <div className="space-y-8">
+      {/* Editor & Date bar */}
+      {(reportData.editor || reportData.date) && (
+        <div className="flex items-center justify-between text-xs text-zinc-500 border-b border-black/5 dark:border-white/5 pb-4">
+          {reportData.editor && (
+            <div className="flex items-center gap-1.5 bg-indigo-500/5 dark:bg-indigo-500/10 px-2.5 py-1 rounded-full text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-500/10">
+              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+              <span>主编: {reportData.editor}</span>
+            </div>
+          )}
+          {reportData.date && (
+            <div className="font-mono bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full text-zinc-600 dark:text-zinc-400">
+              📅 {reportData.date}
+            </div>
+          )}
+        </div>
+      )}
+
+      {sections.map(([key, section]) => {
+        if (!section || !section.items || section.items.length === 0) return null;
+
+        const sectionTitle = section.title || "";
+        const isDashboard = key.includes("dashboard") || sectionTitle.includes("看板") || sectionTitle.includes("数据");
+        const isTopStories = key.includes("top") || sectionTitle.includes("今日头条") || sectionTitle.includes("要闻");
+
+        if (isDashboard) {
+          return (
+            <div key={key} className="bg-gradient-to-br from-indigo-50/40 via-purple-50/20 to-transparent dark:from-indigo-950/10 dark:via-zinc-900/10 dark:to-transparent border border-indigo-500/10 rounded-2xl p-6 space-y-4">
+              <div className="flex items-center gap-2 font-bold text-indigo-950 dark:text-indigo-200">
+                {getSectionIcon(key, sectionTitle)}
+                <h4 className="text-sm font-black tracking-tight">{sectionTitle}</h4>
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {section.items.map((item: any, idx: number) => {
+                  const text = typeof item === "string" ? item : (item.title || "");
+                  return (
+                    <div key={idx} className="flex items-center gap-3 bg-white dark:bg-zinc-900/60 p-4 rounded-xl shadow-sm border border-black/5 dark:border-white/5">
+                      <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-600 dark:text-indigo-400">
+                        <CheckCircle className="w-4 h-4" />
+                      </div>
+                      <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{text}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          );
+        }
+
+        return (
+          <div key={key} className="space-y-4">
+            <div className="flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-2">
+              {getSectionIcon(key, sectionTitle)}
+              <h4 className="text-base font-black text-indigo-950 dark:text-zinc-100">{sectionTitle}</h4>
+            </div>
+
+            <div className="space-y-4">
+              {section.items.map((item: any, idx: number) => {
+                if (typeof item === "string") {
+                  return (
+                    <div key={idx} className="p-3 bg-zinc-50 dark:bg-zinc-900/40 rounded-lg text-xs text-zinc-600 dark:text-zinc-400">
+                      {item}
+                    </div>
+                  );
+                }
+
+                const commentaryText = item.commentary || item.comment || "";
+
+                if (isTopStories) {
+                  return (
+                    <div
+                      key={item.id || idx}
+                      className="group relative border border-indigo-500/10 hover:border-indigo-500/20 bg-white dark:bg-[#1a1a1c] hover:shadow-lg transition-all duration-300 rounded-2xl overflow-hidden p-6 space-y-4"
+                    >
+                      {/* Left accent gradient line */}
+                      <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500" />
+                      
+                      <div className="flex flex-wrap items-start justify-between gap-3 pl-2">
+                        <h5 className="text-base font-black leading-snug text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex-1 min-w-[280px]">
+                          {item.title}
+                        </h5>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {item.source && (
+                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
+                              {item.source}
+                            </span>
+                          )}
+                          {item.score && (
+                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
+                              评分: {item.score}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+
+                      <p className="text-sm text-zinc-600 dark:text-zinc-300 pl-2 leading-relaxed">
+                        {item.summary}
+                      </p>
+
+                      {commentaryText && (
+                        <div className="pl-2">
+                          <div className="border-l-4 border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-r-xl text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
+                            <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
+                              <Sparkles className="w-3.5 h-3.5" />
+                              深度解析
+                            </div>
+                            <p className="italic leading-relaxed">
+                              {commentaryText.replace(/^【深度解析】\s*/, "")}
+                            </p>
+                          </div>
+                        </div>
+                      )}
+
+                      {item.link && (
+                        <div className="flex justify-end pl-2">
+                          <a
+                            href={item.link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold transition-colors"
+                          >
+                            阅读原文
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Regular Section Stories (e.g. tech, finance, international)
+                return (
+                  <div
+                    key={item.id || idx}
+                    className="border border-black/5 dark:border-white/5 hover:border-indigo-500/15 bg-white dark:bg-[#1a1a1c] hover:shadow-md transition-all duration-300 rounded-xl p-5 space-y-3"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <h5 className="text-sm font-bold text-zinc-900 dark:text-white leading-snug flex-1 min-w-[240px]">
+                        {item.title}
+                      </h5>
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        {item.source && (
+                          <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
+                            {item.source}
+                          </span>
+                        )}
+                        {item.score && (
+                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400">
+                            {item.score}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                      {item.summary}
+                    </p>
+
+                    {commentaryText && (
+                      <div className="border-l-2 border-indigo-500/40 bg-zinc-50/50 dark:bg-zinc-900/30 p-2.5 rounded-r text-[11px] text-zinc-500 dark:text-zinc-400 italic">
+                        {commentaryText.replace(/^【深度解析】\s*/, "")}
+                      </div>
+                    )}
+
+                    {item.link && (
+                      <div className="flex justify-end">
+                        <a
+                          href={item.link}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors"
+                        >
+                          阅读原文
+                          <ExternalLink className="w-3 h-3" />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<"grid" | "list" | "settings" | "logs" | "daily" | "ai-settings">("grid");
   const [items, setItems] = useState<ScrapedItem[]>([]);
@@ -147,6 +373,8 @@ export default function App() {
   const [dailyReportHtml, setDailyReportHtml] = useState<string>("");
   const [selectedReportDate, setSelectedReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
+  const [reportList, setReportList] = useState<any[]>([]);
+  const [selectedReportType, setSelectedReportType] = useState<string>("daily");
 
   // Detail item reader state
   const [selectedItem, setSelectedItem] = useState<ScrapedItem | null>(null);
@@ -171,6 +399,10 @@ export default function App() {
   const [isTestingAI, setIsTestingAI] = useState<boolean>(false);
   const [aiTestResult, setAiTestResult] = useState<any | null>(null);
   const [aiRequestsPerMinute, setAiRequestsPerMinute] = useState<number>(10);
+  const [morningReportEnabled, setMorningReportEnabled] = useState<boolean>(false);
+  const [eveningReportEnabled, setEveningReportEnabled] = useState<boolean>(false);
+  const [morningReportTime, setMorningReportTime] = useState<string>("07:30");
+  const [eveningReportTime, setEveningReportTime] = useState<string>("20:00");
 
   // Source Add/Edit modal state
   const [isSourceDialogOpen, setIsSourceDialogOpen] = useState<boolean>(false);
@@ -283,10 +515,11 @@ export default function App() {
     }
   };
 
-  const fetchDailyReport = async (dateStr?: string) => {
+  const fetchDailyReport = async (dateStr?: string, reportType?: string) => {
     const date = dateStr || selectedReportDate;
+    const rType = reportType || selectedReportType || "daily";
     try {
-      const resp = await fetch(`/api/ai/daily?date=${date}`);
+      const resp = await fetch(`/api/ai/daily?date=${date}&type=${rType}`);
       const data = await resp.json();
       if (data.success && data.report) {
         setDailyReport(data.report);
@@ -297,6 +530,18 @@ export default function App() {
       }
     } catch (err) {
       console.error("Failed to fetch daily report", err);
+    }
+  };
+
+  const fetchReportList = async () => {
+    try {
+      const resp = await fetch("/api/ai/daily/list?limit=30");
+      const data = await resp.json();
+      if (data.success) {
+        setReportList(data.reports || []);
+      }
+    } catch (err) {
+      console.error("Failed to fetch report list", err);
     }
   };
 
@@ -409,6 +654,10 @@ export default function App() {
         setAiStrategy(data.settings.strategy || "single");
         setAiSystemPrompt(data.settings.system_prompt || "");
         setAiDailyPrompt(data.settings.daily_prompt || "");
+        setMorningReportEnabled(data.settings.morning_report_enabled || false);
+        setEveningReportEnabled(data.settings.evening_report_enabled || false);
+        setMorningReportTime(data.settings.morning_report_time || "07:30");
+        setEveningReportTime(data.settings.evening_report_time || "20:00");
       }
     } catch (err) {
       console.error("Failed to fetch AI settings", err);
@@ -438,6 +687,10 @@ export default function App() {
           daily_prompt: aiDailyPrompt,
           active_profile_id: activeProfileId || nextProfiles[0]?.id || "default",
           profiles: nextProfiles,
+          morning_report_enabled: morningReportEnabled,
+          evening_report_enabled: eveningReportEnabled,
+          morning_report_time: morningReportTime,
+          evening_report_time: eveningReportTime,
         }),
       });
       const data = await resp.json();
@@ -505,19 +758,21 @@ export default function App() {
     }
   }, [currentView]);
 
-  const handleGenerateDailyReport = async () => {
+  const handleGenerateDailyReport = async (reportType?: string) => {
     setIsGeneratingReport(true);
+    const rType = reportType || selectedReportType || "daily";
     try {
       const resp = await fetch("/api/ai/daily/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ date: selectedReportDate })
+        body: JSON.stringify({ date: selectedReportDate, report_type: rType })
       });
       const data = await resp.json();
       if (data.success && data.report) {
         setDailyReport(data.report);
         setDailyReportHtml(data.html_content || "");
         fetchStats();
+        fetchReportList();
       } else {
         alert("生成日报失败: " + (data.error || "未知原因"));
       }
@@ -890,6 +1145,7 @@ export default function App() {
                 onClick={() => {
                   setCurrentView("daily");
                   fetchDailyReport();
+                  fetchReportList();
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
                   currentView === "daily"
@@ -1103,40 +1359,23 @@ export default function App() {
               <div className="p-4 bg-white dark:bg-[#18181b] border-b border-black/5 dark:border-white/5 flex flex-wrap gap-4 items-center justify-between">
                 <div className="flex items-center gap-2 overflow-x-auto py-1">
                   <Button
-                    variant={selectedCategory === "all" ? "default" : "outline"}
-                    onClick={() => setSelectedCategory("all")}
+                    variant={selectedAICategory === "all" && !isShowOnlyAIQuality ? "default" : "outline"}
+                    onClick={() => { setSelectedAICategory("all"); setIsShowOnlyAIQuality(false); }}
                     className="h-7 text-xs rounded-full px-4"
                   >
                     全部
                   </Button>
-                  <Button
-                    variant={selectedCategory === "article" ? "default" : "outline"}
-                    onClick={() => setSelectedCategory("article")}
-                    className="h-7 text-xs rounded-full px-4"
-                  >
-                    文章
-                  </Button>
-                  <Button
-                    variant={selectedCategory === "tweet" ? "default" : "outline"}
-                    onClick={() => setSelectedCategory("tweet")}
-                    className="h-7 text-xs rounded-full px-4"
-                  >
-                    推特
-                  </Button>
-                  <Button
-                    variant={selectedCategory === "paper" ? "default" : "outline"}
-                    onClick={() => setSelectedCategory("paper")}
-                    className="h-7 text-xs rounded-full px-4"
-                  >
-                    论文
-                  </Button>
-                  <Button
-                    variant={selectedCategory === "project" ? "default" : "outline"}
-                    onClick={() => setSelectedCategory("project")}
-                    className="h-7 text-xs rounded-full px-4"
-                  >
-                    项目
-                  </Button>
+                  {aiCategories.map((cat) => (
+                    <Button
+                      key={cat.name}
+                      variant={selectedAICategory === cat.name ? "default" : "outline"}
+                      onClick={() => { setSelectedAICategory(cat.name); setIsShowOnlyAIQuality(false); }}
+                      className="h-7 text-xs rounded-full px-4 gap-1"
+                    >
+                      {cat.name}
+                      <span className="text-[10px] opacity-60">{cat.count}</span>
+                    </Button>
+                  ))}
                 </div>
 
                 <div className="relative w-full max-w-xs">
@@ -1279,55 +1518,28 @@ export default function App() {
                   </div>
                   <div className="flex items-center gap-1 overflow-x-auto no-scrollbar py-0.5">
                     <button
-                      onClick={() => setSelectedCategory("all")}
+                      onClick={() => { setSelectedAICategory("all"); setIsShowOnlyAIQuality(false); }}
                       className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
-                        selectedCategory === "all"
+                        selectedAICategory === "all" && !isShowOnlyAIQuality
                           ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
                           : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
                       }`}
                     >
                       全部
                     </button>
-                    <button
-                      onClick={() => setSelectedCategory("article")}
-                      className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
-                        selectedCategory === "article"
-                          ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
-                          : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      文章
-                    </button>
-                    <button
-                      onClick={() => setSelectedCategory("tweet")}
-                      className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
-                        selectedCategory === "tweet"
-                          ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
-                          : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      推特
-                    </button>
-                    <button
-                      onClick={() => setSelectedCategory("paper")}
-                      className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
-                        selectedCategory === "paper"
-                          ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
-                          : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      论文
-                    </button>
-                    <button
-                      onClick={() => setSelectedCategory("project")}
-                      className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
-                        selectedCategory === "project"
-                          ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
-                          : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
-                      }`}
-                    >
-                      项目
-                    </button>
+                    {aiCategories.map((cat) => (
+                      <button
+                        key={cat.name}
+                        onClick={() => { setSelectedAICategory(cat.name); setIsShowOnlyAIQuality(false); }}
+                        className={`px-2.5 py-1 text-[10px] rounded-full transition-all font-medium border shrink-0 ${
+                          selectedAICategory === cat.name
+                            ? "bg-zinc-800 text-white dark:bg-white dark:text-zinc-900 border-transparent font-bold"
+                            : "bg-transparent text-zinc-600 dark:text-zinc-400 border-zinc-200 dark:border-zinc-800 hover:bg-black/5 dark:hover:bg-white/5"
+                        }`}
+                      >
+                        {cat.name}
+                      </button>
+                    ))}
                   </div>
                 </div>
                 
@@ -1973,6 +2185,57 @@ export default function App() {
                               />
                             </div>
 
+                            {/* Morning/Evening Report Scheduling */}
+                            <div className="space-y-4 pt-2 border-t border-zinc-200 dark:border-zinc-800">
+                              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">定时早晚报设置</label>
+
+                              {/* Morning Report */}
+                              <div className="flex items-center gap-4 p-3 bg-amber-50/50 dark:bg-amber-950/10 rounded-xl border border-amber-200/50 dark:border-amber-900/20">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={morningReportEnabled}
+                                    onChange={(e) => setMorningReportEnabled(e.target.checked)}
+                                    className="rounded border-zinc-300 text-amber-600 focus:ring-amber-500"
+                                  />
+                                  <span className="text-xs font-semibold text-amber-700 dark:text-amber-400">🌅 启用早报</span>
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[10px] text-zinc-500">时间</label>
+                                  <Input
+                                    type="time"
+                                    value={morningReportTime}
+                                    onChange={(e) => setMorningReportTime(e.target.value)}
+                                    className="h-7 text-xs w-24"
+                                  />
+                                </div>
+                                <p className="text-[10px] text-zinc-400 flex-1">覆盖最近 24 小时优质内容</p>
+                              </div>
+
+                              {/* Evening Report */}
+                              <div className="flex items-center gap-4 p-3 bg-blue-50/50 dark:bg-blue-950/10 rounded-xl border border-blue-200/50 dark:border-blue-900/20">
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={eveningReportEnabled}
+                                    onChange={(e) => setEveningReportEnabled(e.target.checked)}
+                                    className="rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                  <span className="text-xs font-semibold text-blue-700 dark:text-blue-400">🌙 启用晚报</span>
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <label className="text-[10px] text-zinc-500">时间</label>
+                                  <Input
+                                    type="time"
+                                    value={eveningReportTime}
+                                    onChange={(e) => setEveningReportTime(e.target.value)}
+                                    className="h-7 text-xs w-24"
+                                  />
+                                </div>
+                                <p className="text-[10px] text-zinc-400 flex-1">覆盖当日早报至晚报时段内容</p>
+                              </div>
+                            </div>
+
                             {/* AI Connection Test Result */}
                             {aiTestResult && (
                               <div className={`p-4 rounded-xl border text-xs space-y-2.5 mt-4 animate-in fade-in duration-200 ${
@@ -2150,7 +2413,19 @@ export default function App() {
                       <Sparkles className="w-5 h-5 text-indigo-500" />
                       AI 智能日报 Daily Report
                     </h3>
-                    <p className="text-xs text-zinc-500">阅读 AI 汇编整理的今日深度资讯和数据看板。</p>
+                    <p className="text-xs text-zinc-500 flex items-center gap-2">
+                      阅读 AI 汇编整理的深度资讯和数据看板。
+                      <a
+                        href="/api/ai/daily/rss"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-semibold bg-orange-100 text-orange-600 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400 dark:hover:bg-orange-900/50 transition-colors no-underline"
+                        title="复制或在 RSS 阅读器中打开"
+                      >
+                        <Rss className="w-3 h-3" />
+                        RSS 订阅
+                      </a>
+                    </p>
                   </div>
                   <div className="flex items-center gap-2">
                     <Input
@@ -2162,10 +2437,10 @@ export default function App() {
                       }}
                       className="h-8 text-xs w-36"
                     />
-                    <Button 
-                      onClick={() => handleGenerateDailyReport()} 
+                    <Button
+                      onClick={() => handleGenerateDailyReport("daily")}
                       disabled={isGeneratingReport}
-                      size="sm" 
+                      size="sm"
                       className="h-8 gap-1 text-xs bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
                     >
                       {isGeneratingReport ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
@@ -2174,10 +2449,75 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* Report Type Tabs + Report List */}
+                {reportList.length > 0 && (
+                  <div className="bg-white dark:bg-[#1c1c1e] rounded-2xl border border-black/5 dark:border-white/5 overflow-hidden">
+                    <div className="flex items-center gap-1 px-4 pt-3 pb-0">
+                      {[{key: "all", label: "全部", icon: "📋"}, {key: "morning", label: "早报", icon: "🌅"}, {key: "evening", label: "晚报", icon: "🌙"}, {key: "daily", label: "日报", icon: "📰"}].map(tab => (
+                        <button
+                          key={tab.key}
+                          onClick={() => {
+                            setSelectedReportType(tab.key);
+                          }}
+                          className={`px-3 py-1.5 text-xs rounded-lg font-semibold transition-all ${
+                            selectedReportType === tab.key
+                              ? "bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300"
+                              : "text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+                          }`}
+                        >
+                          {tab.icon} {tab.label}
+                        </button>
+                      ))}
+                    </div>
+                    <div className="p-3 grid gap-1.5 max-h-48 overflow-y-auto">
+                      {reportList
+                        .filter(r => selectedReportType === "all" || r.report_type === selectedReportType)
+                        .map((r, idx) => {
+                          const typeIcon = r.report_type === "morning" ? "🌅" : r.report_type === "evening" ? "🌙" : "📰";
+                          const typeLabel = r.report_type === "morning" ? "早报" : r.report_type === "evening" ? "晚报" : "日报";
+                          const isActive = dailyReport && dailyReport.report_date === r.report_date && dailyReport.report_type === r.report_type;
+                          return (
+                            <button
+                              key={idx}
+                              onClick={() => {
+                                setSelectedReportDate(r.report_date);
+                                setSelectedReportType(r.report_type);
+                                fetchDailyReport(r.report_date, r.report_type);
+                              }}
+                              className={`flex items-center gap-3 px-3 py-2 rounded-xl text-left transition-all ${
+                                isActive
+                                  ? "bg-indigo-50 dark:bg-indigo-950/20 border border-indigo-200 dark:border-indigo-800"
+                                  : "hover:bg-zinc-50 dark:hover:bg-zinc-900/40 border border-transparent"
+                              }`}
+                            >
+                              <span className="text-base">{typeIcon}</span>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <span className="text-xs font-bold text-zinc-800 dark:text-zinc-200 truncate">{r.title}</span>
+                                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
+                                    r.report_type === "morning" ? "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400" :
+                                    r.report_type === "evening" ? "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400" :
+                                    "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400"
+                                  }`}>{typeLabel}</span>
+                                </div>
+                                <div className="text-[10px] text-zinc-400 mt-0.5">
+                                  {r.report_date} · {r.quality_items} 条优质 · {new Date(r.generated_at).toLocaleTimeString()}
+                                </div>
+                              </div>
+                            </button>
+                          );
+                        })}
+                    </div>
+                  </div>
+                )}
+
                 {dailyReport ? (
                   <Card className="border border-indigo-500/10 bg-white dark:bg-[#1c1c1e] shadow-md rounded-2xl overflow-hidden">
                     <CardHeader className="border-b border-black/5 dark:border-white/5 p-6 bg-indigo-50/20 dark:bg-indigo-950/10">
-                      <CardTitle className="text-lg font-extrabold text-indigo-950 dark:text-indigo-200">
+                      <CardTitle className="text-lg font-extrabold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                        <span>
+                          {dailyReport.report_type === "morning" ? "🌅" : dailyReport.report_type === "evening" ? "🌙" : "📰"}
+                        </span>
                         {dailyReport.title}
                       </CardTitle>
                       <CardDescription className="text-xs text-indigo-600/80 dark:text-indigo-400/80 flex flex-wrap gap-x-4 gap-y-1 mt-1">
@@ -2206,11 +2546,46 @@ export default function App() {
                         </div>
                       </div>
                       
-                      {/* Rendered HTML daily report content */}
-                      <div 
-                        className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-zinc-800 dark:text-zinc-200"
-                        dangerouslySetInnerHTML={{ __html: dailyReportHtml || `<pre className="whitespace-pre-wrap font-sans text-sm">${dailyReport.content}</pre>` }}
-                      />
+                      {/* Rendered daily report content */}
+                      {(() => {
+                        try {
+                          let rawContent = (dailyReport?.content || "").trim();
+                          if (rawContent.startsWith("```json")) {
+                            rawContent = rawContent.substring(7);
+                            if (rawContent.endsWith("```")) {
+                              rawContent = rawContent.substring(0, rawContent.length - 3);
+                            }
+                            rawContent = rawContent.trim();
+                          } else if (rawContent.startsWith("```")) {
+                            rawContent = rawContent.substring(3);
+                            if (rawContent.endsWith("```")) {
+                              rawContent = rawContent.substring(0, rawContent.length - 3);
+                            }
+                            rawContent = rawContent.trim();
+                          }
+                          
+                          // Check if it contains JSON
+                          const startIdx = rawContent.indexOf("{");
+                          const endIdx = rawContent.lastIndexOf("}");
+                          if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
+                            const jsonCandidate = rawContent.substring(startIdx, endIdx + 1);
+                            const reportData = JSON.parse(jsonCandidate);
+                            if (reportData && reportData.sections) {
+                              return <JsonDailyReportView reportData={reportData} />;
+                            }
+                          }
+                        } catch (e) {
+                          console.error("Failed to parse report content as JSON", e);
+                        }
+
+                        // Fallback to HTML/markdown
+                        return (
+                          <div 
+                            className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-zinc-800 dark:text-zinc-200"
+                            dangerouslySetInnerHTML={{ __html: dailyReportHtml || `<pre className="whitespace-pre-wrap font-sans text-sm">${dailyReport.content}</pre>` }}
+                          />
+                        );
+                      })()}
                     </CardContent>
                   </Card>
                 ) : (

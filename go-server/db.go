@@ -264,6 +264,50 @@ func (d *Database) migrate() error {
 		}
 		version = 4
 	}
+	if version < 5 {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		// Add report_type column to ai_daily_reports and rebuild UNIQUE constraint to (report_date, report_type).
+		if _, err := tx.Exec(`
+			CREATE TABLE ai_daily_reports_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				report_date TEXT NOT NULL,
+				report_type TEXT NOT NULL DEFAULT 'daily',
+				title TEXT NOT NULL,
+				content TEXT NOT NULL,
+				total_items INTEGER DEFAULT 0,
+				quality_items INTEGER DEFAULT 0,
+				categories_summary TEXT,
+				model_used TEXT,
+				generated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				UNIQUE(report_date, report_type)
+			);
+		`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO ai_daily_reports_new (id, report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at)
+			SELECT id, report_date, 'daily', title, content, total_items, quality_items, categories_summary, model_used, generated_at FROM ai_daily_reports`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`DROP TABLE ai_daily_reports`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`ALTER TABLE ai_daily_reports_new RENAME TO ai_daily_reports`); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+		if _, err := d.db.Exec("PRAGMA user_version = 5"); err != nil {
+			return err
+		}
+		version = 5
+	}
 	return nil
 }
 
@@ -1034,9 +1078,9 @@ func (d *Database) GetAICategories() ([]AICategoryStat, error) {
 // InsertAIDailyReport inserts or replaces a daily report.
 func (d *Database) InsertAIDailyReport(r AIDailyReport) error {
 	_, err := d.db.Exec(`
-		INSERT INTO ai_daily_reports (report_date, title, content, total_items, quality_items, categories_summary, model_used, generated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-		ON CONFLICT(report_date) DO UPDATE SET
+		INSERT INTO ai_daily_reports (report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+		ON CONFLICT(report_date, report_type) DO UPDATE SET
 			title = excluded.title,
 			content = excluded.content,
 			total_items = excluded.total_items,
@@ -1044,19 +1088,19 @@ func (d *Database) InsertAIDailyReport(r AIDailyReport) error {
 			categories_summary = excluded.categories_summary,
 			model_used = excluded.model_used,
 			generated_at = CURRENT_TIMESTAMP
-	`, r.ReportDate, r.Title, r.Content, r.TotalItems, r.QualityItems, r.CategoriesSummary, r.ModelUsed)
+	`, r.ReportDate, r.ReportType, r.Title, r.Content, r.TotalItems, r.QualityItems, r.CategoriesSummary, r.ModelUsed)
 	return err
 }
 
-// GetAIDailyReport retrieves a daily report for a specific date (YYYY-MM-DD).
-func (d *Database) GetAIDailyReport(date string) (*AIDailyReport, error) {
+// GetAIDailyReport retrieves a daily report for a specific date (YYYY-MM-DD) and type.
+func (d *Database) GetAIDailyReport(date string, reportType string) (*AIDailyReport, error) {
 	var r AIDailyReport
 	var generatedAt time.Time
 	err := d.db.QueryRow(`
-		SELECT id, report_date, title, content, total_items, quality_items, categories_summary, model_used, generated_at
+		SELECT id, report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at
 		FROM ai_daily_reports
-		WHERE report_date = ?
-	`, date).Scan(&r.ID, &r.ReportDate, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
+		WHERE report_date = ? AND report_type = ?
+	`, date, reportType).Scan(&r.ID, &r.ReportDate, &r.ReportType, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -1067,17 +1111,29 @@ func (d *Database) GetAIDailyReport(date string) (*AIDailyReport, error) {
 	return &r, nil
 }
 
-// GetAIDailyReports retrieves the list of recent daily reports.
-func (d *Database) GetAIDailyReports(limit int) ([]AIDailyReport, error) {
+// GetAIDailyReports retrieves the list of recent daily reports, optionally filtered by type.
+func (d *Database) GetAIDailyReports(limit int, reportType string) ([]AIDailyReport, error) {
 	if limit <= 0 {
 		limit = 10
 	}
-	rows, err := d.db.Query(`
-		SELECT id, report_date, title, content, total_items, quality_items, categories_summary, model_used, generated_at
-		FROM ai_daily_reports
-		ORDER BY report_date DESC
-		LIMIT ?
-	`, limit)
+	var rows *sql.Rows
+	var err error
+	if reportType != "" {
+		rows, err = d.db.Query(`
+			SELECT id, report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at
+			FROM ai_daily_reports
+			WHERE report_type = ?
+			ORDER BY report_date DESC, generated_at DESC
+			LIMIT ?
+		`, reportType, limit)
+	} else {
+		rows, err = d.db.Query(`
+			SELECT id, report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at
+			FROM ai_daily_reports
+			ORDER BY report_date DESC, generated_at DESC
+			LIMIT ?
+		`, limit)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -1087,7 +1143,7 @@ func (d *Database) GetAIDailyReports(limit int) ([]AIDailyReport, error) {
 	for rows.Next() {
 		var r AIDailyReport
 		var generatedAt time.Time
-		err := rows.Scan(&r.ID, &r.ReportDate, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
+		err := rows.Scan(&r.ID, &r.ReportDate, &r.ReportType, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
 		if err != nil {
 			return nil, err
 		}
@@ -1142,6 +1198,54 @@ func (d *Database) GetTotalItemsCountForDate(date string) (int, error) {
 		SELECT COUNT(*) FROM scraped_items
 		WHERE strftime('%Y-%m-%d', fetched_at) = ?
 	`, date).Scan(&count)
+	return count, err
+}
+
+// GetQualityItemsForTimeRange gets quality items analyzed within a time range.
+func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin int) ([]ScrapedItemWithAI, error) {
+	rows, err := d.db.Query(`
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
+		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
+		FROM scraped_items i
+		JOIN sources s ON i.source_id = s.id
+		JOIN ai_analyses a ON i.id = a.item_id
+		WHERE a.processed_at >= ? AND a.processed_at < ? AND a.quality_score >= ?
+		ORDER BY a.quality_score DESC, i.id DESC
+	`, start, end, scoreMin)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []ScrapedItemWithAI
+	for rows.Next() {
+		var item ScrapedItemWithAI
+		var pubAt sql.NullTime
+		var processedAt time.Time
+		err := rows.Scan(
+			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
+			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+			&item.AICategory, &item.AISubcategory, &item.QualityScore, &item.AISummary, &item.AIComment, &item.AITags, &item.AIModelUsed, &processedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		if pubAt.Valid {
+			item.PublishedAt = &pubAt.Time
+		}
+		item.AIProcessedAt = &processedAt
+		list = append(list, item)
+	}
+	return list, nil
+}
+
+// GetTotalItemsCountForTimeRange gets total fetched items count within a time range.
+func (d *Database) GetTotalItemsCountForTimeRange(start, end time.Time) (int, error) {
+	var count int
+	err := d.db.QueryRow(`
+		SELECT COUNT(*) FROM scraped_items
+		WHERE fetched_at >= ? AND fetched_at < ?
+	`, start, end).Scan(&count)
 	return count, err
 }
 

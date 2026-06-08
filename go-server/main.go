@@ -669,6 +669,7 @@ func main() {
 	mux.HandleFunc("/api/ai/daily", aiHandlers.HandleDaily)
 	mux.HandleFunc("/api/ai/daily/list", aiHandlers.HandleDailyList)
 	mux.HandleFunc("/api/ai/daily/generate", aiHandlers.HandleDailyGenerate)
+	mux.HandleFunc("/api/ai/daily/rss", aiHandlers.HandleDailyRSS)
 	mux.HandleFunc("/api/ai/reanalyze/", aiHandlers.HandleReanalyze)
 	mux.HandleFunc("/api/ai/stats", aiHandlers.HandleStats)
 	mux.HandleFunc("/api/ai/settings", func(w http.ResponseWriter, r *http.Request) {

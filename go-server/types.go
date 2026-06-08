@@ -235,6 +235,7 @@ type AIAnalysis struct {
 type AIDailyReport struct {
 	ID                int64     `json:"id"`
 	ReportDate        string    `json:"report_date"` // YYYY-MM-DD
+	ReportType        string    `json:"report_type"` // "morning", "evening", "daily"
 	Title             string    `json:"title"`
 	Content           string    `json:"content"` // Markdown
 	TotalItems        int       `json:"total_items"`
@@ -266,17 +267,21 @@ type AICategoryStat struct {
 
 // AISettings represents the configuration of the AI engine.
 type AISettings struct {
-	Enabled          bool   `json:"enabled"`
-	Provider         string `json:"provider"` // "openai", "gemini", "custom", etc.
-	APIKey           string `json:"api_key"`
-	Model            string `json:"model"`
-	BaseURL          string `json:"base_url"`
-	QualityThreshold int    `json:"quality_threshold"`
-	SystemPrompt     string `json:"system_prompt"`
-	DailyPrompt      string `json:"daily_prompt"`
-	Strategy         string `json:"strategy"` // "single" (default), "round-robin", "failover"
-	ActiveProfileID  string `json:"active_profile_id"`
-	Profiles         []AIProviderProfile `json:"profiles"`
+	Enabled              bool                `json:"enabled"`
+	Provider             string              `json:"provider"` // "openai", "gemini", "custom", etc.
+	APIKey               string              `json:"api_key"`
+	Model                string              `json:"model"`
+	BaseURL              string              `json:"base_url"`
+	QualityThreshold     int                 `json:"quality_threshold"`
+	SystemPrompt         string              `json:"system_prompt"`
+	DailyPrompt          string              `json:"daily_prompt"`
+	Strategy             string              `json:"strategy"` // "single" (default), "round-robin", "failover"
+	ActiveProfileID      string              `json:"active_profile_id"`
+	Profiles             []AIProviderProfile `json:"profiles"`
+	MorningReportTime    string              `json:"morning_report_time"`
+	EveningReportTime    string              `json:"evening_report_time"`
+	MorningReportEnabled bool                `json:"morning_report_enabled"`
+	EveningReportEnabled bool                `json:"evening_report_enabled"`
 }
 
 // AIProviderProfile stores one selectable AI provider connection profile.
@@ -343,6 +348,14 @@ func NormalizeAISettings(settings AISettings) AISettings {
 	settings.Strategy = strings.TrimSpace(settings.Strategy)
 	if settings.Strategy == "" {
 		settings.Strategy = "single"
+	}
+	settings.MorningReportTime = strings.TrimSpace(settings.MorningReportTime)
+	if settings.MorningReportTime == "" {
+		settings.MorningReportTime = "07:30"
+	}
+	settings.EveningReportTime = strings.TrimSpace(settings.EveningReportTime)
+	if settings.EveningReportTime == "" {
+		settings.EveningReportTime = "20:00"
 	}
 
 	for i := range settings.Profiles {

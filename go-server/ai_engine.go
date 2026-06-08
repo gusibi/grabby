@@ -425,11 +425,12 @@ func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, prompt st
 	resp, err := genkit.Generate(ctx, pc.genkit,
 		ai.WithModelName(pc.profile.Model),
 		ai.WithPrompt(prompt),
+		ai.WithOutputFormat("json"),
 	)
 	if err != nil {
 		return "", err
 	}
-	return resp.Text(), nil
+	return StripMarkdownFences(resp.Text()), nil
 }
 
 // buildPrompt constructs the analysis prompt from settings and item.
