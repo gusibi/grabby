@@ -297,7 +297,7 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 		if req.ReportType == "morning" {
 			mt := settings.MorningReportTime
 			if mt == "" {
-				mt = "07:30"
+				mt = "08:30"
 			}
 			var hour, min int
 			fmt.Sscanf(mt[:2], "%d", &hour)
@@ -309,7 +309,7 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 		} else {
 			mt := settings.MorningReportTime
 			if mt == "" {
-				mt = "07:30"
+				mt = "08:30"
 			}
 			var mHour, mMin int
 			fmt.Sscanf(mt[:2], "%d", &mHour)
@@ -318,7 +318,7 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 			}
 			et := settings.EveningReportTime
 			if et == "" {
-				et = "20:00"
+				et = "22:30"
 			}
 			var eHour, eMin int
 			fmt.Sscanf(et[:2], "%d", &eHour)

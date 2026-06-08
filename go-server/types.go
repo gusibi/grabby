@@ -351,11 +351,11 @@ func NormalizeAISettings(settings AISettings) AISettings {
 	}
 	settings.MorningReportTime = strings.TrimSpace(settings.MorningReportTime)
 	if settings.MorningReportTime == "" {
-		settings.MorningReportTime = "07:30"
+		settings.MorningReportTime = "08:30"
 	}
 	settings.EveningReportTime = strings.TrimSpace(settings.EveningReportTime)
 	if settings.EveningReportTime == "" {
-		settings.EveningReportTime = "20:00"
+		settings.EveningReportTime = "22:30"
 	}
 
 	for i := range settings.Profiles {

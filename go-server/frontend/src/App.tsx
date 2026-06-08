@@ -401,8 +401,8 @@ export default function App() {
   const [aiRequestsPerMinute, setAiRequestsPerMinute] = useState<number>(10);
   const [morningReportEnabled, setMorningReportEnabled] = useState<boolean>(false);
   const [eveningReportEnabled, setEveningReportEnabled] = useState<boolean>(false);
-  const [morningReportTime, setMorningReportTime] = useState<string>("07:30");
-  const [eveningReportTime, setEveningReportTime] = useState<string>("20:00");
+  const [morningReportTime, setMorningReportTime] = useState<string>("08:30");
+  const [eveningReportTime, setEveningReportTime] = useState<string>("22:30");
 
   // Source Add/Edit modal state
   const [isSourceDialogOpen, setIsSourceDialogOpen] = useState<boolean>(false);
