@@ -109,6 +109,35 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		_ = json.NewEncoder(w).Encode(resp)
 	})
 
+	// Browser kick endpoint
+	mux.HandleFunc("/api/browsers/kick", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			ConnID string `json:"conn_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		if req.ConnID == "" {
+			http.Error(w, `{"detail":"conn_id is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := wsManager.Kick(req.ConnID); err != nil {
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	})
+
 	// API Extract endpoint
 	mux.HandleFunc("/api/extract", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

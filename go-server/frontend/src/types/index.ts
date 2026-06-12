@@ -1,4 +1,4 @@
-export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings";
+export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings" | "device";
 
 export interface Source {
   id: string;

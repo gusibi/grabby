@@ -34,11 +34,12 @@ type ItemsFilter struct {
 
 // AIItemsFilter represents filters when querying scraped items with AI analysis.
 type AIItemsFilter struct {
-	AICategory string
-	ScoreMin   int
-	Days       int
-	Limit      int
-	Cursor     string
+	AICategory     string
+	SourceCategory string
+	ScoreMin       int
+	Days           int
+	Limit          int
+	Cursor         string
 }
 
 // ScrapedItemWithAI represents a scraped item along with its AI analysis details.

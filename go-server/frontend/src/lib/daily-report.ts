@@ -1,5 +1,72 @@
 import type { JsonDailyReportData } from "@/types";
 
+type NormalizedSection = { title: string; items: unknown[] };
+type RawSection = {
+  title?: string;
+  heading?: string;
+  items?: unknown[];
+};
+
+const extractFirstJsonObject = (content: string): string | null => {
+  const startIdx = content.indexOf("{");
+  if (startIdx === -1) return null;
+
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  for (let i = startIdx; i < content.length; i += 1) {
+    const char = content[i];
+
+    if (inString) {
+      if (escaped) {
+        escaped = false;
+      } else if (char === "\\") {
+        escaped = true;
+      } else if (char === "\"") {
+        inString = false;
+      }
+      continue;
+    }
+
+    if (char === "\"") {
+      inString = true;
+    } else if (char === "{") {
+      depth += 1;
+    } else if (char === "}") {
+      depth -= 1;
+      if (depth === 0) {
+        return content.substring(startIdx, i + 1);
+      }
+    }
+  }
+
+  return null;
+};
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const normalizeReportData = (reportData: any): JsonDailyReportData | null => {
+  if (!reportData || !reportData.sections) return null;
+
+  if (Array.isArray(reportData.sections)) {
+    const rawSections = reportData.sections as RawSection[];
+    const sections = rawSections.reduce<Record<string, NormalizedSection>>(
+      (acc: Record<string, NormalizedSection>, section: RawSection, index: number) => {
+        if (!section || !Array.isArray(section.items)) return acc;
+        acc[`section_${index}`] = {
+          title: section.title || section.heading || "",
+          items: section.items,
+        };
+        return acc;
+      },
+      {}
+    );
+    return { ...reportData, sections };
+  }
+
+  return reportData;
+};
+
 export const parseDailyReportContent = (content?: string): JsonDailyReportData | null => {
   try {
     let rawContent = (content || "").trim();
@@ -17,14 +84,10 @@ export const parseDailyReportContent = (content?: string): JsonDailyReportData |
       rawContent = rawContent.trim();
     }
 
-    const startIdx = rawContent.indexOf("{");
-    const endIdx = rawContent.lastIndexOf("}");
-    if (startIdx !== -1 && endIdx !== -1 && endIdx > startIdx) {
-      const jsonCandidate = rawContent.substring(startIdx, endIdx + 1);
+    const jsonCandidate = extractFirstJsonObject(rawContent);
+    if (jsonCandidate) {
       const reportData = JSON.parse(jsonCandidate);
-      if (reportData && reportData.sections) {
-        return reportData;
-      }
+      return normalizeReportData(reportData);
     }
   } catch (e) {
     console.error("Failed to parse report content as JSON", e);

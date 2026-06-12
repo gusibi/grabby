@@ -72,7 +72,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			morningCron := timeToCronExpr(aiSettings.MorningReportTime)
 			_, err = s.cron.AddFunc(morningCron, func() {
 				s.logger.Info("Starting morning AI report generation job...")
-				runCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				runCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 				defer cancel()
 				now := time.Now()
 				dateStr := now.Format("2006-01-02")
@@ -99,7 +99,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			eveningCron := timeToCronExpr(aiSettings.EveningReportTime)
 			_, err = s.cron.AddFunc(eveningCron, func() {
 				s.logger.Info("Starting evening AI report generation job...")
-				runCtx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+				runCtx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 				defer cancel()
 				now := time.Now()
 				dateStr := now.Format("2006-01-02")

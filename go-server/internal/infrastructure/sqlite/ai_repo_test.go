@@ -183,7 +183,7 @@ func TestDatabase_AI_Operations(t *testing.T) {
 
 	// 6. Test Daily Report functions
 	dateStr := now.UTC().Format("2006-01-02")
-	
+
 	// Test GetTotalItemsCountForDate
 	totalCount, err := db.GetTotalItemsCountForDate(dateStr)
 	if err != nil {
@@ -228,13 +228,30 @@ func TestDatabase_AI_Operations(t *testing.T) {
 		t.Errorf("GetAIDailyReport returned unexpected report: %+v", retrievedReport)
 	}
 
+	legacyDateStr := now.AddDate(0, 0, 1).UTC().Format("2006-01-02")
+	_, err = db.db.Exec(`
+		INSERT INTO ai_daily_reports (report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used)
+		VALUES (?, '', ?, ?, ?, ?, ?, ?)
+	`, legacyDateStr, "Legacy Daily Report", "# Legacy report", 1, 1, `{"科技":1}`, "legacy-model")
+	if err != nil {
+		t.Fatalf("Failed to insert legacy daily report: %v", err)
+	}
+
+	legacyReport, err := db.GetAIDailyReport(legacyDateStr, "daily")
+	if err != nil {
+		t.Fatalf("Failed to get legacy daily report: %v", err)
+	}
+	if legacyReport == nil || legacyReport.ReportType != "daily" || legacyReport.Title != "Legacy Daily Report" {
+		t.Errorf("GetAIDailyReport did not normalize legacy daily report: %+v", legacyReport)
+	}
+
 	// Get reports list
 	reportsList, err := db.GetAIDailyReports(10, "")
 	if err != nil {
 		t.Fatalf("Failed to get daily reports list: %v", err)
 	}
-	if len(reportsList) != 1 || reportsList[0].ReportDate != dateStr {
-		t.Errorf("Expected 1 report in list, got %+v", reportsList)
+	if len(reportsList) != 2 || reportsList[0].ReportDate != legacyDateStr || reportsList[0].ReportType != "daily" {
+		t.Errorf("Expected 2 reports with normalized daily type in list, got %+v", reportsList)
 	}
 
 	// 8. Test Settings CRUD & LoadAISettings

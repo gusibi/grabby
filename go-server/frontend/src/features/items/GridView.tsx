@@ -86,7 +86,6 @@ export function GridView({
                       <Card 
                         key={item.id} 
                         onClick={() => {
-                          setCurrentView("list");
                           handleSelectItem(item);
                         }}
                         className="group relative flex flex-col bg-white dark:bg-[#1c1c1e] border border-black/5 dark:border-white/5 news-card-hover cursor-pointer overflow-hidden shadow-sm h-full"

@@ -53,4 +53,15 @@ export const api = {
   }),
   testAI: () => jsonFetch("/api/ai/test", { method: "POST" }),
   startEvaluation: () => jsonFetch("/api/ai/start_eval", { method: "POST" }),
+  getBrowsers: () => jsonFetch("/api/browsers"),
+  registerBrowser: (connectId: string, name: string) => jsonFetch("/api/browsers/register", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ connect_id: connectId, name }),
+  }),
+  kickBrowser: (connId: string) => jsonFetch("/api/browsers/kick", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conn_id: connId }),
+  }),
 };

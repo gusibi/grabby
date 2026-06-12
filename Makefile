@@ -87,10 +87,10 @@ run-go: build-go
 	@echo "==> 启动 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && ./go-server
 
-# 编译前端，再编译 Go，最后运行
-run: build-frontend build-go
+# 编译前端，然后直接运行 Go (使用 go run 规避 macOS 签名限制)
+run: build-frontend
 	@echo "==> 启动 Go MCP Server..."
-	cd $(GO_SERVER_DIR) && ./go-server
+	cd $(GO_SERVER_DIR) && GOPROXY=$(GO_PROXY) go run .
 
 # 清理 Go 构建产物
 clean-go:

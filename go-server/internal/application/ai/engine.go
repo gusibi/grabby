@@ -10,9 +10,9 @@ import (
 
 	genai "github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
-	"github.com/firebase/genkit/go/plugins/googlegenai"
 	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 	"github.com/firebase/genkit/go/plugins/compat_oai/openai"
+	"github.com/firebase/genkit/go/plugins/googlegenai"
 	"go.uber.org/zap"
 
 	domainai "go-server/internal/domain/ai"
@@ -34,9 +34,9 @@ type AIAnalysisResult struct {
 // profileClient holds an initialized client for a single profile.
 type profileClient struct {
 	profile     domainai.AIProviderProfile
-	genkit      *genkit.Genkit       // non-nil for gemini/openai/custom
-	lmstudio    *llm.LMStudioClient  // non-nil for lmstudio
-	rateLimiter *llm.RateLimiter     // per-profile rate limiter for all providers
+	genkit      *genkit.Genkit      // non-nil for gemini/openai/custom
+	lmstudio    *llm.LMStudioClient // non-nil for lmstudio
+	rateLimiter *llm.RateLimiter    // per-profile rate limiter for all providers
 }
 
 // AIEngine handles queueing and executing AI analysis requests.
@@ -449,6 +449,26 @@ func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, prompt st
 
 	if pc.lmstudio != nil {
 		schema := json.RawMessage(llm.AnalysisResponseSchema)
+		return pc.lmstudio.GenerateWithSchema(ctx, prompt, &schema)
+	}
+	resp, err := genkit.Generate(ctx, pc.genkit,
+		genai.WithModelName(pc.profile.Model),
+		genai.WithPrompt(prompt),
+		genai.WithOutputFormat("json"),
+	)
+	if err != nil {
+		return "", err
+	}
+	return llm.StripMarkdownFences(resp.Text()), nil
+}
+
+// callDailyProfile invokes a profile for daily report generation.
+// It uses the daily report schema instead of the per-item analysis schema.
+func (e *AIEngine) callDailyProfile(ctx context.Context, pc *profileClient, prompt string) (string, error) {
+	pc.rateLimiter.Wait()
+
+	if pc.lmstudio != nil {
+		schema := json.RawMessage(DailyReportResponseSchema)
 		return pc.lmstudio.GenerateWithSchema(ctx, prompt, &schema)
 	}
 	resp, err := genkit.Generate(ctx, pc.genkit,

@@ -25,8 +25,7 @@ export function AppHeader({
           <header className="h-14 flex items-center justify-between px-6 border-b border-black/5 dark:border-white/5 bg-white/80 dark:bg-[#1c1c1e]/80 backdrop-blur-md sticky top-0 z-10 shrink-0">
             <div className="flex items-center gap-3">
               <h2 className="text-lg font-bold tracking-tight">
-                {currentView === "grid" && "聚合发现 Discovery"}
-                {currentView === "list" && "阅读列表 Inbox"}
+                {currentView === "grid" && (selectedReadStatus === "unread" ? "阅读列表 Inbox" : "聚合发现 Discovery")}
                 {currentView === "settings" && "订阅数据源 Settings"}
                 {currentView === "ai-settings" && "AI 模型配置 Settings"}
                 {currentView === "logs" && "抓取执行日志 Logs"}
@@ -43,7 +42,7 @@ export function AppHeader({
             </div>
 
             <div className="flex items-center gap-3">
-              {(currentView === "grid" || currentView === "list") && (
+              {currentView === "grid" && (
                 <div className="flex items-center gap-2">
                   <Select value={selectedReadStatus} onValueChange={setSelectedReadStatus}>
                     <SelectTrigger className="w-[100px] h-8 text-xs">
@@ -64,7 +63,7 @@ export function AppHeader({
                 </Button>
               )}
 
-              {(currentView === "grid" || currentView === "list") && (
+              {currentView === "grid" && (
                 <Button 
                   onClick={handleScrapeAllEnabled} 
                   disabled={isScrapingAll}

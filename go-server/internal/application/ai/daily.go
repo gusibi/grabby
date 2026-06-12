@@ -77,6 +77,7 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 		notice := fmt.Sprintf("# %s\n\n今日共抓取 %d 条资讯。未筛选出评分高于 %d 分的优质内容，故今日无推荐要闻。", title, totalItems, threshold)
 		report := domainai.AIDailyReport{
 			ReportDate:        dateStr,
+			ReportType:        "daily",
 			Title:             title,
 			Content:           notice,
 			TotalItems:        totalItems,
@@ -102,14 +103,16 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 	if dailyPrompt == "" {
 		dailyPrompt = DefaultDailyPrompt
 	}
+	dailyPrompt = enforceDailyReportJSONContract(dailyPrompt)
 
 	prompt := dailyPrompt
 	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(items)))
 	prompt = strings.ReplaceAll(prompt, "{{.FeedText}}", feedText)
 	prompt = strings.ReplaceAll(prompt, "{{.TotalItems}}", fmt.Sprintf("%d", totalItems))
 	prompt = strings.ReplaceAll(prompt, "{{.QualityItems}}", fmt.Sprintf("%d", len(items)))
+	prompt = strings.ReplaceAll(prompt, "{{.Date}}", dateStr)
 
-	// Generate Markdown via selector (with failover)
+	// Generate structured JSON via selector (with failover)
 	var content string
 	maxAttempts := selector.EnabledCount()
 	if maxAttempts < 1 {
@@ -125,8 +128,8 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 			selector.MarkUnhealthy(profile.ID)
 			continue
 		}
-		reportCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-		content, err = adm.aiEngine.callProfile(reportCtx, pc, prompt)
+		reportCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		content, err = adm.generateValidatedDailyContent(reportCtx, pc, prompt, dateStr)
 		cancel()
 		if err != nil {
 			adm.logger.Warn("Profile failed for daily report, trying next",
@@ -143,6 +146,7 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 
 	report := domainai.AIDailyReport{
 		ReportDate:        dateStr,
+		ReportType:        "daily",
 		Title:             title,
 		Content:           content,
 		TotalItems:        totalItems,
@@ -246,12 +250,14 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 	if dailyPrompt == "" {
 		dailyPrompt = DefaultDailyPrompt
 	}
+	dailyPrompt = enforceDailyReportJSONContract(dailyPrompt)
 
 	prompt := dailyPrompt
 	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(items)))
 	prompt = strings.ReplaceAll(prompt, "{{.FeedText}}", feedText)
 	prompt = strings.ReplaceAll(prompt, "{{.TotalItems}}", fmt.Sprintf("%d", totalItems))
 	prompt = strings.ReplaceAll(prompt, "{{.QualityItems}}", fmt.Sprintf("%d", len(items)))
+	prompt = strings.ReplaceAll(prompt, "{{.Date}}", dateStr)
 
 	var content string
 	maxAttempts := selector.EnabledCount()
@@ -268,8 +274,8 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 			selector.MarkUnhealthy(profile.ID)
 			continue
 		}
-		reportCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-		content, err = adm.aiEngine.callProfile(reportCtx, pc, prompt)
+		reportCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+		content, err = adm.generateValidatedDailyContent(reportCtx, pc, prompt, dateStr)
 		cancel()
 		if err != nil {
 			adm.logger.Warn("Profile failed for ranged report, trying next",
@@ -306,4 +312,82 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 		zap.String("type", reportType),
 		zap.Int("items_included", len(items)))
 	return &report, nil
+}
+
+func (adm *AIDailyManager) generateValidatedDailyContent(ctx context.Context, pc *profileClient, prompt string, dateStr string) (string, error) {
+	const maxValidationAttempts = 3
+
+	currentPrompt := prompt
+	var lastErr error
+	for attempt := 1; attempt <= maxValidationAttempts; attempt++ {
+		rawContent, err := adm.aiEngine.callDailyProfile(ctx, pc, currentPrompt)
+		if err != nil {
+			return "", err
+		}
+
+		content, err := normalizeDailyReportContent(rawContent, dateStr)
+		if err == nil {
+			if attempt > 1 {
+				adm.logger.Info("Daily report passed validation after repair",
+					zap.Int("attempt", attempt),
+					zap.String("date", dateStr))
+			}
+			return content, nil
+		}
+
+		lastErr = err
+		adm.logger.Warn("Daily report failed validation",
+			zap.Int("attempt", attempt),
+			zap.String("date", dateStr),
+			zap.Error(err))
+		currentPrompt = buildDailyReportRepairPrompt(rawContent, err, dateStr)
+	}
+
+	return "", fmt.Errorf("daily report response failed validation after %d attempts: %w", maxValidationAttempts, lastErr)
+}
+
+func buildDailyReportRepairPrompt(rawContent string, validationErr error, dateStr string) string {
+	if len(rawContent) > 12000 {
+		rawContent = rawContent[:12000] + "\n...(truncated)"
+	}
+	return fmt.Sprintf(`你刚才生成的 Grabby AI 日报 JSON 没有通过格式校验。
+
+校验错误：%s
+
+请只修复格式，不要新增事实，不要改写含义。必须返回一个合法 JSON 对象，不能使用 Markdown 代码块，不能输出任何解释文字。
+
+必需结构：
+{
+  "title": "string",
+  "date": "%s",
+  "editor": "string",
+  "sections": {
+    "headline": {
+      "title": "string",
+      "items": [
+        {
+          "title": "string",
+          "summary": "string",
+          "source": "string",
+          "link": "string",
+          "score": "string",
+          "comment": "string"
+        }
+      ]
+    }
+  }
+}
+
+待修复内容：
+%s`, validationErr, dateStr, rawContent)
+}
+
+func enforceDailyReportJSONContract(prompt string) string {
+	if strings.Contains(prompt, "只能返回合法 JSON") && strings.Contains(prompt, `"sections"`) {
+		return prompt
+	}
+	return prompt + `
+
+【强制格式约束】：
+无论前文如何描述，最终只能返回一个合法 JSON 对象，不能使用 Markdown 代码块，不能输出解释文字。JSON 顶层必须包含 title、date、editor、sections；sections 必须是对象；每个 section 必须包含 title 和 items；每个 item 至少包含 title 和 summary。`
 }

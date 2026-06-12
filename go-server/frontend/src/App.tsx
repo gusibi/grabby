@@ -1,16 +1,24 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { GridView } from "@/features/items/GridView";
-import { ReaderView } from "@/features/items/ReaderView";
+import { ItemDetailModal } from "@/features/items/ItemDetailModal";
 import { SourcesView } from "@/features/sources/SourcesView";
 import { SourceDialog } from "@/features/sources/SourceDialog";
 import { AISettingsView } from "@/features/ai-settings/AISettingsView";
 import { LogsView } from "@/features/logs/LogsView";
 import { DailyReportView } from "@/features/daily-report/DailyReportView";
+import { DeviceSettingsView } from "@/features/device/DeviceSettingsView";
 import { api } from "@/lib/api";
 import type { AICategory, AIProviderProfile, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
+
+function getLocalDateString(d: Date = new Date()): string {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
 
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>("grid");
@@ -44,10 +52,10 @@ export default function App() {
   const [aiCategories, setAiCategories] = useState<AICategory[]>([]);
   const [dailyReport, setDailyReport] = useState<DailyReport | null>(null);
   const [dailyReportHtml, setDailyReportHtml] = useState<string>("");
-  const [selectedReportDate, setSelectedReportDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedReportDate, setSelectedReportDate] = useState<string>(getLocalDateString());
   const [isGeneratingReport, setIsGeneratingReport] = useState<boolean>(false);
   const [reportList, setReportList] = useState<ReportListItem[]>([]);
-  const [selectedReportType, setSelectedReportType] = useState<string>("daily");
+  const [selectedReportType, setSelectedReportType] = useState<string>("morning");
 
   // Detail item reader state
   const [selectedItem, setSelectedItem] = useState<ScrapedItem | null>(null);
@@ -77,6 +85,8 @@ export default function App() {
   const [eveningReportEnabled, setEveningReportEnabled] = useState<boolean>(false);
   const [morningReportTime, setMorningReportTime] = useState<string>("08:30");
   const [eveningReportTime, setEveningReportTime] = useState<string>("22:30");
+
+  const lastSetHashRef = useRef<string>('');
 
   // Source Add/Edit modal state
   const [isSourceDialogOpen, setIsSourceDialogOpen] = useState<boolean>(false);
@@ -154,7 +164,7 @@ export default function App() {
 
   const fetchDailyReport = async (dateStr?: string, reportType?: string) => {
     const date = dateStr || selectedReportDate;
-    const rType = reportType || selectedReportType || "daily";
+    const rType = reportType || selectedReportType || "morning";
     try {
       const data = await api.getDailyReport(date, rType);
       if (data.success && data.report) {
@@ -381,16 +391,19 @@ export default function App() {
 
   const handleGenerateDailyReport = async (reportType?: string) => {
     setIsGeneratingReport(true);
-    const rType = reportType || selectedReportType || "daily";
+    const rType = reportType || selectedReportType || "morning";
     try {
       const data = await api.generateDailyReport(selectedReportDate, rType);
-      if (data.success && data.report) {
-        setDailyReport(data.report);
-        setDailyReportHtml(data.html_content || "");
-        fetchStats();
-        fetchReportList();
+      if (data.success) {
+        alert("早报/晚报生成已在后台启动，生成需要一些时间，完成后将自动加载。");
+        // Wait a few seconds to let backend start processing, then fetch updates
+        setTimeout(() => {
+          fetchStats();
+          fetchReportList();
+          fetchDailyReport(selectedReportDate, rType);
+        }, 3000);
       } else {
-        alert("生成日报失败: " + (data.error || "未知原因"));
+        alert("生成失败: " + (data.error || "未知原因"));
       }
     } catch (err) {
       console.error("Failed to generate daily report", err);
@@ -440,13 +453,8 @@ export default function App() {
 
       if (reset) {
         setItems(data.items || []);
-        // Select first item by default if entering list view
-        if (data.items && data.items.length > 0) {
-          handleSelectItem(data.items[0]);
-        } else {
-          setSelectedItem(null);
-          setItemDetailHtml("");
-        }
+        setSelectedItem(null);
+        setItemDetailHtml("");
       } else {
         setItems(prev => [...prev, ...(data.items || [])]);
       }
@@ -662,17 +670,98 @@ export default function App() {
     fetchStats();
     checkHealth();
     fetchAICategories();
-    
+
     // Check local storage for dark mode
-    if (localStorage.getItem("theme") === "dark" || 
+    if (localStorage.getItem("theme") === "dark" ||
         (!localStorage.getItem("theme") && window.matchMedia("(prefers-color-scheme: dark)").matches)) {
       document.documentElement.classList.add("dark");
       setDarkMode(true);
     }
 
+    // Initialize from URL hash
+    if (window.location.hash) {
+      const rawHash = window.location.hash.replace(/^#/, '');
+      const [pathPart, queryPart] = rawHash.split('?');
+      const parts = pathPart.replace(/^\//, '').split('/');
+      const params = new URLSearchParams(queryPart || '');
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily'];
+      const hashView = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
+      const hashDate = parts[1];
+      const hashType = parts[2];
+      lastSetHashRef.current = rawHash;
+      setCurrentView(hashView);
+      if (hashView === 'daily') {
+        if (hashDate) setSelectedReportDate(hashDate);
+        if (hashType) setSelectedReportType(hashType);
+        fetchDailyReport(hashDate, hashType || 'morning');
+        fetchReportList();
+      } else if (hashView === 'logs') {
+        fetchLogs();
+      } else if (hashView === 'grid' && queryPart) {
+        const aiCat = params.get('aiCat') || 'all';
+        const quality = params.get('quality') === '1';
+        const srcCat = params.get('srcCat') || 'all';
+        const read = params.get('read') || 'all';
+        if (aiCat !== 'all') setSelectedAICategory(aiCat);
+        if (quality) setIsShowOnlyAIQuality(true);
+        if (srcCat !== 'all') setSelectedSourceCategory(srcCat);
+        if (read !== 'all') setSelectedReadStatus(read);
+      }
+    }
+
     // Health check polling
     const healthInterval = setInterval(checkHealth, 10000);
     return () => clearInterval(healthInterval);
+  }, []);
+
+  // Sync state → URL hash
+  useEffect(() => {
+    let hash = `/${currentView}`;
+    if (currentView === 'daily') {
+      hash += `/${selectedReportDate}/${selectedReportType}`;
+    } else if (currentView === 'grid') {
+      const params = new URLSearchParams();
+      if (selectedAICategory && selectedAICategory !== 'all') params.set('aiCat', selectedAICategory);
+      if (isShowOnlyAIQuality) params.set('quality', '1');
+      if (selectedSourceCategory && selectedSourceCategory !== 'all') params.set('srcCat', selectedSourceCategory);
+      if (selectedReadStatus && selectedReadStatus !== 'all') params.set('read', selectedReadStatus);
+      const qs = params.toString();
+      if (qs) hash += `?${qs}`;
+    }
+    if (window.location.hash !== `#${hash}`) {
+      lastSetHashRef.current = hash;
+      window.location.hash = hash;
+    }
+  }, [currentView, selectedReportDate, selectedReportType, selectedAICategory, isShowOnlyAIQuality, selectedSourceCategory, selectedReadStatus]);
+
+  // Sync URL hash → state (browser back/forward)
+  useEffect(() => {
+    const handleHashChange = () => {
+      const currentHash = window.location.hash.replace('#', '');
+      if (currentHash === lastSetHashRef.current) return;
+      const [pathPart, queryPart] = currentHash.split('?');
+      const parts = pathPart.replace(/^\//, '').split('/');
+      const params = new URLSearchParams(queryPart || '');
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily'];
+      const view = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
+      const date = parts[1];
+      const type = parts[2];
+      lastSetHashRef.current = currentHash;
+      setCurrentView(view);
+      if (view === 'daily') {
+        if (date) setSelectedReportDate(date);
+        if (type) setSelectedReportType(type);
+        fetchDailyReport(date, type || 'morning');
+        fetchReportList();
+      } else if (view === 'grid') {
+        setSelectedAICategory(params.get('aiCat') || 'all');
+        setIsShowOnlyAIQuality(params.get('quality') === '1');
+        setSelectedSourceCategory(params.get('srcCat') || 'all');
+        setSelectedReadStatus(params.get('read') || 'all');
+      }
+    };
+    window.addEventListener('hashchange', handleHashChange);
+    return () => window.removeEventListener('hashchange', handleHashChange);
   }, []);
 
   useEffect(() => {
@@ -709,6 +798,8 @@ export default function App() {
           toggleDarkMode={toggleDarkMode}
           darkMode={darkMode}
           setIsSidebarCollapsed={setIsSidebarCollapsed}
+          selectedReadStatus={selectedReadStatus}
+          setSelectedReadStatus={setSelectedReadStatus}
         />
 
         <main className="flex-1 flex flex-col bg-zinc-50 dark:bg-[#121212] overflow-hidden relative">
@@ -742,27 +833,15 @@ export default function App() {
             />
           )}
 
-          {currentView === "list" && (
-            <ReaderView
-              items={items}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              selectedAICategory={selectedAICategory}
-              isShowOnlyAIQuality={isShowOnlyAIQuality}
-              setSelectedAICategory={setSelectedAICategory}
-              setIsShowOnlyAIQuality={setIsShowOnlyAIQuality}
-              aiCategories={aiCategories}
-              selectedItem={selectedItem}
-              handleSelectItem={handleSelectItem}
-              toggleStar={toggleStar}
-              hasMore={hasMore}
-              fetchItems={fetchItems}
-              isLoadingItems={isLoadingItems}
-              toggleReadStatus={toggleReadStatus}
-              isLoadingDetail={isLoadingDetail}
-              itemDetailHtml={itemDetailHtml}
-            />
-          )}
+          <ItemDetailModal
+            item={selectedItem}
+            isOpen={selectedItem !== null}
+            onClose={() => setSelectedItem(null)}
+            isLoadingDetail={isLoadingDetail}
+            itemDetailHtml={itemDetailHtml}
+            toggleStar={toggleStar}
+            toggleReadStatus={toggleReadStatus}
+          />
 
           {currentView === "settings" && (
             <SourcesView
@@ -839,6 +918,10 @@ export default function App() {
               selectedReportType={selectedReportType}
               setSelectedReportType={setSelectedReportType}
             />
+          )}
+
+          {currentView === "device" && (
+            <DeviceSettingsView />
           )}
 
         </main>

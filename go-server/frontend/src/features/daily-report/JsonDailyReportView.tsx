@@ -66,7 +66,7 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {section.items.map((item: ReportItem, idx: number) => {
-                  const text = typeof item === "string" ? item : (item.title || "");
+                  const text = typeof item === "string" ? item : [item.title, item.summary].filter(Boolean).join("：");
                   return (
                     <div key={idx} className="flex items-center gap-3 bg-white dark:bg-zinc-900/60 p-4 rounded-xl shadow-sm border border-black/5 dark:border-white/5">
                       <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-600 dark:text-indigo-400">
@@ -101,6 +101,7 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
                 const story = item as ReportItem;
 
                 const commentaryText = story.commentary || story.comment || "";
+                const scoreText = story.score || story.rating || "";
 
                 if (isTopStories) {
                   return (
@@ -120,9 +121,9 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
                               {story.source}
                             </span>
                           )}
-                          {story.score && (
+                          {scoreText && (
                             <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                              评分: {story.score}
+                              评分: {scoreText}
                             </span>
                           )}
                         </div>
@@ -179,9 +180,9 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
                             {story.source}
                           </span>
                         )}
-                        {story.score && (
+                        {scoreText && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400">
-                            {story.score}
+                            {scoreText}
                           </span>
                         )}
                       </div>
@@ -220,4 +221,3 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
     </div>
   );
 }
-

@@ -2,6 +2,7 @@ package httpiface
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"encoding/xml"
 	"fmt"
@@ -54,6 +55,7 @@ func (h *AIHandlers) HandleQuality(w http.ResponseWriter, r *http.Request) {
 	}
 
 	category := r.URL.Query().Get("category")
+	sourceCategory := r.URL.Query().Get("source_category")
 
 	days := 7
 	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
@@ -72,11 +74,12 @@ func (h *AIHandlers) HandleQuality(w http.ResponseWriter, r *http.Request) {
 	cursor := r.URL.Query().Get("cursor")
 
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
-		AICategory: category,
-		ScoreMin:   scoreMin,
-		Days:       days,
-		Limit:      limit,
-		Cursor:     cursor,
+		AICategory:     category,
+		SourceCategory: sourceCategory,
+		ScoreMin:       scoreMin,
+		Days:           days,
+		Limit:          limit,
+		Cursor:         cursor,
 	})
 	if err != nil {
 		h.logger.Error("Failed to query quality items", zap.Error(err))
@@ -121,6 +124,7 @@ func (h *AIHandlers) HandleItems(w http.ResponseWriter, r *http.Request) {
 	}
 
 	category := r.URL.Query().Get("category")
+	sourceCategory := r.URL.Query().Get("source_category")
 
 	scoreMin := 0
 	if sMinStr := r.URL.Query().Get("score_min"); sMinStr != "" {
@@ -139,10 +143,11 @@ func (h *AIHandlers) HandleItems(w http.ResponseWriter, r *http.Request) {
 	cursor := r.URL.Query().Get("cursor")
 
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
-		AICategory: category,
-		ScoreMin:   scoreMin,
-		Limit:      limit,
-		Cursor:     cursor,
+		AICategory:     category,
+		SourceCategory: sourceCategory,
+		ScoreMin:       scoreMin,
+		Limit:          limit,
+		Cursor:         cursor,
 	})
 	if err != nil {
 		h.logger.Error("Failed to query AI items", zap.Error(err))
@@ -291,77 +296,60 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 		req.ReportType = "daily"
 	}
 
-	var report *ai.AIDailyReport
-	var genErr error
+	go func() {
+		ctx := context.Background()
+		var genErr error
 
-	if req.ReportType == "morning" || req.ReportType == "evening" {
-		settings := h.aiEngine.Settings()
-		now := time.Now()
-		var start, end time.Time
+		if req.ReportType == "morning" || req.ReportType == "evening" {
+			settings := h.aiEngine.Settings()
+			targetDate, err := time.ParseInLocation("2006-01-02", req.Date, time.Local)
+			if err != nil {
+				targetDate = time.Now()
+			}
+			var start, end time.Time
 
-		if req.ReportType == "morning" {
-			mt := settings.MorningReportTime
-			if mt == "" {
-				mt = "08:30"
+			if req.ReportType == "morning" {
+				mt := settings.MorningReportTime
+				if mt == "" {
+					mt = "08:30"
+				}
+				var hour, min int
+				fmt.Sscanf(mt[:2], "%d", &hour)
+				if len(mt) >= 5 {
+					fmt.Sscanf(mt[3:5], "%d", &min)
+				}
+				end = time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), hour, min, 0, 0, targetDate.Location())
+				start = end.Add(-24 * time.Hour)
+			} else {
+				et := settings.EveningReportTime
+				if et == "" {
+					et = "22:30"
+				}
+				var eHour, eMin int
+				fmt.Sscanf(et[:2], "%d", &eHour)
+				if len(et) >= 5 {
+					fmt.Sscanf(et[3:5], "%d", &eMin)
+				}
+				end = time.Date(targetDate.Year(), targetDate.Month(), targetDate.Day(), eHour, eMin, 0, 0, targetDate.Location())
+				start = end.Add(-14 * time.Hour)
 			}
-			var hour, min int
-			fmt.Sscanf(mt[:2], "%d", &hour)
-			if len(mt) >= 5 {
-				fmt.Sscanf(mt[3:5], "%d", &min)
-			}
-			end = time.Date(now.Year(), now.Month(), now.Day(), hour, min, 0, 0, now.Location())
-			start = end.Add(-24 * time.Hour)
+
+			_, genErr = h.dailyManager.GenerateRangedReport(ctx, req.Date, req.ReportType, start, end)
 		} else {
-			mt := settings.MorningReportTime
-			if mt == "" {
-				mt = "08:30"
-			}
-			var mHour, mMin int
-			fmt.Sscanf(mt[:2], "%d", &mHour)
-			if len(mt) >= 5 {
-				fmt.Sscanf(mt[3:5], "%d", &mMin)
-			}
-			et := settings.EveningReportTime
-			if et == "" {
-				et = "22:30"
-			}
-			var eHour, eMin int
-			fmt.Sscanf(et[:2], "%d", &eHour)
-			if len(et) >= 5 {
-				fmt.Sscanf(et[3:5], "%d", &eMin)
-			}
-			start = time.Date(now.Year(), now.Month(), now.Day(), mHour, mMin, 0, 0, now.Location())
-			end = time.Date(now.Year(), now.Month(), now.Day(), eHour, eMin, 0, 0, now.Location())
+			_, genErr = h.dailyManager.GenerateDailyReport(ctx, req.Date)
 		}
 
-		report, genErr = h.dailyManager.GenerateRangedReport(r.Context(), req.Date, req.ReportType, start, end)
-	} else {
-		report, genErr = h.dailyManager.GenerateDailyReport(r.Context(), req.Date)
-	}
-	if genErr != nil {
-		h.logger.Error("Failed to generate daily report manually", zap.Error(genErr))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   genErr.Error(),
-		})
-		return
-	}
-
-	var buf bytes.Buffer
-	htmlContent := ""
-	if report != nil && report.Content != "" {
-		if err := goldmark.Convert([]byte(report.Content), &buf); err == nil {
-			htmlContent = buf.String()
+		if genErr != nil {
+			h.logger.Error("Async background generation failed", zap.String("date", req.Date), zap.String("type", req.ReportType), zap.Error(genErr))
+		} else {
+			h.logger.Info("Async background generation completed successfully", zap.String("date", req.Date), zap.String("type", req.ReportType))
 		}
-	}
+	}()
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success":      true,
-		"report":       report,
-		"html_content": htmlContent,
+		"success": true,
+		"message": "Report generation started in the background",
 	})
 }
 
@@ -582,6 +570,19 @@ func (h *AIHandlers) HandleSaveSettings(w http.ResponseWriter, r *http.Request) 
 	if profilesBytes, err := json.Marshal(req.Profiles); err == nil {
 		_ = h.db.SaveSetting("ai_provider_profiles", string(profilesBytes))
 	}
+
+	morningEnabledStr := "false"
+	if req.MorningReportEnabled {
+		morningEnabledStr = "true"
+	}
+	eveningEnabledStr := "false"
+	if req.EveningReportEnabled {
+		eveningEnabledStr = "true"
+	}
+	_ = h.db.SaveSetting("ai_morning_report_enabled", morningEnabledStr)
+	_ = h.db.SaveSetting("ai_evening_report_enabled", eveningEnabledStr)
+	_ = h.db.SaveSetting("ai_morning_report_time", req.MorningReportTime)
+	_ = h.db.SaveSetting("ai_evening_report_time", req.EveningReportTime)
 
 	// 2. Reload settings in the AI Engine
 	err := h.aiEngine.ReloadSettings(req)

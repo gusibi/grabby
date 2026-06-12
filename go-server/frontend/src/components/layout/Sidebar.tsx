@@ -1,4 +1,4 @@
-import { LayoutGrid, Inbox, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles } from "lucide-react";
+import { LayoutGrid, Inbox, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles, Laptop } from "lucide-react";
 import type { AICategory, AppView, Stats } from "@/types";
 
 interface SidebarProps {
@@ -19,6 +19,8 @@ interface SidebarProps {
   toggleDarkMode: () => void;
   darkMode: boolean;
   setIsSidebarCollapsed: (value: boolean) => void;
+  selectedReadStatus: string;
+  setSelectedReadStatus: (value: string) => void;
 }
 
 export function Sidebar({
@@ -38,7 +40,9 @@ export function Sidebar({
   setSelectedSourceCategory,
   toggleDarkMode,
   darkMode,
-  setIsSidebarCollapsed
+  setIsSidebarCollapsed,
+  selectedReadStatus,
+  setSelectedReadStatus
 }: SidebarProps) {
   return (
         <aside className={`${isSidebarCollapsed ? "w-16" : "w-64"} sidebar-vibrancy flex flex-col shrink-0 transition-all duration-300`}>
@@ -51,9 +55,12 @@ export function Sidebar({
           <div className="flex-1 px-3 py-4 space-y-6 overflow-y-auto">
             <nav className="space-y-1">
               <button
-                onClick={() => setCurrentView("grid")}
+                onClick={() => {
+                  setCurrentView("grid");
+                  setSelectedReadStatus("all");
+                }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
-                  currentView === "grid"
+                  currentView === "grid" && selectedReadStatus !== "unread"
                     ? "bg-blue-600 text-white shadow-md font-semibold"
                     : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
                 }`}
@@ -62,27 +69,6 @@ export function Sidebar({
                 {!isSidebarCollapsed && <span>聚合发现 Grid</span>}
               </button>
               
-              <button
-                onClick={() => setCurrentView("list")}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-sm transition-all font-medium ${
-                  currentView === "list"
-                    ? "bg-blue-600 text-white shadow-md font-semibold"
-                    : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <Inbox className="w-4 h-4" />
-                  {!isSidebarCollapsed && <span>阅读列表 Inbox</span>}
-                </div>
-                {!isSidebarCollapsed && stats.unread_count > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.5 rounded-md font-bold ${
-                    currentView === "list" ? "bg-white text-blue-600" : "bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400"
-                  }`}>
-                    {stats.unread_count}
-                  </span>
-                )}
-              </button>
-
               <button
                 onClick={() => {
                   setCurrentView("daily");
@@ -98,21 +84,6 @@ export function Sidebar({
                 <Sparkles className="w-4 h-4" />
                 {!isSidebarCollapsed && <span>AI 智能日报 Daily</span>}
               </button>
-
-              <button
-                onClick={() => {
-                  setCurrentView("logs");
-                  fetchLogs();
-                }}
-                className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
-                  currentView === "logs"
-                    ? "bg-blue-600 text-white shadow-md font-semibold"
-                    : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-                }`}
-              >
-                <FileText className="w-4 h-4" />
-                {!isSidebarCollapsed && <span>抓取日志 Logs</span>}
-              </button>
             </nav>
 
             {!isSidebarCollapsed && (
@@ -126,7 +97,7 @@ export function Sidebar({
                     onClick={() => {
                       setIsShowOnlyAIQuality((prev: boolean) => !prev);
                       setSelectedAICategory("all");
-                      if (currentView !== "grid" && currentView !== "list") setCurrentView("grid");
+                      if (currentView !== "grid") setCurrentView("grid");
                     }}
                     className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${isShowOnlyAIQuality ? "text-indigo-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
                   >
@@ -140,7 +111,7 @@ export function Sidebar({
                       onClick={() => {
                         setSelectedAICategory(cat.name === selectedAICategory ? "all" : cat.name);
                         setIsShowOnlyAIQuality(false);
-                        if (currentView !== "grid" && currentView !== "list") setCurrentView("grid");
+                        if (currentView !== "grid") setCurrentView("grid");
                       }}
                       className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${selectedAICategory === cat.name ? "text-indigo-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
                     >
@@ -159,7 +130,7 @@ export function Sidebar({
                 </h3>
                 <nav className="space-y-1">
                   <button
-                    onClick={() => { setSelectedSourceCategory("all"); if (currentView !== "grid" && currentView !== "list") setCurrentView("grid"); }}
+                    onClick={() => { setSelectedSourceCategory("all"); if (currentView !== "grid") setCurrentView("grid"); }}
                     className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${selectedSourceCategory === "all" ? "text-blue-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
                   >
                     <span>全部 All</span>
@@ -168,7 +139,7 @@ export function Sidebar({
                   {(stats.source_categories || []).map((cat) => (
                     <button
                       key={cat}
-                      onClick={() => { setSelectedSourceCategory(cat); if (currentView !== "grid" && currentView !== "list") setCurrentView("grid"); }}
+                      onClick={() => { setSelectedSourceCategory(cat); if (currentView !== "grid") setCurrentView("grid"); }}
                       className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${selectedSourceCategory === cat ? "text-blue-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
                     >
                       <span>{cat}</span>
@@ -207,11 +178,40 @@ export function Sidebar({
               {!isSidebarCollapsed && <span>AI 模型配置 Settings</span>}
             </button>
 
-            <div className="flex gap-2 pt-1.5">
+            <button
+              onClick={() => {
+                setCurrentView("logs");
+                fetchLogs();
+              }}
+              title="抓取日志"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                currentView === "logs"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold"
+                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+              }`}
+            >
+              <FileText className="w-4 h-4" />
+              {!isSidebarCollapsed && <span>抓取日志 Logs</span>}
+            </button>
+
+            <button
+              onClick={() => setCurrentView("device")}
+              title="设备连接状态"
+              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                currentView === "device"
+                  ? "bg-blue-600 text-white shadow-sm font-semibold"
+                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+              }`}
+            >
+              <Laptop className="w-4 h-4" />
+              {!isSidebarCollapsed && <span>设备与连接 Devices</span>}
+            </button>
+
+            <div className={`flex ${isSidebarCollapsed ? "flex-col" : "flex-row"} gap-2 pt-1.5`}>
               <button
                 onClick={toggleDarkMode}
                 title={darkMode ? "切换亮色模式" : "切换暗色模式"}
-                className="flex-1 flex items-center justify-center p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors bg-black/5 dark:bg-white/5 rounded-xl"
+                className={`flex-1 flex items-center justify-center p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors bg-black/5 dark:bg-white/5 rounded-xl ${isSidebarCollapsed ? "h-9 w-full" : ""}`}
               >
                 {darkMode ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
                 {!isSidebarCollapsed && <span className="text-[10px] ml-1.5 font-medium">{darkMode ? "亮色" : "暗色"}</span>}
@@ -219,7 +219,7 @@ export function Sidebar({
               <button
                 onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
                 title={isSidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
-                className="flex-1 flex items-center justify-center p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors bg-black/5 dark:bg-white/5 rounded-xl"
+                className={`flex-1 flex items-center justify-center p-2 text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors bg-black/5 dark:bg-white/5 rounded-xl ${isSidebarCollapsed ? "h-9 w-full" : ""}`}
               >
                 {isSidebarCollapsed ? <ChevronRight className="w-4 h-4" /> : <ChevronLeft className="w-4 h-4" />}
                 {!isSidebarCollapsed && <span className="text-[10px] ml-1.5 font-medium">折叠</span>}

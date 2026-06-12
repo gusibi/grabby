@@ -100,6 +100,11 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 		args = append(args, f.AICategory)
 	}
 
+	if f.SourceCategory != "" && f.SourceCategory != "all" {
+		query += " AND s.category = ?"
+		args = append(args, f.SourceCategory)
+	}
+
 	if f.ScoreMin > 0 {
 		query += " AND a.quality_score >= ?"
 		args = append(args, f.ScoreMin)
@@ -202,7 +207,15 @@ func (d *Database) AverageAIQualityScore() (float64, error) {
 
 // --- AI Daily Reports CRUD ---
 
+func normalizeReportType(reportType string) string {
+	if reportType == "" {
+		return "daily"
+	}
+	return reportType
+}
+
 func (d *Database) InsertAIDailyReport(r AIDailyReport) error {
+	r.ReportType = normalizeReportType(r.ReportType)
 	_, err := d.db.Exec(`
 		INSERT INTO ai_daily_reports (report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
@@ -219,19 +232,21 @@ func (d *Database) InsertAIDailyReport(r AIDailyReport) error {
 }
 
 func (d *Database) GetAIDailyReport(date string, reportType string) (*AIDailyReport, error) {
+	reportType = normalizeReportType(reportType)
 	var r AIDailyReport
 	var generatedAt time.Time
 	err := d.db.QueryRow(`
 		SELECT id, report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used, generated_at
 		FROM ai_daily_reports
-		WHERE report_date = ? AND report_type = ?
-	`, date, reportType).Scan(&r.ID, &r.ReportDate, &r.ReportType, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
+		WHERE report_date = ? AND (report_type = ? OR (? = 'daily' AND report_type = ''))
+	`, date, reportType, reportType).Scan(&r.ID, &r.ReportDate, &r.ReportType, &r.Title, &r.Content, &r.TotalItems, &r.QualityItems, &r.CategoriesSummary, &r.ModelUsed, &generatedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, err
 	}
+	r.ReportType = normalizeReportType(r.ReportType)
 	r.GeneratedAt = generatedAt
 	return &r, nil
 }
@@ -271,6 +286,7 @@ func (d *Database) GetAIDailyReports(limit int, reportType string) ([]AIDailyRep
 		if err != nil {
 			return nil, err
 		}
+		r.ReportType = normalizeReportType(r.ReportType)
 		r.GeneratedAt = generatedAt
 		list = append(list, r)
 	}

@@ -305,3 +305,20 @@ func (wm *WebSocketManager) CloseAll() {
 	wm.activeConnections = make(map[string]*WSConn)
 	wm.browserNames = make(map[string]string)
 }
+
+// Kick closes a WebSocket connection explicitly.
+func (wm *WebSocketManager) Kick(connID string) error {
+	wm.mu.Lock()
+	ws, ok := wm.activeConnections[connID]
+	wm.mu.Unlock()
+
+	if !ok {
+		return errors.New("connection not found")
+	}
+
+	wm.logger.Info("Kicking connection", zap.String("conn_id", connID))
+	err := ws.Close()
+	wm.Disconnect(connID)
+	wm.UnregisterBrowserName(connID)
+	return err
+}
