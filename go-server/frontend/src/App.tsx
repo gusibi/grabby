@@ -167,9 +167,14 @@ export default function App() {
     const rType = reportType || selectedReportType || "morning";
     try {
       const data = await api.getDailyReport(date, rType);
-      if (data.success && data.report) {
-        setDailyReport(data.report);
-        setDailyReportHtml(data.html_content || "");
+      if (data.success && data.sections) {
+        const reportData = { ...data };
+        delete reportData.success;
+        setDailyReport({
+          ...reportData,
+          content: JSON.stringify(reportData),
+        } as DailyReport);
+        setDailyReportHtml("");
       } else {
         setDailyReport(null);
         setDailyReportHtml("");

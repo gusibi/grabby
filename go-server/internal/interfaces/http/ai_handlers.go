@@ -229,19 +229,34 @@ func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var buf bytes.Buffer
-	htmlContent := ""
-	if report != nil && report.Content != "" {
-		if err := goldmark.Convert([]byte(report.Content), &buf); err == nil {
-			htmlContent = buf.String()
-		}
+	w.Header().Set("Content-Type", "application/json")
+	if report == nil {
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success":     true,
+			"report_date": dateStr,
+			"report_type": reportType,
+		})
+		return
 	}
 
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success":      true,
-		"report":       report,
-		"html_content": htmlContent,
-	})
+	var content map[string]any
+	if err := json.Unmarshal([]byte(report.Content), &content); err != nil {
+		h.logger.Error("Failed to parse daily report content", zap.String("date", dateStr), zap.String("type", reportType), zap.Error(err))
+		http.Error(w, "Invalid daily report content", http.StatusInternalServerError)
+		return
+	}
+
+	content["success"] = true
+	content["id"] = report.ID
+	content["report_date"] = report.ReportDate
+	content["report_type"] = report.ReportType
+	content["total_items"] = report.TotalItems
+	content["quality_items"] = report.QualityItems
+	content["categories_summary"] = report.CategoriesSummary
+	content["model_used"] = report.ModelUsed
+	content["generated_at"] = report.GeneratedAt
+
+	_ = json.NewEncoder(w).Encode(content)
 }
 
 // HandleDailyList retrieves a list of recent daily reports.

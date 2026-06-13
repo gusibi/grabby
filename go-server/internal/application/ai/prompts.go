@@ -30,16 +30,20 @@ const DefaultDailyPrompt = `你是 Grabby AI 日报主编。请基于以下整�
 【输出要求】：
 1. 只能返回合法 JSON 对象，不能使用 Markdown 代码块，不能输出解释文字。
 2. 必须包含 title、date、editor、sections 四个顶层字段。date 必须为 "{{.Date}}"。
-3. sections 必须是对象，建议包含以下 key；如果某板块没有内容，可以省略：
-   - headline：今日头条 / 要闻，挑选 2-3 篇最重磅内容。
-   - tech_ai：前沿探索，汇总科技与 AI 相关资讯。
-   - finance：财经与宏观。
-   - world_society：国际与社会。
-   - dashboard：今日数据看板。
-4. 每个 section 必须包含 title 和 items。items 必须是数组。
-5. 每条资讯 item 必须包含 title、summary；建议包含 source、link、score、comment。link 使用原文 URL，不要使用 Markdown 链接语法。
-6. dashboard 的 items 也使用对象数组，例如 title 为“今日共抓取资讯”，summary 为“{{.TotalItems}} 条”；“优质内容入选”，summary 为“{{.QualityItems}} 条”。
-7. 语言风格保持专业、洞察深刻、客观简练。
+3. 为了保证日报的丰富度与稳定性，当提供的资讯总量足够时，sections 必须包含至少 4 个不同的资讯模块（不含 dashboard 看板），推荐模块如：
+   - headline（今日要闻 / 头条）
+   - tech_ai（前沿科技与 AI）
+   - finance（财经与宏观）
+   - world_society（国际与社会）
+   - other（其他精彩资讯，如体育、生活或娱乐）
+   （你可以根据今日资讯的实际分类调整模块，但必须保证至少包含 4 个不同的资讯板块）。
+4. 数量控制规则：
+   - 当提供的资讯总量足够时，每个板块下的 items 列表必须挑选 3 到 4 条相关资讯。日报总共包含的资讯条目数（不含 dashboard）必须控制在 12 条到 20 条之间（至少 12 条，最多不超过 20 条）。请从提供的汇总中精心挑选最重要、最高分的资讯。
+   - 如果提供的资讯总量不足 12 条，则不需要满足『每个板块至少 3 到 4 条』和『总条数至少 12 条』的下限限制。此时请将所有提供的优质资讯全部纳入，并根据实际主题合理分配到相应的板块中，但总条数仍不能超过 20 条。
+5. 每个 section 必须包含 title 和 items。items 必须是数组。
+6. 每条资讯 item 必须包含 title、summary；建议包含 source、link、score、comment。link 使用原文 URL，不要使用 Markdown 链接语法。
+7. 必须包含一个 dashboard 模块，用于展示统计数据看板。dashboard 的 items 至少包含：“今日共抓取资讯”（值为 "{{.TotalItems}} 条"）和“优质内容入选”（值为 "{{.QualityItems}} 条"）。
+8. 语言风格保持专业、洞察深刻、客观简练。
 
 【JSON 结构示例】：
 {

@@ -19,22 +19,23 @@ Grabby 服务在后台持续抓取订阅源并用 AI 进行分类评分，可直
 
 ```bash
 # 今日日报（type 可选 daily | morning | evening）
-curl -s "http://localhost:5040/api/ai/daily?date=$(date +%F)&type=daily" | jq '{title:.report.title, content:.report.content}'
+curl -s "http://localhost:5040/api/ai/daily?date=$(date +%F)&type=daily"
 
 # 最新早报
-curl -s "http://localhost:5040/api/ai/daily?type=morning" | jq '{title:.report.title, content:.report.content}'
+curl -s "http://localhost:5040/api/ai/daily?type=morning"
 
 # 最新晚报
-curl -s "http://localhost:5040/api/ai/daily?type=evening" | jq '{title:.report.title, content:.report.content}'
+curl -s "http://localhost:5040/api/ai/daily?type=evening"
 ```
 
 返回字段说明：
-- `report.title` — 报告标题
-- `report.content` — Markdown 正文（直接展示给用户）
-- `report.total_items` / `report.quality_items` — 处理条数
-- `report.generated_at` — 生成时间
+- `title` / `date` / `editor` — 报告标题、日期和编辑模型
+- `sections` — 结构化新闻分组，每组包含 `title` 和 `items`
+- `sections.*.items[].title` / `summary` / `source` / `link` — 新闻标题、摘要、来源和链接
+- `report_type` / `generated_at` — 报告类型和生成时间
+- `total_items` / `quality_items` — 处理条数
 
-若 `report` 为 null，说明今日尚未生成（可告知用户或触发生成）。
+若响应没有 `sections`，说明今日尚未生成（可告知用户或触发生成）。
 
 ### 2. 按类别获取新闻
 
@@ -65,7 +66,7 @@ curl -s "http://localhost:5040/api/ai/quality?score_min=6&days=7&limit=10" | jq 
 
 ### 如何展示给用户
 
-- 日报/早报/晚报：直接将 `report.content`（Markdown）渲染展示
+- 日报/早报/晚报：直接按 `sections` 分组展示结构化 JSON
 - 新闻列表：显示标题、链接、AI 分类、评分和 AI 摘要
 - 若服务不可用（curl 失败），提示用户启动服务：`grabby start go` 或 `grabby start python`
 
