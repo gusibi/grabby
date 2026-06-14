@@ -10,6 +10,7 @@ import { AISettingsView } from "@/features/ai-settings/AISettingsView";
 import { LogsView } from "@/features/logs/LogsView";
 import { DailyReportView } from "@/features/daily-report/DailyReportView";
 import { DeviceSettingsView } from "@/features/device/DeviceSettingsView";
+import { AuthDialog } from "@/features/auth/AuthDialog";
 import { api } from "@/lib/api";
 import type { AICategory, AIProviderProfile, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
 
@@ -20,12 +21,35 @@ function getLocalDateString(d: Date = new Date()): string {
   return `${year}-${month}-${day}`;
 }
 
+const ITEMS_PAGE_SIZE = 18;
+const READ_ITEMS_STORAGE_KEY = "grabby_read_item_ids";
+
+function loadReadItemIds(): Set<number> {
+  try {
+    const raw = localStorage.getItem(READ_ITEMS_STORAGE_KEY);
+    const ids = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(ids)) {
+      return new Set();
+    }
+    return new Set(ids.filter((id) => typeof id === "number"));
+  } catch {
+    return new Set();
+  }
+}
+
+function saveReadItemIds(ids: Set<number>) {
+  localStorage.setItem(READ_ITEMS_STORAGE_KEY, JSON.stringify(Array.from(ids)));
+}
+
 export default function App() {
   const [currentView, setCurrentView] = useState<AppView>("grid");
   const [items, setItems] = useState<ScrapedItem[]>([]);
   const [cursor, setCursor] = useState<string>("");
+  const [pageCursors, setPageCursors] = useState<string[]>([""]);
+  const [currentPage, setCurrentPage] = useState<number>(0);
   const [hasMore, setHasMore] = useState<boolean>(true);
   const [isLoadingItems, setIsLoadingItems] = useState<boolean>(false);
+  const [readItemIds, setReadItemIds] = useState<Set<number>>(() => loadReadItemIds());
 
   const [sources, setSources] = useState<Source[]>([]);
   const [logs, setLogs] = useState<FetchLog[]>([]);
@@ -42,10 +66,12 @@ export default function App() {
   const [debouncedSearch, setDebouncedSearch] = useState<string>("");
   const [selectedCategory] = useState<string>("all");
   const [selectedSourceCategory, setSelectedSourceCategory] = useState<string>("all");
-  const [selectedReadStatus, setSelectedReadStatus] = useState<string>("all"); // "all", "unread", "starred"
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
   const [browserConnected, setBrowserConnected] = useState<boolean>(false);
+  const [authRequired, setAuthRequired] = useState<boolean>(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [isAuthDialogOpen, setIsAuthDialogOpen] = useState<boolean>(false);
   const [isScrapingAll, setIsScrapingAll] = useState<boolean>(false);
   const [isShowOnlyAIQuality, setIsShowOnlyAIQuality] = useState<boolean>(false);
   const [selectedAICategory, setSelectedAICategory] = useState<string>("all");
@@ -88,6 +114,8 @@ export default function App() {
 
   const lastSetHashRef = useRef<string>('');
 
+  const isLoginPath = () => window.location.pathname.replace(/\/+$/, "") === "/login";
+
   // Source Add/Edit modal state
   const [isSourceDialogOpen, setIsSourceDialogOpen] = useState<boolean>(false);
   const [editingSource, setEditingSource] = useState<Source | null>(null);
@@ -121,6 +149,29 @@ export default function App() {
       setBrowserConnected(data.browser_connected);
     } catch {
       setBrowserConnected(false);
+    }
+  };
+
+  const fetchAuthSession = async () => {
+    try {
+      const data = await api.getAuthSession();
+      setAuthRequired(!!data.auth_required);
+      setIsAuthenticated(!!data.authenticated);
+    } catch (err) {
+      console.error("Failed to fetch auth session", err);
+      setAuthRequired(true);
+      setIsAuthenticated(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    try {
+      await api.logout();
+    } catch (err) {
+      console.error("Failed to logout", err);
+    } finally {
+      setIsAuthenticated(false);
+      fetchAuthSession();
     }
   };
 
@@ -418,14 +469,14 @@ export default function App() {
     }
   };
 
-  const fetchItems = async (reset = false) => {
+  const fetchItems = async (page = currentPage, cursorForPage = pageCursors[page] || "") => {
     if (isLoadingItems) return;
     setIsLoadingItems(true);
 
     try {
-      let url = `/api/items?limit=20`;
+      let url = `/open/api/items?limit=${ITEMS_PAGE_SIZE}`;
       if (isShowOnlyAIQuality || (selectedAICategory && selectedAICategory !== "all")) {
-        url = `/api/ai/items?limit=20`;
+        url = `/open/api/ai/items?limit=${ITEMS_PAGE_SIZE}`;
         if (isShowOnlyAIQuality) {
           url += `&score_min=7`;
         }
@@ -443,29 +494,19 @@ export default function App() {
       if (debouncedSearch) {
         url += `&q=${encodeURIComponent(debouncedSearch)}`;
       }
-      if (selectedReadStatus === "unread") {
-        url += `&read_status=0`;
-      } else if (selectedReadStatus === "starred") {
-        url += `&starred=1`;
-      }
 
-      const currentCursor = reset ? "" : cursor;
-      if (currentCursor) {
-        url += `&cursor=${currentCursor}`;
+      if (cursorForPage) {
+        url += `&cursor=${cursorForPage}`;
       }
 
       const data = await api.getItems(url);
 
-      if (reset) {
-        setItems(data.items || []);
-        setSelectedItem(null);
-        setItemDetailHtml("");
-      } else {
-        setItems(prev => [...prev, ...(data.items || [])]);
-      }
-
-      setCursor(data.cursor || "");
-      setHasMore(!!data.cursor);
+      setItems(data.items || []);
+      setSelectedItem(null);
+      setItemDetailHtml("");
+      setCurrentPage(page);
+      setCursor(data.cursor || data.next_cursor || "");
+      setHasMore(!!(data.cursor || data.next_cursor));
     } catch (err) {
       console.error("Failed to fetch items", err);
     } finally {
@@ -473,20 +514,40 @@ export default function App() {
     }
   };
 
+  const resetItemsPagination = () => {
+    setPageCursors([""]);
+    setCurrentPage(0);
+    setCursor("");
+    fetchItems(0, "");
+  };
+
+  const handleNextPage = () => {
+    if (!cursor || isLoadingItems) return;
+    const nextPage = currentPage + 1;
+    const nextCursors = [...pageCursors];
+    nextCursors[nextPage] = cursor;
+    setPageCursors(nextCursors);
+    fetchItems(nextPage, cursor);
+  };
+
+  const handlePreviousPage = () => {
+    if (currentPage === 0 || isLoadingItems) return;
+    const previousPage = currentPage - 1;
+    fetchItems(previousPage, pageCursors[previousPage] || "");
+  };
+
   const handleSelectItem = async (item: ScrapedItem) => {
     setSelectedItem(item);
     setIsLoadingDetail(true);
+    setReadItemIds((prev) => {
+      const next = new Set(prev);
+      next.add(item.id);
+      saveReadItemIds(next);
+      return next;
+    });
     try {
       const data = await api.getItemDetail(item.id);
       setItemDetailHtml(data.html_content);
-      
-      // Update item read status locally
-      setItems(prev =>
-        prev.map(i => (i.id === item.id ? { ...i, read_status: 1 } : i))
-      );
-      
-      // Trigger update stats
-      fetchStats();
     } catch (err) {
       console.error("Failed to fetch item detail", err);
     } finally {
@@ -513,25 +574,6 @@ export default function App() {
     }
   };
 
-  const toggleReadStatus = async (item: ScrapedItem, e?: React.MouseEvent) => {
-    if (e) e.stopPropagation();
-    const newRead = item.read_status === 1 ? 0 : 1;
-    try {
-      await api.setItemReadStatus(item.id, newRead);
-
-      // Update locally
-      setItems(prev =>
-        prev.map(i => (i.id === item.id ? { ...i, read_status: newRead } : i))
-      );
-      if (selectedItem && selectedItem.id === item.id) {
-        setSelectedItem(prev => prev ? { ...prev, read_status: newRead } : null);
-      }
-      fetchStats();
-    } catch (err) {
-      console.error("Failed to toggle read status", err);
-    }
-  };
-
   const handleToggleSourceEnabled = async (source: Source) => {
     const newEnabled = source.enabled === 1 ? 0 : 1;
     try {
@@ -555,7 +597,7 @@ export default function App() {
       if (data.success) {
         // Refresh sources & items
         fetchSources();
-        fetchItems(true);
+        resetItemsPagination();
         fetchStats();
       } else {
         alert("Scrape failed: " + data.error);
@@ -577,7 +619,7 @@ export default function App() {
         )
       );
       fetchSources();
-      fetchItems(true);
+      resetItemsPagination();
       fetchStats();
     } catch (err) {
       console.error(err);
@@ -598,6 +640,10 @@ export default function App() {
   };
 
   const openAddSourceDialog = () => {
+    if (authRequired && !isAuthenticated) {
+      setIsAuthDialogOpen(true);
+      return;
+    }
     setEditingSource(null);
     setSourceForm({
       id: "",
@@ -671,6 +717,7 @@ export default function App() {
 
   // Initial fetch operations
   useEffect(() => {
+    fetchAuthSession();
     fetchSources();
     fetchStats();
     checkHealth();
@@ -706,18 +753,45 @@ export default function App() {
         const aiCat = params.get('aiCat') || 'all';
         const quality = params.get('quality') === '1';
         const srcCat = params.get('srcCat') || 'all';
-        const read = params.get('read') || 'all';
         if (aiCat !== 'all') setSelectedAICategory(aiCat);
         if (quality) setIsShowOnlyAIQuality(true);
         if (srcCat !== 'all') setSelectedSourceCategory(srcCat);
-        if (read !== 'all') setSelectedReadStatus(read);
       }
+    }
+    if (isLoginPath()) {
+      setIsAuthDialogOpen(true);
     }
 
     // Health check polling
     const healthInterval = setInterval(checkHealth, 10000);
     return () => clearInterval(healthInterval);
   }, []);
+
+  useEffect(() => {
+    const protectedViews: AppView[] = ["settings", "ai-settings", "device", "daily"];
+    if (!authRequired || isAuthenticated || !protectedViews.includes(currentView)) {
+      return;
+    }
+
+    let buffer = "";
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target && ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName)) {
+        return;
+      }
+      if (e.key.length !== 1) {
+        return;
+      }
+      buffer = (buffer + e.key.toLowerCase()).slice(-5);
+      if (buffer === "login") {
+        setIsAuthDialogOpen(true);
+        buffer = "";
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [authRequired, isAuthenticated, currentView]);
 
   // Sync state → URL hash
   useEffect(() => {
@@ -729,7 +803,6 @@ export default function App() {
       if (selectedAICategory && selectedAICategory !== 'all') params.set('aiCat', selectedAICategory);
       if (isShowOnlyAIQuality) params.set('quality', '1');
       if (selectedSourceCategory && selectedSourceCategory !== 'all') params.set('srcCat', selectedSourceCategory);
-      if (selectedReadStatus && selectedReadStatus !== 'all') params.set('read', selectedReadStatus);
       const qs = params.toString();
       if (qs) hash += `?${qs}`;
     }
@@ -737,7 +810,7 @@ export default function App() {
       lastSetHashRef.current = hash;
       window.location.hash = hash;
     }
-  }, [currentView, selectedReportDate, selectedReportType, selectedAICategory, isShowOnlyAIQuality, selectedSourceCategory, selectedReadStatus]);
+  }, [currentView, selectedReportDate, selectedReportType, selectedAICategory, isShowOnlyAIQuality, selectedSourceCategory]);
 
   // Sync URL hash → state (browser back/forward)
   useEffect(() => {
@@ -762,7 +835,9 @@ export default function App() {
         setSelectedAICategory(params.get('aiCat') || 'all');
         setIsShowOnlyAIQuality(params.get('quality') === '1');
         setSelectedSourceCategory(params.get('srcCat') || 'all');
-        setSelectedReadStatus(params.get('read') || 'all');
+      }
+      if (isLoginPath()) {
+        setIsAuthDialogOpen(true);
       }
     };
     window.addEventListener('hashchange', handleHashChange);
@@ -770,15 +845,22 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    fetchItems(true);
+    resetItemsPagination();
     fetchAICategories();
-  }, [debouncedSearch, selectedCategory, selectedSourceCategory, selectedReadStatus, isShowOnlyAIQuality, selectedAICategory]);
+  }, [debouncedSearch, selectedCategory, selectedSourceCategory, isShowOnlyAIQuality, selectedAICategory]);
 
   useEffect(() => {
     if (currentView === "settings" || currentView === "ai-settings") {
       fetchAISettings();
     }
   }, [currentView]);
+
+  useEffect(() => {
+    const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device"];
+    if (authRequired && !isAuthenticated && adminViews.includes(currentView)) {
+      setCurrentView("grid");
+    }
+  }, [authRequired, isAuthenticated, currentView]);
 
 
   return (
@@ -803,8 +885,8 @@ export default function App() {
           toggleDarkMode={toggleDarkMode}
           darkMode={darkMode}
           setIsSidebarCollapsed={setIsSidebarCollapsed}
-          selectedReadStatus={selectedReadStatus}
-          setSelectedReadStatus={setSelectedReadStatus}
+          authRequired={authRequired}
+          isAuthenticated={isAuthenticated}
         />
 
         <main className="flex-1 flex flex-col bg-zinc-50 dark:bg-[#121212] overflow-hidden relative">
@@ -812,11 +894,12 @@ export default function App() {
           <AppHeader
             currentView={currentView}
             browserConnected={browserConnected}
-            selectedReadStatus={selectedReadStatus}
-            setSelectedReadStatus={setSelectedReadStatus}
             openAddSourceDialog={openAddSourceDialog}
             handleScrapeAllEnabled={handleScrapeAllEnabled}
             isScrapingAll={isScrapingAll}
+            authRequired={authRequired}
+            isAuthenticated={isAuthenticated}
+            onLogout={handleLogout}
           />
 
           {currentView === "grid" && (
@@ -833,7 +916,10 @@ export default function App() {
               handleSelectItem={handleSelectItem}
               toggleStar={toggleStar}
               hasMore={hasMore}
-              fetchItems={fetchItems}
+              currentPage={currentPage}
+              readItemIds={readItemIds}
+              handlePreviousPage={handlePreviousPage}
+              handleNextPage={handleNextPage}
               isLoadingItems={isLoadingItems}
             />
           )}
@@ -845,7 +931,6 @@ export default function App() {
             isLoadingDetail={isLoadingDetail}
             itemDetailHtml={itemDetailHtml}
             toggleStar={toggleStar}
-            toggleReadStatus={toggleReadStatus}
           />
 
           {currentView === "settings" && (
@@ -855,6 +940,7 @@ export default function App() {
               handleRunSource={handleRunSource}
               openEditSourceDialog={openEditSourceDialog}
               handleDeleteSource={handleDeleteSource}
+              isAuthenticated={isAuthenticated}
             />
           )}
 
@@ -903,6 +989,7 @@ export default function App() {
               isTestingAI={isTestingAI}
               isSavingSettings={isSavingSettings}
               saveAISettings={saveAISettings}
+              isAuthenticated={isAuthenticated}
             />
           )}
 
@@ -922,11 +1009,12 @@ export default function App() {
               reportList={reportList}
               selectedReportType={selectedReportType}
               setSelectedReportType={setSelectedReportType}
+              isAuthenticated={isAuthenticated}
             />
           )}
 
           {currentView === "device" && (
-            <DeviceSettingsView />
+            <DeviceSettingsView isAuthenticated={isAuthenticated} />
           )}
 
         </main>
@@ -940,6 +1028,16 @@ export default function App() {
         formError={formError}
         sourceForm={sourceForm}
         setSourceForm={setSourceForm}
+      />
+      <AuthDialog
+        open={isAuthDialogOpen}
+        onOpenChange={setIsAuthDialogOpen}
+        onAuthenticated={() => {
+          fetchAuthSession();
+          if (isLoginPath()) {
+            window.history.replaceState(null, "", "/#/grid");
+          }
+        }}
       />
     </div>
   );

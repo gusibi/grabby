@@ -2,6 +2,7 @@ class WebSocketManager {
     constructor() {
         this.socket = null;
         this.serverUrl = null;
+        this.apiToken = '';
         this.connId = null;
         this.browserName = '';
         this.reconnectAttempts = 0;
@@ -21,7 +22,7 @@ class WebSocketManager {
 
         // 监听配置变化
         chrome.storage.onChanged.addListener((changes, areaName) => {
-            if (areaName === 'sync' && (changes.serverUrl || changes.browserName)) {
+            if (areaName === 'sync' && (changes.serverUrl || changes.browserName || changes.apiToken)) {
                 console.log('检测到配置更改，将重新加载并连接...');
                 this.updateConfig();
             }
@@ -33,9 +34,10 @@ class WebSocketManager {
      */
     loadConfig() {
         return new Promise((resolve) => { // 返回 Promise 以便知道加载完成
-            chrome.storage.sync.get(['serverUrl', 'browserName'], (result) => {
+            chrome.storage.sync.get(['serverUrl', 'browserName', 'apiToken'], (result) => {
                 const oldServerUrl = this.serverUrl;
                 const oldBrowserName = this.browserName;
+                const oldAPIToken = this.apiToken;
                 let configChanged = false;
 
                 if (result.serverUrl && result.serverUrl !== oldServerUrl) {
@@ -51,9 +53,14 @@ class WebSocketManager {
                     configChanged = true;
                 }
 
+                this.apiToken = (result.apiToken || '').trim();
+                if (this.apiToken !== oldAPIToken) {
+                    configChanged = true;
+                }
+
                 const finish = (browserConnectId) => {
                     this.connId = browserConnectId || null;
-                    console.log('配置已加载:', { serverUrl: this.serverUrl, browserName: this.browserName, connId: this.connId });
+                    console.log('配置已加载:', { serverUrl: this.serverUrl, browserName: this.browserName, connId: this.connId, hasApiToken: !!this.apiToken });
                     resolve(configChanged);
                 };
 
@@ -187,6 +194,9 @@ class WebSocketManager {
     async registerBrowser() {
         const registerUrl = this.getRegisterUrl();
         const headers = { 'Content-Type': 'application/json' };
+        if (this.apiToken) {
+            headers['X-Grabby-Token'] = this.apiToken;
+        }
 
         const response = await fetch(registerUrl, {
             method: 'POST',

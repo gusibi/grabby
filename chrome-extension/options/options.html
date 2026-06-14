@@ -33,6 +33,12 @@
         </div>
 
         <div class="form-group">
+          <label for="apiToken">API Token</label>
+          <input type="password" id="apiToken" placeholder="与服务端 GRABBY_API_TOKEN 保持一致">
+          <small>服务端启用 API Token 后，浏览器注册会使用此 Token 认证</small>
+        </div>
+
+        <div class="form-group">
           <label for="browserConnectId">浏览器连接标识</label>
           <div class="input-with-button">
             <input type="text" id="browserConnectId" placeholder="未设置，点击按钮生成" readonly>

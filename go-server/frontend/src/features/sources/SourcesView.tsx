@@ -11,6 +11,7 @@ interface SourcesViewProps {
   handleRunSource: (source: Source) => void;
   openEditSourceDialog: (source: Source) => void;
   handleDeleteSource: (id: string) => void;
+  isAuthenticated: boolean;
 }
 
 export function SourcesView({
@@ -18,7 +19,8 @@ export function SourcesView({
   handleToggleSourceEnabled,
   handleRunSource,
   openEditSourceDialog,
-  handleDeleteSource
+  handleDeleteSource,
+  isAuthenticated
 }: SourcesViewProps) {
   return (
             <div className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-[#121212] p-8">
@@ -81,37 +83,43 @@ export function SourcesView({
                           </div>
 
                           <div className="flex items-center gap-3">
-                            <div className="flex items-center gap-2">
-                              <span className="text-xs text-zinc-400 font-medium select-none">
-                                {source.enabled === 1 ? "启用" : "禁用"}
-                              </span>
-                              <Switch
-                                checked={source.enabled === 1}
-                                onCheckedChange={() => handleToggleSourceEnabled(source)}
-                              />
-                            </div>
+                            {isAuthenticated && (
+                              <div className="flex items-center gap-2">
+                                <span className="text-xs text-zinc-400 font-medium select-none">
+                                  {source.enabled === 1 ? "启用" : "禁用"}
+                                </span>
+                                <Switch
+                                  checked={source.enabled === 1}
+                                  onCheckedChange={() => handleToggleSourceEnabled(source)}
+                                />
+                              </div>
+                            )}
 
-                            <Button
-                              onClick={() => handleRunSource(source)}
-                              size="sm"
-                              variant="outline"
-                              disabled={source.last_fetch_status === "running" || source.enabled === 0}
-                              className="h-7 text-xs gap-1"
-                            >
-                              {source.last_fetch_status === "running" ? (
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                              ) : (
-                                <RefreshCw className="w-3 h-3" />
+                            {isAuthenticated && (
+                              <>
+                                <Button
+                                  onClick={() => handleRunSource(source)}
+                                  size="sm"
+                                  variant="outline"
+                                  disabled={source.last_fetch_status === "running" || source.enabled === 0}
+                                  className="h-7 text-xs gap-1"
+                                >
+                                  {source.last_fetch_status === "running" ? (
+                                    <Loader2 className="w-3 h-3 animate-spin" />
+                                  ) : (
+                                    <RefreshCw className="w-3 h-3" />
+                                  )}
+                                  立即抓取
+                                </Button>
+
+                                <Button onClick={() => openEditSourceDialog(source)} size="icon" variant="ghost" className="w-8 h-8">
+                                  <Edit className="w-3.5 h-3.5 text-zinc-500" />
+                                </Button>
+                                <Button onClick={() => handleDeleteSource(source.id)} size="icon" variant="ghost" className="w-8 h-8 hover:bg-rose-50 dark:hover:bg-rose-950/20">
+                                  <Trash2 className="w-3.5 h-3.5 text-rose-500" />
+                                </Button>
+                              </>
                               )}
-                              立即抓取
-                            </Button>
-
-                            <Button onClick={() => openEditSourceDialog(source)} size="icon" variant="ghost" className="w-8 h-8">
-                              <Edit className="w-3.5 h-3.5 text-zinc-500" />
-                            </Button>
-                            <Button onClick={() => handleDeleteSource(source.id)} size="icon" variant="ghost" className="w-8 h-8 hover:bg-rose-50 dark:hover:bg-rose-950/20">
-                              <Trash2 className="w-3.5 h-3.5 text-rose-500" />
-                            </Button>
                           </div>
                         </div>
                       ))}

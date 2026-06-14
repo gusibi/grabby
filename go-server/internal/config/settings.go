@@ -18,6 +18,8 @@ type Settings struct {
 	Host              string
 	Port              int
 	ConnectID         string
+	AdminKey          string
+	APIToken          string
 	Debug             bool
 	WebsocketTimeout  float64
 	APIExtractTimeout float64
@@ -46,8 +48,10 @@ func loadSettings() *Settings {
 		Host:              GetEnv("HOST", "0.0.0.0"),
 		Port:              getEnvInt("PORT", 5040),
 		ConnectID:         GetEnv("CONNECT_ID", "browser-tools"),
+		AdminKey:          GetEnv("GRABBY_ADMIN_KEY", ""),
+		APIToken:          GetEnv("GRABBY_API_TOKEN", ""),
 		Debug:             getEnvBool("DEBUG", false),
-		WebsocketTimeout:  getEnvFloat("WEBSOCKET_TIMEOUT", 5.0),
+		WebsocketTimeout:  getEnvFloat("WEBSOCKET_TIMEOUT", 60.0),
 		APIExtractTimeout: getEnvFloat("API_EXTRACT_TIMEOUT", 60.0),
 		DefaultBrowser:    GetEnv("DEFAULT_BROWSER", ""),
 		AISettings: ai.AISettings{

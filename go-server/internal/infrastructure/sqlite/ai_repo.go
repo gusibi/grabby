@@ -115,16 +115,17 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 		args = append(args, fmt.Sprintf("-%d days", f.Days))
 	}
 
-	// Cursor clause using processed_at
+	// Cursor clause using COALESCE(i.published_at, i.fetched_at)
 	if f.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(f.Cursor)
 		if err == nil {
-			query += " AND (a.processed_at < ? OR (a.processed_at = ? AND i.id < ?))"
-			args = append(args, cursorTime, cursorTime, cursorID)
+			timeStr := cursorTime.UTC().Format("2006-01-02 15:04:05")
+			query += " AND (COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))"
+			args = append(args, timeStr, timeStr, cursorID)
 		}
 	}
 
-	query += " ORDER BY a.processed_at DESC, i.id DESC LIMIT ?"
+	query += " ORDER BY COALESCE(i.published_at, i.fetched_at) DESC, i.id DESC LIMIT ?"
 	args = append(args, f.Limit+1)
 
 	rows, err := d.db.Query(query, args...)
@@ -156,7 +157,11 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 	nextCursor := ""
 	if len(list) > f.Limit {
 		nextItem := list[f.Limit]
-		nextCursor = encodeCursor(*nextItem.AIProcessedAt, nextItem.ID)
+		sortTime := nextItem.FetchedAt
+		if nextItem.PublishedAt != nil {
+			sortTime = *nextItem.PublishedAt
+		}
+		nextCursor = encodeCursor(sortTime, nextItem.ID)
 		list = list[:f.Limit]
 	}
 
@@ -167,6 +172,7 @@ func (d *Database) GetAICategories() ([]AICategoryStat, error) {
 	rows, err := d.db.Query(`
 		SELECT ai_category, COUNT(*), AVG(quality_score)
 		FROM ai_analyses
+		WHERE processed_at >= datetime('now', '-24 hours')
 		GROUP BY ai_category
 		ORDER BY COUNT(*) DESC
 	`)

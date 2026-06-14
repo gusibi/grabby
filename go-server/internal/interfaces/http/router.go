@@ -2,7 +2,6 @@ package httpiface
 
 import (
 	"embed"
-	"net/http"
 
 	aiapp "go-server/internal/application/ai"
 	"go-server/internal/application/scheduler"
@@ -14,6 +13,8 @@ import (
 	mcpiface "go-server/internal/interfaces/mcp"
 	wsiface "go-server/internal/interfaces/websocket"
 
+	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"go.uber.org/zap"
 )
 
@@ -32,15 +33,25 @@ type Dependencies struct {
 	FrontendFS      embed.FS
 }
 
-// NewRouter creates and returns a fully-configured HTTP handler.
-func NewRouter(deps Dependencies) http.Handler {
-	mux := http.NewServeMux()
-	RegisterHandlers(mux, deps)
-	RegisterAIHandlers(mux, deps)
-	mux.HandleFunc("/ws_browser", wsiface.HandleWebSocketBrowser(deps.WSManager, deps.BrowserRegistry, deps.Logger))
-	mux.HandleFunc("/ws_command", wsiface.HandleWebSocketCommand(deps.WSManager, deps.Settings, deps.Logger))
+// NewRouter creates and returns a fully-configured Echo router.
+func NewRouter(deps Dependencies) *echo.Echo {
+	e := echo.New()
+	e.HideBanner = true
+	e.HidePort = true
+	e.Use(middleware.Recover())
+
+	auth := newAdminAuth(deps.Settings)
+	openAPI := e.Group("/open/api")
+	api := e.Group("/api")
+	api.Use(auth.middleware)
+
+	RegisterAuthHandlers(api, deps)
+	RegisterHandlers(openAPI, api, deps)
+	RegisterAIHandlers(openAPI, api, deps)
+	e.GET("/ws_browser", wrapHandlerFunc(wsiface.HandleWebSocketBrowser(deps.WSManager, deps.BrowserRegistry, deps.Logger)))
+	e.GET("/ws_command", wrapHandlerFunc(wsiface.HandleWebSocketCommand(deps.WSManager, deps.Settings, deps.Logger)))
 	sseSvr := mcpiface.NewServer(deps.WSManager, deps.Settings, deps.Logger)
-	mux.Handle("/mcp/", sseSvr)
-	RegisterStaticHandlers(mux, deps.FrontendFS, deps.Logger)
-	return mux
+	e.Any("/mcp/*", echo.WrapHandler(sseSvr))
+	RegisterStaticHandlers(e, deps.FrontendFS, deps.Logger)
+	return e
 }

@@ -109,8 +109,6 @@ func (a *App) Run(ctx context.Context) error {
 	})
 
 	addr := fmt.Sprintf("%s:%d", a.settings.Host, a.settings.Port)
-	server := &http.Server{Addr: addr, Handler: router}
-
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
@@ -121,7 +119,7 @@ func (a *App) Run(ctx context.Context) error {
 
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer shutdownCancel()
-		if err := server.Shutdown(shutdownCtx); err != nil {
+		if err := router.Shutdown(shutdownCtx); err != nil {
 			a.logger.Error("HTTP server shutdown error", zap.Error(err))
 		}
 
@@ -141,7 +139,7 @@ func (a *App) Run(ctx context.Context) error {
 	}()
 
 	a.logger.Info("Starting server", zap.String("address", addr))
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	if err := router.Start(addr); err != nil && err != http.ErrServerClosed {
 		return err
 	}
 	return nil

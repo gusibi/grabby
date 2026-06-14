@@ -7,31 +7,33 @@ const jsonFetch = async <T = any>(url: string, options?: RequestInit): Promise<T
 };
 
 export const api = {
-  getHealth: () => jsonFetch("/api/health"),
-  getStats: () => jsonFetch("/api/stats"),
+  getAuthSession: () => jsonFetch("/api/auth/session"),
+  login: (key: string) => jsonFetch("/api/auth/login", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ key }),
+  }),
+  logout: () => jsonFetch("/api/auth/logout", { method: "POST" }),
+  getHealth: () => jsonFetch("/open/api/health"),
+  getStats: () => jsonFetch("/open/api/stats"),
   getSources: () => jsonFetch("/api/sources"),
   getLogs: () => jsonFetch("/api/logs"),
-  getAICategories: () => jsonFetch("/api/ai/categories"),
+  getAICategories: () => jsonFetch("/open/api/ai/categories"),
   getDailyReport: (date: string, reportType: string) => (
-    jsonFetch(`/api/ai/daily?date=${date}&type=${reportType}`)
+    jsonFetch(`/open/api/ai/daily?date=${date}&type=${reportType}`)
   ),
-  getReportList: (limit = 30) => jsonFetch(`/api/ai/daily/list?limit=${limit}`),
+  getReportList: (limit = 30) => jsonFetch(`/open/api/ai/daily/list?limit=${limit}`),
   generateDailyReport: (date: string, reportType: string) => jsonFetch("/api/ai/daily/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ date, report_type: reportType }),
   }),
   getItems: (url: string) => jsonFetch(url),
-  getItemDetail: (id: number) => jsonFetch(`/api/items/${id}`),
+  getItemDetail: (id: number) => jsonFetch(`/open/api/items/${id}`),
   setItemStarred: (id: number, starred: number) => fetch(`/api/items/${id}/star`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ starred }),
-  }),
-  setItemReadStatus: (id: number, read_status: number) => fetch(`/api/items/${id}/read`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ read_status }),
   }),
   toggleSource: (id: string, enabled: number) => fetch(`/api/sources/${id}/toggle`, {
     method: "POST",

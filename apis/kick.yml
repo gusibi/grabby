@@ -1,23 +1,21 @@
 info:
-  name: extra
+  name: kick
   type: http
-  seq: 2
+  seq: 6
 
 http:
   method: post
-  url: http://localhost:5040/api/extract
+  url: http://localhost:5040/api/browsers/kick
   headers:
     - name: Content-Type
       value: application/json
     - name: X-API-Key
-      value: your_admin_key
-    - name: X-Grabby-Token
-      value: your_admin_key
+      value: your_api_key
   body:
     type: json
     data: |-
       {
-        "url": "https://x.com/Summer_trading/status/2058510963750690890"
+        "conn_id": "ws_browser:browser-tools"
       }
   auth: inherit
 

@@ -51,6 +51,7 @@ interface AISettingsViewProps {
   isTestingAI: boolean;
   isSavingSettings: boolean;
   saveAISettings: () => void;
+  isAuthenticated: boolean;
 }
 
 export function AISettingsView({
@@ -96,7 +97,8 @@ export function AISettingsView({
   handleTestAI,
   isTestingAI,
   isSavingSettings,
-  saveAISettings
+  saveAISettings,
+  isAuthenticated
 }: AISettingsViewProps) {
   return (
             <div className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-[#121212] p-8">
@@ -118,20 +120,22 @@ export function AISettingsView({
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-center justify-between p-4 bg-indigo-50/30 dark:bg-indigo-950/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
-                          <div>
-                            <h5 className="text-sm font-semibold text-indigo-950 dark:text-indigo-300">后台增量评测队列 (AI Evaluation Queue)</h5>
-                            <p className="text-[11px] text-zinc-400 mt-0.5">可以手动触发对数据库中未被 AI 分析的文章进行增量评估。</p>
+                        {isAuthenticated && (
+                          <div className="flex items-center justify-between p-4 bg-indigo-50/30 dark:bg-indigo-950/10 rounded-xl border border-indigo-100 dark:border-indigo-900/30">
+                            <div>
+                              <h5 className="text-sm font-semibold text-indigo-950 dark:text-indigo-300">后台增量评测队列 (AI Evaluation Queue)</h5>
+                              <p className="text-[11px] text-zinc-400 mt-0.5">可以手动触发对数据库中未被 AI 分析的文章进行增量评估。</p>
+                            </div>
+                            <Button
+                              onClick={handleStartEvaluation}
+                              size="sm"
+                              className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 h-8 text-xs gap-1.5 font-sans"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
+                              立即评测未评估内容
+                            </Button>
                           </div>
-                          <Button
-                            onClick={handleStartEvaluation}
-                            size="sm"
-                            className="bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg px-4 h-8 text-xs gap-1.5 font-sans"
-                          >
-                            <Sparkles className="w-3.5 h-3.5" />
-                            立即评测未评估内容
-                          </Button>
-                        </div>
+                        )}
                         <div className="flex items-center justify-between p-4 bg-zinc-50 dark:bg-zinc-900/40 rounded-xl border border-black/5 dark:border-white/5">
                           <div>
                             <h5 className="text-sm font-semibold">启用 AI 语义分析与评分</h5>
@@ -163,25 +167,29 @@ export function AISettingsView({
                                   </Select>
                                 </div>
 
-                                <Button
-                                  type="button"
-                                  onClick={handleAddAIProfile}
-                                  variant="outline"
-                                  className="h-9 text-xs gap-1.5 border-zinc-200 dark:border-zinc-800"
-                                >
-                                  <Plus className="w-3.5 h-3.5" />
-                                  添加档案
-                                </Button>
-                                <Button
-                                  type="button"
-                                  onClick={handleDeleteAIProfile}
-                                  variant="outline"
-                                  disabled={aiProfiles.length <= 1}
-                                  className="h-9 text-xs gap-1.5 border-zinc-200 dark:border-zinc-800 text-rose-600 hover:text-rose-700"
-                                >
-                                  <Trash2 className="w-3.5 h-3.5" />
-                                  删除
-                                </Button>
+                                {isAuthenticated && (
+                                  <>
+                                    <Button
+                                      type="button"
+                                      onClick={handleAddAIProfile}
+                                      variant="outline"
+                                      className="h-9 text-xs gap-1.5 border-zinc-200 dark:border-zinc-800"
+                                    >
+                                      <Plus className="w-3.5 h-3.5" />
+                                      添加档案
+                                    </Button>
+                                    <Button
+                                      type="button"
+                                      onClick={handleDeleteAIProfile}
+                                      variant="outline"
+                                      disabled={aiProfiles.length <= 1}
+                                      className="h-9 text-xs gap-1.5 border-zinc-200 dark:border-zinc-800 text-rose-600 hover:text-rose-700"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                      删除
+                                    </Button>
+                                  </>
+                                )}
                               </div>
 
                               <div className="space-y-2">
@@ -231,24 +239,26 @@ export function AISettingsView({
                                       )}
                                       <span className="text-[10px] text-zinc-400">{profile.provider}</span>
                                       <span className="text-[10px] text-zinc-400">{profile.requests_per_minute || 10}/min</span>
-                                      <button
-                                        type="button"
-                                        onClick={() => {
-                                          const next = aiProfiles.map((p: AIProviderProfile) =>
-                                            p.id === profile.id ? { ...p, disabled: !p.disabled } : p
-                                          );
-                                          setAiProfiles(next);
-                                        }}
-                                        className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
-                                          profile.disabled
-                                            ? "bg-zinc-300 dark:bg-zinc-700"
-                                            : "bg-emerald-500"
-                                        }`}
-                                      >
-                                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
-                                          profile.disabled ? "" : "translate-x-4"
-                                        }`} />
-                                      </button>
+                                      {isAuthenticated && (
+                                        <button
+                                          type="button"
+                                          onClick={() => {
+                                            const next = aiProfiles.map((p: AIProviderProfile) =>
+                                              p.id === profile.id ? { ...p, disabled: !p.disabled } : p
+                                            );
+                                            setAiProfiles(next);
+                                          }}
+                                          className={`relative w-9 h-5 rounded-full transition-colors flex-shrink-0 ${
+                                            profile.disabled
+                                              ? "bg-zinc-300 dark:bg-zinc-700"
+                                              : "bg-emerald-500"
+                                          }`}
+                                        >
+                                          <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${
+                                            profile.disabled ? "" : "translate-x-4"
+                                          }`} />
+                                        </button>
+                                      )}
                                     </div>
                                   ))}
                                 </div>
@@ -492,7 +502,7 @@ export function AISettingsView({
                       </>
                     )}
                   </CardContent>
-                  {!isLoadingSettings && (
+                  {!isLoadingSettings && isAuthenticated && (
                     <CardFooter className="border-t border-black/5 p-6 bg-zinc-50/50 dark:bg-zinc-900/50 flex justify-end">
                       {aiEnabled && (
                         <Button

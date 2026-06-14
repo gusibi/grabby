@@ -10,7 +10,11 @@ interface BrowserInfo {
   name: string;
 }
 
-export function DeviceSettingsView() {
+interface DeviceSettingsViewProps {
+  isAuthenticated: boolean;
+}
+
+export function DeviceSettingsView({ isAuthenticated }: DeviceSettingsViewProps) {
   const [browsers, setBrowsers] = useState<BrowserInfo[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [connectId, setConnectId] = useState<string>("");
@@ -183,14 +187,16 @@ export function DeviceSettingsView() {
                         <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
                           实时抓取就绪
                         </div>
-                        <Button
-                          onClick={() => handleKick(b.conn_id, b.name)}
-                          size="sm"
-                          variant="ghost"
-                          className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 rounded-lg gap-1"
-                        >
-                          断开
-                        </Button>
+                        {isAuthenticated && (
+                          <Button
+                            onClick={() => handleKick(b.conn_id, b.name)}
+                            size="sm"
+                            variant="ghost"
+                            className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 rounded-lg gap-1"
+                          >
+                            断开
+                          </Button>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -201,18 +207,19 @@ export function DeviceSettingsView() {
         </div>
 
         {/* Register Device Form */}
-        <Card className="border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl">
-          <CardHeader>
-            <CardTitle className="text-base font-bold flex items-center gap-2">
-              <Plus className="w-5 h-5 text-indigo-500" />
-              注册新设备/浏览器
-            </CardTitle>
-            <CardDescription className="text-xs">
-              在 Grabby 服务中登记一个专用的设备连接标识（Connect ID），只有注册的设备 ID 才可以建立连接并接收网页抓取任务。
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <form onSubmit={handleRegister} className="space-y-4 max-w-xl">
+        {isAuthenticated && (
+          <Card className="border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl">
+            <CardHeader>
+              <CardTitle className="text-base font-bold flex items-center gap-2">
+                <Plus className="w-5 h-5 text-indigo-500" />
+                注册新设备/浏览器
+              </CardTitle>
+              <CardDescription className="text-xs">
+                在 Grabby 服务中登记一个专用的设备连接标识（Connect ID），只有注册的设备 ID 才可以建立连接并接收网页抓取任务。
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <form onSubmit={handleRegister} className="space-y-4 max-w-xl">
               {message && (
                 <div className={`p-3 rounded-xl flex items-center gap-2 text-xs font-semibold ${
                   message.type === "success" 
@@ -276,9 +283,10 @@ export function DeviceSettingsView() {
                   确认注册此设备
                 </Button>
               </div>
-            </form>
-          </CardContent>
-        </Card>
+              </form>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   );

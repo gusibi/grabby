@@ -1,4 +1,4 @@
-import { Inbox, Search, Star, Loader2, Sparkles } from "lucide-react";
+import { ChevronLeft, ChevronRight, Inbox, Search, Star, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,7 +19,10 @@ interface GridViewProps {
   handleSelectItem: (item: ScrapedItem) => void;
   toggleStar: (item: ScrapedItem, e?: React.MouseEvent) => void;
   hasMore: boolean;
-  fetchItems: () => void;
+  currentPage: number;
+  readItemIds: Set<number>;
+  handlePreviousPage: () => void;
+  handleNextPage: () => void;
   isLoadingItems: boolean;
 }
 
@@ -36,7 +39,10 @@ export function GridView({
   handleSelectItem,
   toggleStar,
   hasMore,
-  fetchItems,
+  currentPage,
+  readItemIds,
+  handlePreviousPage,
+  handleNextPage,
   isLoadingItems
 }: GridViewProps) {
   return (
@@ -82,13 +88,19 @@ export function GridView({
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl mx-auto">
-                    {items.map(item => (
+                    {items.map(item => {
+                      const isRead = readItemIds.has(item.id);
+                      return (
                       <Card 
                         key={item.id} 
                         onClick={() => {
                           handleSelectItem(item);
                         }}
-                        className="group relative flex flex-col bg-white dark:bg-[#1c1c1e] border border-black/5 dark:border-white/5 news-card-hover cursor-pointer overflow-hidden shadow-sm h-full"
+                        className={`group relative flex flex-col border border-black/5 dark:border-white/5 news-card-hover cursor-pointer overflow-hidden shadow-sm h-full transition-opacity ${
+                          isRead
+                            ? "bg-zinc-100/80 dark:bg-zinc-900/60 opacity-60"
+                            : "bg-white dark:bg-[#1c1c1e]"
+                        }`}
                       >
                         <CardHeader className="p-4 pb-2">
                           <div className="flex justify-between items-start gap-2">
@@ -152,29 +164,37 @@ export function GridView({
                             <span className="font-semibold uppercase tracking-tight line-clamp-1 max-w-[120px]">{item.origin_source || "未知出处"}</span>
                           </div>
                           
-                          {item.read_status === 0 && (
-                            <div className="flex items-center gap-1 text-blue-600 font-medium">
-                              <span className="w-1.5 h-1.5 rounded-full bg-blue-500" />
-                              <span>未读</span>
-                            </div>
-                          )}
                         </CardFooter>
                       </Card>
-                    ))}
+                    )})}
                   </div>
                 )}
                 
-                {hasMore && items.length > 0 && (
-                  <div className="flex justify-center mt-8 pb-12">
+                {items.length > 0 && (
+                  <div className="flex items-center justify-center gap-3 mt-8 pb-12">
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() => fetchItems()}
-                      disabled={isLoadingItems}
-                      className="px-6 h-8 text-xs font-semibold"
+                      onClick={handlePreviousPage}
+                      disabled={isLoadingItems || currentPage === 0}
+                      className="px-4 h-8 text-xs font-semibold gap-1"
                     >
-                      {isLoadingItems ? <Loader2 className="w-3.5 h-3.5 animate-spin mr-1.5" /> : null}
-                      加载更多数据...
+                      <ChevronLeft className="w-3.5 h-3.5" />
+                      上一页
+                    </Button>
+                    <span className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
+                      第 {currentPage + 1} 页
+                    </span>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={handleNextPage}
+                      disabled={isLoadingItems || !hasMore}
+                      className="px-4 h-8 text-xs font-semibold gap-1"
+                    >
+                      {isLoadingItems ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
+                      下一页
+                      <ChevronRight className="w-3.5 h-3.5" />
                     </Button>
                   </div>
                 )}

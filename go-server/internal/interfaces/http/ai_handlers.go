@@ -170,12 +170,11 @@ func (h *AIHandlers) HandleAnalysis(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 5 {
+	idStr, _, ok := pathIDAndSubAction(r.URL.Path, "analysis")
+	if !ok {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	idStr := parts[4]
 	itemID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid ID format", http.StatusBadRequest)
@@ -407,7 +406,7 @@ func (h *AIHandlers) HandleDailyRSS(w http.ResponseWriter, r *http.Request) {
 	if len(reports) > 0 {
 		buf.WriteString("<lastBuildDate>" + reports[0].GeneratedAt.Format(time.RFC1123Z) + "</lastBuildDate>\n")
 	}
-	buf.WriteString(fmt.Sprintf(`<atom:link href="%s/api/ai/daily/rss" rel="self" type="application/rss+xml"/>`, baseURL))
+	buf.WriteString(fmt.Sprintf(`<atom:link href="%s/open/api/ai/daily/rss" rel="self" type="application/rss+xml"/>`, baseURL))
 	buf.WriteString("\n")
 
 	for _, rpt := range reports {
@@ -464,12 +463,11 @@ func (h *AIHandlers) HandleReanalyze(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	parts := strings.Split(r.URL.Path, "/")
-	if len(parts) < 5 {
+	idStr, _, ok := pathIDAndSubAction(r.URL.Path, "reanalyze")
+	if !ok {
 		http.Error(w, "Invalid path", http.StatusBadRequest)
 		return
 	}
-	idStr := parts[4]
 	itemID, err := strconv.ParseInt(idStr, 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid ID format", http.StatusBadRequest)

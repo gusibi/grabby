@@ -1,4 +1,4 @@
-import { LayoutGrid, Inbox, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles, Laptop } from "lucide-react";
+import { LayoutGrid, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles, Laptop } from "lucide-react";
 import type { AICategory, AppView, Stats } from "@/types";
 
 interface SidebarProps {
@@ -19,8 +19,8 @@ interface SidebarProps {
   toggleDarkMode: () => void;
   darkMode: boolean;
   setIsSidebarCollapsed: (value: boolean) => void;
-  selectedReadStatus: string;
-  setSelectedReadStatus: (value: string) => void;
+  authRequired: boolean;
+  isAuthenticated: boolean;
 }
 
 export function Sidebar({
@@ -41,9 +41,11 @@ export function Sidebar({
   toggleDarkMode,
   darkMode,
   setIsSidebarCollapsed,
-  selectedReadStatus,
-  setSelectedReadStatus
+  authRequired,
+  isAuthenticated
 }: SidebarProps) {
+  const canAccessAdmin = !authRequired || isAuthenticated;
+
   return (
         <aside className={`${isSidebarCollapsed ? "w-16" : "w-64"} sidebar-vibrancy flex flex-col shrink-0 transition-all duration-300`}>
           <div className="h-14 flex items-center px-6 shrink-0 border-b border-black/5 dark:border-white/5">
@@ -57,10 +59,9 @@ export function Sidebar({
               <button
                 onClick={() => {
                   setCurrentView("grid");
-                  setSelectedReadStatus("all");
                 }}
                 className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
-                  currentView === "grid" && selectedReadStatus !== "unread"
+                  currentView === "grid"
                     ? "bg-blue-600 text-white shadow-md font-semibold"
                     : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
                 }`}
@@ -134,7 +135,7 @@ export function Sidebar({
                     className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${selectedSourceCategory === "all" ? "text-blue-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
                   >
                     <span>全部 All</span>
-                    <span>{stats.unread_count}</span>
+                    <span>{stats.total_count}</span>
                   </button>
                   {(stats.source_categories || []).map((cat) => (
                     <button
@@ -152,60 +153,64 @@ export function Sidebar({
           </div>
 
           <div className="p-3 border-t border-black/5 dark:border-white/5 space-y-1.5 shrink-0">
-            <button
-              onClick={() => setCurrentView("settings")}
-              title="订阅源配置"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                currentView === "settings"
-                  ? "bg-blue-600 text-white shadow-sm font-semibold"
-                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              {!isSidebarCollapsed && <span>订阅数据源 Sources</span>}
-            </button>
+            {canAccessAdmin && (
+              <>
+                <button
+                  onClick={() => setCurrentView("settings")}
+                  title="订阅源配置"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    currentView === "settings"
+                      ? "bg-blue-600 text-white shadow-sm font-semibold"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <Settings className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>订阅数据源 Sources</span>}
+                </button>
 
-            <button
-              onClick={() => setCurrentView("ai-settings")}
-              title="AI 智能配置"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                currentView === "ai-settings"
-                  ? "bg-indigo-600 text-white shadow-sm font-semibold"
-                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-              }`}
-            >
-              <Sparkles className="w-4 h-4" />
-              {!isSidebarCollapsed && <span>AI 模型配置 Settings</span>}
-            </button>
+                <button
+                  onClick={() => setCurrentView("ai-settings")}
+                  title="AI 智能配置"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    currentView === "ai-settings"
+                      ? "bg-indigo-600 text-white shadow-sm font-semibold"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>AI 模型配置 Settings</span>}
+                </button>
 
-            <button
-              onClick={() => {
-                setCurrentView("logs");
-                fetchLogs();
-              }}
-              title="抓取日志"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                currentView === "logs"
-                  ? "bg-blue-600 text-white shadow-sm font-semibold"
-                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-              }`}
-            >
-              <FileText className="w-4 h-4" />
-              {!isSidebarCollapsed && <span>抓取日志 Logs</span>}
-            </button>
+                <button
+                  onClick={() => {
+                    setCurrentView("logs");
+                    fetchLogs();
+                  }}
+                  title="抓取日志"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    currentView === "logs"
+                      ? "bg-blue-600 text-white shadow-sm font-semibold"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <FileText className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>抓取日志 Logs</span>}
+                </button>
 
-            <button
-              onClick={() => setCurrentView("device")}
-              title="设备连接状态"
-              className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
-                currentView === "device"
-                  ? "bg-blue-600 text-white shadow-sm font-semibold"
-                  : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
-              }`}
-            >
-              <Laptop className="w-4 h-4" />
-              {!isSidebarCollapsed && <span>设备与连接 Devices</span>}
-            </button>
+                <button
+                  onClick={() => setCurrentView("device")}
+                  title="设备连接状态"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-xs font-semibold transition-all ${
+                    currentView === "device"
+                      ? "bg-blue-600 text-white shadow-sm font-semibold"
+                      : "text-zinc-500 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <Laptop className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>设备与连接 Devices</span>}
+                </button>
+              </>
+            )}
 
             <div className={`flex ${isSidebarCollapsed ? "flex-col" : "flex-row"} gap-2 pt-1.5`}>
               <button

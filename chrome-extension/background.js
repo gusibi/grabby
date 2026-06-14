@@ -275,6 +275,11 @@ async function handleWebSocketMessage(message) {
                     await handleOpenCommand(data);
                     break;
 
+                case 'intercept':
+                    logger.debug('background', '执行intercept命令');
+                    await handleInterceptCommand(data);
+                    break;
+
                 default:
                     const responseMessage = {
                         type: 'response',
@@ -461,12 +466,146 @@ async function handleOpenCommand(data) {
     }
 }
 
+// ===== intercept 命令：早注入捕获页面 XHR/GraphQL 响应 =====
+// 设计见 docs/browser-executor-plan.md §4.3。
+// hook(MAIN world) 捕获响应 -> postMessage -> bridge(ISOLATED) 缓冲 ->
+// background flush 取回 -> 回传服务端，服务端适配器按 operation 名过滤解析。
+
+// 确保 document_start 捕获脚本已为目标 host 注册（幂等）
+async function ensureInterceptScriptsRegistered(targetUrl) {
+    let host;
+    try {
+        host = new URL(targetUrl).hostname;
+    } catch (_) {
+        throw new Error('intercept: 非法 URL');
+    }
+    // 取主域，匹配子域（如 x.com / api.x.com）
+    const parts = host.split('.');
+    const base = parts.length >= 2 ? parts.slice(-2).join('.') : host;
+    const matches = [`*://${base}/*`, `*://*.${base}/*`];
+    const scriptId = `grabby-intercept-${base}`;
+
+    const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [scriptId + '-hook', scriptId + '-bridge'] }).catch(() => []);
+    if (existing && existing.length >= 2) return; // 已注册
+
+    // 先尝试反注册残留，避免重复注册报错
+    try {
+        await chrome.scripting.unregisterContentScripts({ ids: [scriptId + '-hook', scriptId + '-bridge'] });
+    } catch (_) {}
+
+    await chrome.scripting.registerContentScripts([
+        {
+            id: scriptId + '-hook',
+            matches,
+            js: ['content/intercept-hook.js'],
+            runAt: 'document_start',
+            world: 'MAIN'
+        },
+        {
+            id: scriptId + '-bridge',
+            matches,
+            js: ['content/intercept-bridge.js'],
+            runAt: 'document_start',
+            world: 'ISOLATED'
+        }
+    ]);
+    logger.log('intercept', 'info', '已注册捕获脚本', { base, matches });
+}
+
+// 向 bridge 请求当前缓冲的捕获并清空
+function flushCaptures(tabId) {
+    return new Promise((resolve) => {
+        chrome.tabs.sendMessage(tabId, { type: 'grabby:flush', drain: true }, (resp) => {
+            if (chrome.runtime.lastError || !resp || !resp.ok) {
+                resolve([]);
+                return;
+            }
+            resolve(resp.captures || []);
+        });
+    });
+}
+
+function sleep(ms) {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function handleInterceptCommand(data) {
+    let targetTabId = null;
+    let previousActiveTabId = null;
+    const params = data.params || {};
+    const scrollRounds = Number.isInteger(params.scrollRounds) ? params.scrollRounds : 6;
+    const scrollDelayMs = Number.isInteger(params.scrollDelayMs) ? params.scrollDelayMs : 1500;
+    const maxCaptures = Number.isInteger(params.maxCaptures) ? params.maxCaptures : 200;
+    const visible = data.visible === true;
+
+    try {
+        if (!data.url) throw new Error('intercept: URL 不能为空');
+        logger.log('intercept', 'info', '开始 intercept', { url: data.url, visible, scrollRounds });
+
+        await ensureInterceptScriptsRegistered(data.url);
+
+        // 记录当前活动 tab，结束后可恢复
+        if (visible) {
+            const [cur] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (cur) previousActiveTabId = cur.id;
+        }
+
+        // 建 tab。可见性依赖滚动懒加载的页面(timeline/likes)用 visible:true
+        const tab = await navigateToUrl(data.url, visible);
+        targetTabId = tab.id;
+
+        // 滚动分页 + 分轮 flush，累积捕获
+        const collected = [];
+        // 首屏捕获
+        collected.push(...await flushCaptures(targetTabId));
+
+        for (let i = 0; i < scrollRounds && collected.length < maxCaptures; i++) {
+            await scrollPage(targetTabId, 0.95); // 滚到接近底部触发下一页
+            await sleep(scrollDelayMs);
+            const batch = await flushCaptures(targetTabId);
+            collected.push(...batch);
+        }
+
+        logger.log('intercept', 'info', 'intercept 完成', { count: collected.length });
+
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'intercept',
+            success: true,
+            result: {
+                url: data.url,
+                timestamp: new Date().toISOString(),
+                items: collected.slice(0, maxCaptures)
+            }
+        });
+    } catch (error) {
+        logger.error('intercept', 'intercept 失败', { error: error.message });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'intercept',
+            success: false,
+            error: error.message
+        });
+    } finally {
+        if (targetTabId !== null && (data.closeTab !== false)) {
+            try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+        }
+        if (previousActiveTabId !== null) {
+            try { await chrome.tabs.update(previousActiveTabId, { active: true }); } catch (_) {}
+        }
+    }
+}
+
 // 导航到指定URL
 // 返回创建的 tab 对象，调用方可直接用 tab.id 提取内容
-async function navigateToUrl(url) {
+// active: 是否激活新标签页。现有命令不传 -> 保持旧行为(true)；
+//         新命令(intercept 等)默认后台加载，避免抢用户焦点(见 plan §4.4)。
+async function navigateToUrl(url, active = true) {
     return new Promise((resolve, reject) => {
         try {
-            chrome.tabs.create({ url, active: true }, (tab) => {
+            chrome.tabs.create({ url, active }, (tab) => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
                     return;

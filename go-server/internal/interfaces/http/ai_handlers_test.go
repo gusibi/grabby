@@ -36,7 +36,7 @@ func TestHandleDailyReturnsStructuredContentWithoutReportWrapper(t *testing.T) {
 	}
 
 	handler := NewAIHandlers(db, nil, nil, zap.NewNop())
-	req := httptest.NewRequest(http.MethodGet, "/api/ai/daily?date=2026-06-13&type=morning", nil)
+	req := httptest.NewRequest(http.MethodGet, "/open/api/ai/daily?date=2026-06-13&type=morning", nil)
 	rec := httptest.NewRecorder()
 
 	handler.HandleDaily(rec, req)

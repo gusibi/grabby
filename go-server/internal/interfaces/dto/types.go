@@ -47,7 +47,7 @@ type ScreenshotAPIResponse struct {
 	ImageData string `json:"imageData"`
 }
 
-// HealthResponse is the GET /api/health response body.
+// HealthResponse is the GET /open/api/health response body.
 type HealthResponse struct {
 	Status           string    `json:"status"`
 	BrowserConnected bool      `json:"browser_connected"`
@@ -73,10 +73,25 @@ type BrowserListResponse struct {
 	Count    int                   `json:"count"`
 }
 
-// AddParams for the "add" MCP tool.
-type AddParams struct {
-	A float64 `json:"a"`
-	B float64 `json:"b"`
+// TwitterSearchParams for the "twitter_search" MCP tool.
+type TwitterSearchParams struct {
+	Query   string `json:"query"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// TwitterTimelineParams for the "twitter_timeline" MCP tool.
+type TwitterTimelineParams struct {
+	Kind    string `json:"kind,omitempty"` // "for_you" | "following"
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// TwitterLikesParams for the "twitter_likes" MCP tool.
+type TwitterLikesParams struct {
+	Handle  string `json:"handle"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
 }
 
 // ParseArgs converts raw MCP arguments (any/map) into a typed struct.

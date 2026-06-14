@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -22,15 +24,17 @@ func decodeCursor(cursorStr string) (time.Time, int64, error) {
 	if err != nil {
 		return time.Time{}, 0, err
 	}
-	var tStr string
-	var id int64
-	_, err = fmt.Sscanf(string(b), "%[^|]|%d", &tStr, &id)
-	if err != nil {
-		return time.Time{}, 0, err
+	parts := strings.SplitN(string(b), "|", 2)
+	if len(parts) != 2 {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor format")
 	}
-	t, err := time.Parse(time.RFC3339Nano, tStr)
+	id, err := strconv.ParseInt(parts[1], 10, 64)
 	if err != nil {
-		return time.Time{}, 0, err
+		return time.Time{}, 0, fmt.Errorf("invalid cursor ID: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339Nano, parts[0])
+	if err != nil {
+		return time.Time{}, 0, fmt.Errorf("invalid cursor time: %w", err)
 	}
 	return t, id, nil
 }
@@ -83,13 +87,14 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	if f.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(f.Cursor)
 		if err == nil {
-			query += " AND (i.fetched_at < ? OR (i.fetched_at = ? AND i.id < ?))"
-			args = append(args, cursorTime, cursorTime, cursorID)
+			timeStr := cursorTime.UTC().Format("2006-01-02 15:04:05")
+			query += " AND (COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))"
+			args = append(args, timeStr, timeStr, cursorID)
 		}
 	}
 
-	// Order by fetched_at DESC, id DESC
-	query += " ORDER BY i.fetched_at DESC, i.id DESC LIMIT ?"
+	// Order by COALESCE(published_at, fetched_at) DESC, id DESC
+	query += " ORDER BY COALESCE(i.published_at, i.fetched_at) DESC, i.id DESC LIMIT ?"
 	args = append(args, f.Limit+1) // fetch one extra to see if there is a next page
 
 	rows, err := d.db.Query(query, args...)
@@ -118,7 +123,11 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	nextCursor := ""
 	if len(list) > f.Limit {
 		nextItem := list[f.Limit]
-		nextCursor = encodeCursor(nextItem.FetchedAt, nextItem.ID)
+		sortTime := nextItem.FetchedAt
+		if nextItem.PublishedAt != nil {
+			sortTime = *nextItem.PublishedAt
+		}
+		nextCursor = encodeCursor(sortTime, nextItem.ID)
 		list = list[:f.Limit]
 	}
 
@@ -204,7 +213,7 @@ func (d *Database) CleanupOldData() error {
 
 func (d *Database) CountItems() (int, error) {
 	var count int
-	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items").Scan(&count)
+	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items WHERE fetched_at >= datetime('now', '-24 hours')").Scan(&count)
 	return count, err
 }
 
@@ -221,7 +230,7 @@ func (d *Database) CountStarredItems() (int, error) {
 }
 
 func (d *Database) CountItemsByCategory() (map[string]int, error) {
-	rows, err := d.db.Query("SELECT category, COUNT(*) FROM scraped_items GROUP BY category")
+	rows, err := d.db.Query("SELECT category, COUNT(*) FROM scraped_items WHERE fetched_at >= datetime('now', '-24 hours') GROUP BY category")
 	if err != nil {
 		return nil, err
 	}
@@ -239,7 +248,13 @@ func (d *Database) CountItemsByCategory() (map[string]int, error) {
 }
 
 func (d *Database) CountItemsBySourceCategory() (map[string]int, error) {
-	rows, err := d.db.Query(`SELECT s.category, COUNT(*) FROM scraped_items si JOIN sources s ON si.source_id = s.id GROUP BY s.category`)
+	rows, err := d.db.Query(`
+		SELECT s.category, COUNT(*) 
+		FROM scraped_items si 
+		JOIN sources s ON si.source_id = s.id 
+		WHERE si.fetched_at >= datetime('now', '-24 hours')
+		GROUP BY s.category
+	`)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +272,12 @@ func (d *Database) CountItemsBySourceCategory() (map[string]int, error) {
 }
 
 func (d *Database) GetDistinctSourceCategories() ([]string, error) {
-	rows, err := d.db.Query("SELECT DISTINCT category FROM sources")
+	rows, err := d.db.Query(`
+		SELECT DISTINCT s.category 
+		FROM scraped_items si 
+		JOIN sources s ON si.source_id = s.id 
+		WHERE si.fetched_at >= datetime('now', '-24 hours')
+	`)
 	if err != nil {
 		return nil, err
 	}

@@ -18,6 +18,7 @@ interface DailyReportViewProps {
   reportList: ReportListItem[];
   selectedReportType: string;
   setSelectedReportType: (value: string) => void;
+  isAuthenticated: boolean;
 }
 
 const REPORT_TABS = [
@@ -62,6 +63,7 @@ export function DailyReportView({
   reportList,
   selectedReportType,
   setSelectedReportType,
+  isAuthenticated,
 }: DailyReportViewProps) {
   const [isBusy, setIsBusy] = React.useState(false);
   const loading = isGeneratingReport || isBusy;
@@ -361,54 +363,55 @@ export function DailyReportView({
       {/* ── Right Panel: Actions & Stats ── */}
       <div className="w-52 shrink-0 border-l border-black/5 dark:border-white/5 flex flex-col overflow-y-auto bg-white dark:bg-[#1c1c1e]">
         <div className="p-4 space-y-5">
-          {/* Generate actions */}
-          <div className="space-y-2">
-            <div className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-              生成操作
+          {isAuthenticated && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                生成操作
+              </div>
+              <Button
+                onClick={() => handleGenerateDailyReport("morning")}
+                disabled={loading}
+                size="sm"
+                className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              >
+                {loading && selectedReportType === "morning" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  "🌅 生成早报"
+                )}
+              </Button>
+              <Button
+                onClick={() => handleGenerateDailyReport("evening")}
+                disabled={loading}
+                size="sm"
+                className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
+              >
+                {loading && selectedReportType === "evening" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  "🌙 生成晚报"
+                )}
+              </Button>
+              <Button
+                onClick={handleGenerateBoth}
+                disabled={loading}
+                size="sm"
+                variant="outline"
+                className="w-full h-8 gap-1 text-xs font-semibold"
+              >
+                {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "📋 生成早+晚报"}
+              </Button>
+              <Button
+                onClick={handleBackfill}
+                disabled={loading}
+                size="sm"
+                variant="outline"
+                className="w-full h-8 gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+              >
+                {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🔄 补齐历史早/晚报"}
+              </Button>
             </div>
-            <Button
-              onClick={() => handleGenerateDailyReport("morning")}
-              disabled={loading}
-              size="sm"
-              className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
-            >
-              {loading && selectedReportType === "morning" ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                "🌅 生成早报"
-              )}
-            </Button>
-            <Button
-              onClick={() => handleGenerateDailyReport("evening")}
-              disabled={loading}
-              size="sm"
-              className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
-            >
-              {loading && selectedReportType === "evening" ? (
-                <Loader2 className="w-3.5 h-3.5 animate-spin" />
-              ) : (
-                "🌙 生成晚报"
-              )}
-            </Button>
-            <Button
-              onClick={handleGenerateBoth}
-              disabled={loading}
-              size="sm"
-              variant="outline"
-              className="w-full h-8 gap-1 text-xs font-semibold"
-            >
-              {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "📋 生成早+晚报"}
-            </Button>
-            <Button
-              onClick={handleBackfill}
-              disabled={loading}
-              size="sm"
-              variant="outline"
-              className="w-full h-8 gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-            >
-              {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🔄 补齐历史早/晚报"}
-            </Button>
-          </div>
+          )}
 
           {/* Stats */}
           {dailyReport && (
@@ -457,7 +460,7 @@ export function DailyReportView({
               订阅
             </div>
             <a
-              href="/api/ai/daily/rss"
+              href="/open/api/ai/daily/rss"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 text-xs font-semibold hover:bg-orange-100 dark:hover:bg-orange-900/20 transition-colors no-underline"

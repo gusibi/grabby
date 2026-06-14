@@ -13,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"github.com/yuin/goldmark"
 	"go.uber.org/zap"
 
@@ -33,7 +34,7 @@ func firstNonEmpty(vals ...string) string {
 	return ""
 }
 
-func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
+func RegisterHandlers(openAPI, api *echo.Group, deps Dependencies) {
 	db := deps.DB
 	wsManager := deps.WSManager
 	browserRegistry := deps.BrowserRegistry
@@ -43,7 +44,7 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 	scraper := deps.Scraper
 
 	// Health check
-	mux.HandleFunc("/api/health", func(w http.ResponseWriter, r *http.Request) {
+	openAPI.GET("/health", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -59,10 +60,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
 	// Browser list endpoint
-	mux.HandleFunc("/api/browsers", func(w http.ResponseWriter, r *http.Request) {
+	api.GET("/browsers", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -75,10 +76,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
 	// Browser registration endpoint
-	mux.HandleFunc("/api/browsers/register", func(w http.ResponseWriter, r *http.Request) {
+	api.POST("/browsers/register", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -107,10 +108,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
 	// Browser kick endpoint
-	mux.HandleFunc("/api/browsers/kick", func(w http.ResponseWriter, r *http.Request) {
+	api.POST("/browsers/kick", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -136,10 +137,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
-	})
+	}))
 
 	// API Extract endpoint
-	mux.HandleFunc("/api/extract", func(w http.ResponseWriter, r *http.Request) {
+	api.POST("/extract", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -187,10 +188,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
-	})
+	}))
 
 	// API Screenshot endpoint
-	mux.HandleFunc("/api/screenshot", func(w http.ResponseWriter, r *http.Request) {
+	api.POST("/screenshot", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, `{"detail":"Method not allowed"}`, http.StatusMethodNotAllowed)
 			return
@@ -238,10 +239,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(out)
-	})
+	}))
 
 	// GET /api/items
-	mux.HandleFunc("/api/items", func(w http.ResponseWriter, r *http.Request) {
+	openAPI.GET("/items", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -252,6 +253,12 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		origin := r.URL.Query().Get("origin")
 		q := r.URL.Query().Get("q")
 		cursor := r.URL.Query().Get("cursor")
+		limit := 20
+		if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+			if parsedLimit, err := fmt.Sscanf(limitStr, "%d", &limit); err != nil || parsedLimit != 1 || limit <= 0 {
+				limit = 20
+			}
+		}
 
 		var starred *int
 		if sVal := r.URL.Query().Get("starred"); sVal != "" {
@@ -278,7 +285,7 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 			Starred:        starred,
 			ReadStatus:     readStatus,
 			Cursor:         cursor,
-			Limit:          20,
+			Limit:          limit,
 		})
 		if err != nil {
 			logger.Error("Failed to query items", zap.Error(err))
@@ -292,25 +299,19 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}))
 
 	// GET/POST /api/items/{id} and sub-actions
-	mux.HandleFunc("/api/items/", func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) < 4 {
+	itemHandler := func(w http.ResponseWriter, r *http.Request) {
+		idStr, subAction, ok := pathIDAndSubAction(r.URL.Path, "items")
+		if !ok {
 			http.Error(w, "Invalid path", http.StatusBadRequest)
 			return
 		}
-		idStr := parts[3]
 		var id int64
 		if _, err := fmt.Sscanf(idStr, "%d", &id); err != nil {
 			http.Error(w, "Invalid ID format", http.StatusBadRequest)
 			return
-		}
-
-		subAction := ""
-		if len(parts) > 4 {
-			subAction = parts[4]
 		}
 
 		if r.Method == http.MethodGet && subAction == "" {
@@ -336,8 +337,6 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 					}
 				}
 			}
-
-			_ = db.MarkItemRead(id, 1)
 
 			resp := map[string]any{
 				"item":         scrapedItem,
@@ -383,10 +382,13 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	})
+	}
+	openAPI.GET("/items/:id", wrapHandlerFunc(itemHandler))
+	api.POST("/items/:id/read", wrapHandlerFunc(itemHandler))
+	api.POST("/items/:id/star", wrapHandlerFunc(itemHandler))
 
 	// GET/POST /api/sources
-	mux.HandleFunc("/api/sources", func(w http.ResponseWriter, r *http.Request) {
+	api.GET("/sources", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
 			list, err := db.GetSources()
 			if err != nil {
@@ -397,7 +399,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 			_ = json.NewEncoder(w).Encode(list)
 			return
 		}
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}))
 
+	api.POST("/sources", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost {
 			var form source.SourceForm
 			if err := json.NewDecoder(r.Body).Decode(&form); err != nil {
@@ -438,19 +443,14 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	})
+	}))
 
 	// PUT/DELETE/POST /api/sources/{id}/...
-	mux.HandleFunc("/api/sources/", func(w http.ResponseWriter, r *http.Request) {
-		parts := strings.Split(r.URL.Path, "/")
-		if len(parts) < 4 {
+	sourceHandler := func(w http.ResponseWriter, r *http.Request) {
+		id, subAction, ok := pathIDAndSubAction(r.URL.Path, "sources")
+		if !ok {
 			http.Error(w, "Invalid path", http.StatusBadRequest)
 			return
-		}
-		id := parts[3]
-		subAction := ""
-		if len(parts) > 4 {
-			subAction = parts[4]
 		}
 
 		if r.Method == http.MethodPut && subAction == "" {
@@ -559,10 +559,14 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-	})
+	}
+	api.PUT("/sources/:id", wrapHandlerFunc(sourceHandler))
+	api.DELETE("/sources/:id", wrapHandlerFunc(sourceHandler))
+	api.POST("/sources/:id/toggle", wrapHandlerFunc(sourceHandler))
+	api.POST("/sources/:id/run", wrapHandlerFunc(sourceHandler))
 
 	// GET /api/logs
-	mux.HandleFunc("/api/logs", func(w http.ResponseWriter, r *http.Request) {
+	api.GET("/logs", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -575,10 +579,10 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(logs)
-	})
+	}))
 
 	// GET /api/stats
-	mux.HandleFunc("/api/stats", func(w http.ResponseWriter, r *http.Request) {
+	openAPI.GET("/stats", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
@@ -601,37 +605,49 @@ func RegisterHandlers(mux *http.ServeMux, deps Dependencies) {
 		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(resp)
-	})
+	}))
+}
+
+func pathIDAndSubAction(path, resource string) (string, string, bool) {
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	for i, part := range parts {
+		if part != resource {
+			continue
+		}
+		if len(parts) <= i+1 || parts[i+1] == "" {
+			return "", "", false
+		}
+		subAction := ""
+		if len(parts) > i+2 {
+			subAction = parts[i+2]
+		}
+		return parts[i+1], subAction, true
+	}
+	return "", "", false
 }
 
 // RegisterAIHandlers registers all AI-related HTTP handlers.
-func RegisterAIHandlers(mux *http.ServeMux, deps Dependencies) {
+func RegisterAIHandlers(openAPI, api *echo.Group, deps Dependencies) {
 	aiHandlers := NewAIHandlers(deps.DB, deps.AIEngine, deps.DailyManager, deps.Logger)
-	mux.HandleFunc("/api/ai/quality", aiHandlers.HandleQuality)
-	mux.HandleFunc("/api/ai/categories", aiHandlers.HandleCategories)
-	mux.HandleFunc("/api/ai/items", aiHandlers.HandleItems)
-	mux.HandleFunc("/api/ai/analysis/", aiHandlers.HandleAnalysis)
-	mux.HandleFunc("/api/ai/daily", aiHandlers.HandleDaily)
-	mux.HandleFunc("/api/ai/daily/list", aiHandlers.HandleDailyList)
-	mux.HandleFunc("/api/ai/daily/generate", aiHandlers.HandleDailyGenerate)
-	mux.HandleFunc("/api/ai/daily/rss", aiHandlers.HandleDailyRSS)
-	mux.HandleFunc("/api/ai/reanalyze/", aiHandlers.HandleReanalyze)
-	mux.HandleFunc("/api/ai/stats", aiHandlers.HandleStats)
-	mux.HandleFunc("/api/ai/settings", func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet {
-			aiHandlers.HandleGetSettings(w, r)
-		} else if r.Method == http.MethodPost {
-			aiHandlers.HandleSaveSettings(w, r)
-		} else {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		}
-	})
-	mux.HandleFunc("/api/ai/test", aiHandlers.HandleTestConnection)
-	mux.HandleFunc("/api/ai/start_eval", aiHandlers.HandleStartEvaluation)
+	openAPI.GET("/ai/quality", wrapHandlerFunc(aiHandlers.HandleQuality))
+	openAPI.GET("/ai/categories", wrapHandlerFunc(aiHandlers.HandleCategories))
+	openAPI.GET("/ai/items", wrapHandlerFunc(aiHandlers.HandleItems))
+	openAPI.GET("/ai/analysis/:id", wrapHandlerFunc(aiHandlers.HandleAnalysis))
+	openAPI.GET("/ai/daily", wrapHandlerFunc(aiHandlers.HandleDaily))
+	openAPI.GET("/ai/daily/list", wrapHandlerFunc(aiHandlers.HandleDailyList))
+	openAPI.GET("/ai/daily/rss", wrapHandlerFunc(aiHandlers.HandleDailyRSS))
+	openAPI.GET("/ai/stats", wrapHandlerFunc(aiHandlers.HandleStats))
+
+	api.POST("/ai/daily/generate", wrapHandlerFunc(aiHandlers.HandleDailyGenerate))
+	api.POST("/ai/reanalyze/:id", wrapHandlerFunc(aiHandlers.HandleReanalyze))
+	api.GET("/ai/settings", wrapHandlerFunc(aiHandlers.HandleGetSettings))
+	api.POST("/ai/settings", wrapHandlerFunc(aiHandlers.HandleSaveSettings))
+	api.POST("/ai/test", wrapHandlerFunc(aiHandlers.HandleTestConnection))
+	api.POST("/ai/start_eval", wrapHandlerFunc(aiHandlers.HandleStartEvaluation))
 }
 
 // RegisterStaticHandlers serves the embedded frontend SPA.
-func RegisterStaticHandlers(mux *http.ServeMux, frontendFS embed.FS, logger *zap.Logger) {
+func RegisterStaticHandlers(e *echo.Echo, frontendFS embed.FS, logger *zap.Logger) {
 	fsys, err := fs.Sub(frontendFS, "frontend/dist")
 	if err != nil {
 		logger.Warn("Failed to load embedded frontend files", zap.Error(err))
@@ -659,11 +675,11 @@ func RegisterStaticHandlers(mux *http.ServeMux, frontendFS embed.FS, logger *zap
 		fileServer.ServeHTTP(w, r)
 	})
 
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/api/") || r.URL.Path == "/ws_browser" || r.URL.Path == "/ws_command" || strings.HasPrefix(r.URL.Path, "/mcp/") {
+	e.GET("/*", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/api/") || strings.HasPrefix(r.URL.Path, "/open/api/") || r.URL.Path == "/ws_browser" || r.URL.Path == "/ws_command" || strings.HasPrefix(r.URL.Path, "/mcp/") {
 			http.NotFound(w, r)
 			return
 		}
 		spa.ServeHTTP(w, r)
-	})
+	}))
 }

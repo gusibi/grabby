@@ -6,6 +6,7 @@
 // DOM 元素
 const serverUrlInput = document.getElementById('serverUrl');
 const browserNameInput = document.getElementById('browserName');
+const apiTokenInput = document.getElementById('apiToken');
 const autoConnectCheckbox = document.getElementById('autoConnect');
 const fullPageCapture = document.getElementById('fullPageCapture');
 const imageFormatSelect = document.getElementById('imageFormat');
@@ -57,6 +58,7 @@ function loadSettings() {
     chrome.storage.sync.get([
         'serverUrl',
         'browserName',
+        'apiToken',
         'autoConnect',
         'imageFormat',
         'imageQuality',
@@ -69,6 +71,9 @@ function loadSettings() {
 
         // 设置浏览器名称
         browserNameInput.value = result.browserName || '';
+
+        // 设置 API Token
+        apiTokenInput.value = result.apiToken || '';
 
         // 设置自动连接
         autoConnectCheckbox.checked = result.autoConnect === true;
@@ -156,6 +161,7 @@ async function saveSettings() {
             console.log('saving settings',
                 {
                     serverUrl: serverUrlInput.value,
+                    hasApiToken: !!apiTokenInput.value,
                     autoConnect: autoConnectCheckbox.checked,
                     imageFormat: imageFormatSelect.value,
                     imageQuality: parseInt(imageQualityInput.value),
@@ -166,6 +172,7 @@ async function saveSettings() {
             chrome.storage.sync.set({
                 serverUrl: serverUrlInput.value, // 即使为空字符串也会保存
                 browserName: browserNameInput.value,
+                apiToken: apiTokenInput.value.trim(),
                 autoConnect: autoConnectCheckbox.checked,
                 imageFormat: imageFormatSelect.value,
                 imageQuality: parseInt(imageQualityInput.value),
@@ -208,6 +215,7 @@ function resetSettings() {
     // 重置输入字段
     serverUrlInput.value = '';
     browserNameInput.value = '';
+    apiTokenInput.value = '';
     autoConnectCheckbox.checked = false;
     imageFormatSelect.value = 'png';
     imageQualityInput.value = 90;

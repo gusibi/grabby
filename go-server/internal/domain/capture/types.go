@@ -10,6 +10,20 @@ type BrowserRequest struct {
 	FullPage  bool   `json:"fullPage,omitempty"`
 	MessageID string `json:"message_id,omitempty"`
 	Browser   string `json:"browser,omitempty"`
+
+	// --- Additive fields, used only by new commands (runPageScript / fetchInPage /
+	// intercept). Old commands and old extensions ignore them. See
+	// docs/browser-executor-plan.md §6. ---
+
+	// Params carries arbitrary command-specific arguments.
+	Params map[string]any `json:"params,omitempty"`
+	// TimeoutMs is a per-command timeout hint for the extension.
+	TimeoutMs int `json:"timeoutMs,omitempty"`
+	// Visible asks the extension to briefly activate the tab (for lazy-load /
+	// infinite-scroll pages) and restore the previous tab afterwards.
+	Visible bool `json:"visible,omitempty"`
+	// CloseTab tells the extension to close the temporary tab when done.
+	CloseTab bool `json:"closeTab,omitempty"`
 }
 
 // BrowserResponse is returned by the browser extension.
@@ -31,6 +45,16 @@ type PageResult struct {
 	ImageData string      `json:"imageData"`
 	Format    string      `json:"format"`
 	Quality   int         `json:"quality"`
+
+	// --- Additive fields, filled only by new commands. Old commands leave them
+	// empty; old extensions never set them. See docs/browser-executor-plan.md §6. ---
+
+	// Text carries raw text results (e.g. fetchInPage body).
+	Text string `json:"text,omitempty"`
+	// JSON carries a single structured object result.
+	JSON map[string]any `json:"json,omitempty"`
+	// Items carries a list of structured results (e.g. intercepted responses).
+	Items []any `json:"items,omitempty"`
 }
 
 // PageContent is the extracted page content (Markdown from defuddle).

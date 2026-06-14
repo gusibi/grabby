@@ -1,4 +1,4 @@
-import { X, ExternalLink, Star, CheckCircle, Circle, Loader2, Sparkles } from "lucide-react";
+import { X, ExternalLink, Star, Loader2, Sparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { getCategoryColor, getCategoryLabel } from "@/lib/category";
 import type { ScrapedItem } from "@/types";
@@ -10,7 +10,6 @@ interface ItemDetailModalProps {
   isLoadingDetail: boolean;
   itemDetailHtml: string;
   toggleStar: (item: ScrapedItem, e?: React.MouseEvent) => void;
-  toggleReadStatus: (item: ScrapedItem, e?: React.MouseEvent) => void;
 }
 
 export function ItemDetailModal({
@@ -20,7 +19,6 @@ export function ItemDetailModal({
   isLoadingDetail,
   itemDetailHtml,
   toggleStar,
-  toggleReadStatus,
 }: ItemDetailModalProps) {
   if (!isOpen || !item) return null;
 
@@ -35,24 +33,6 @@ export function ItemDetailModal({
         {/* Header Action Bar */}
         <div className="h-14 flex items-center justify-between px-6 border-b border-black/5 dark:border-white/5 bg-zinc-50/50 dark:bg-zinc-900/50 shrink-0">
           <div className="flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={(e) => toggleReadStatus(item, e)}
-              className="h-8 text-xs px-3 gap-1.5 hover:bg-black/5 dark:hover:bg-white/5"
-            >
-              {item.read_status === 1 ? (
-                <>
-                  <CheckCircle className="w-4 h-4 text-blue-500" />
-                  <span className="font-medium text-zinc-700 dark:text-zinc-300">已读</span>
-                </>
-              ) : (
-                <>
-                  <Circle className="w-4 h-4 text-zinc-400" />
-                  <span className="font-medium text-zinc-500">标记已读</span>
-                </>
-              )}
-            </Button>
             <Button
               size="sm"
               variant="ghost"

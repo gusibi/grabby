@@ -1,0 +1,18 @@
+info:
+  name: health
+  type: http
+  seq: 4
+
+http:
+  method: get
+  url: http://localhost:5040/api/health
+  headers:
+    - name: X-API-Key
+      value: your_api_key
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5
