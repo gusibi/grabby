@@ -280,6 +280,16 @@ async function handleWebSocketMessage(message) {
                     await handleInterceptCommand(data);
                     break;
 
+                case 'runPageScript':
+                    logger.debug('background', '执行runPageScript命令');
+                    await handleRunPageScriptCommand(data);
+                    break;
+
+                case 'fetchInPage':
+                    logger.debug('background', '执行fetchInPage命令');
+                    await handleFetchInPageCommand(data);
+                    break;
+
                 default:
                     const responseMessage = {
                         type: 'response',
@@ -594,6 +604,162 @@ async function handleInterceptCommand(data) {
         }
         if (previousActiveTabId !== null) {
             try { await chrome.tabs.update(previousActiveTabId, { active: true }); } catch (_) {}
+        }
+    }
+}
+
+// ===== runPageScript 命令：白名单页面脚本 =====
+// 设计见 docs/browser-executor-plan.md §4.1。
+// 只允许执行内置、静态的脚本，绝不接受任意 JS 字符串；脚本名走 name，
+// 参数走结构化 args（禁止拼接进脚本体）。world:MAIN 才能读到页面 window 变量。
+//
+// 重要(MV3 陷阱)：executeScript 的 func 会被序列化后注入，访问不到
+// service worker 侧的闭包/外部变量，因此白名单必须内联在函数体里用静态
+// switch 分发。新增白名单脚本请直接加 case。
+async function handleRunPageScriptCommand(data) {
+    let targetTabId = null;
+    try {
+        if (!data.url) throw new Error('runPageScript: URL 不能为空');
+        const scriptName = (data.params && data.params.script) || data.script;
+        if (!scriptName) throw new Error('runPageScript: 缺少 script 名称');
+        const scriptParams = (data.params && data.params.params) || {};
+        logger.log('runPageScript', 'info', '开始执行白名单脚本', { url: data.url, script: scriptName });
+
+        const tab = await navigateToUrl(data.url, data.visible === true);
+        targetTabId = tab.id;
+
+        const [{ result } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            world: 'MAIN',
+            // 注意：func 被序列化注入，访问不到外部闭包；白名单必须内联在函数体内。
+            func: (name, params) => {
+                switch (name) {
+                    case 'youtube.initialPlayerResponse':
+                        return window.ytInitialPlayerResponse ?? null;
+                    case 'bilibili.initialState':
+                        return window.__INITIAL_STATE__ ?? null;
+                    case 'page.extractJsonLd': {
+                        const items = [];
+                        document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
+                            try { items.push(JSON.parse(s.textContent)); } catch (_) {}
+                        });
+                        return { items };
+                    }
+                    case 'page.readMeta': {
+                        const meta = {};
+                        document.querySelectorAll('meta[property], meta[name]').forEach((m) => {
+                            const k = m.getAttribute('property') || m.getAttribute('name');
+                            if (k && !(k in meta)) meta[k] = m.getAttribute('content');
+                        });
+                        return meta;
+                    }
+                    default:
+                        return { __error: 'script not allowed: ' + name };
+                }
+            },
+            args: [scriptName, scriptParams]
+        });
+
+        if (result && result.__error) throw new Error(result.__error);
+
+        // 对象走 result.json；其余(数组/标量/null)序列化进 result.text。
+        const isPlainObject = result !== null && typeof result === 'object' && !Array.isArray(result);
+        const pageResult = isPlainObject
+            ? { url: data.url, timestamp: new Date().toISOString(), json: result }
+            : { url: data.url, timestamp: new Date().toISOString(), text: JSON.stringify(result ?? null) };
+
+        logger.log('runPageScript', 'info', 'runPageScript 完成', { script: scriptName, hasResult: result != null });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'runPageScript',
+            success: true,
+            result: pageResult
+        });
+    } catch (error) {
+        logger.error('runPageScript', 'runPageScript 失败', { error: error.message });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'runPageScript',
+            success: false,
+            error: error.message
+        });
+    } finally {
+        if (targetTabId !== null && data.closeTab !== false) {
+            try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+        }
+    }
+}
+
+// ===== fetchInPage 命令：用页面上下文发 fetch（带登录态）=====
+// 设计见 docs/browser-executor-plan.md §4.2。
+// 在 MAIN world 里 fetch，同源、共享页面 Cookie/Origin，更接近真实请求；
+// 但不万能——credentials/CORS/CSRF/动态 header 仍需调用方按站点显式处理。
+//
+// params:
+//   requestUrl  实际请求地址(可与打开的 url 不同；省略时用 data.url)
+//   method/headers/body/credentials  透传给 fetch 的选项
+async function handleFetchInPageCommand(data) {
+    let targetTabId = null;
+    try {
+        if (!data.url) throw new Error('fetchInPage: URL 不能为空');
+        const p = data.params || {};
+        const requestUrl = p.requestUrl || data.url;
+        const fetchOpts = {
+            method: p.method || 'GET',
+            credentials: p.credentials || 'include'
+        };
+        if (p.headers && typeof p.headers === 'object') fetchOpts.headers = p.headers;
+        if (p.body != null) fetchOpts.body = p.body;
+        logger.log('fetchInPage', 'info', '开始页面内 fetch', { page: data.url, requestUrl, method: fetchOpts.method });
+
+        const tab = await navigateToUrl(data.url, data.visible === true);
+        targetTabId = tab.id;
+
+        const [{ result } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            world: 'MAIN',
+            func: async (target, opts) => {
+                try {
+                    const resp = await fetch(target, opts);
+                    const body = await resp.text();
+                    return { ok: true, status: resp.status, body };
+                } catch (e) {
+                    return { ok: false, error: String((e && e.message) || e) };
+                }
+            },
+            args: [requestUrl, fetchOpts]
+        });
+
+        if (!result) throw new Error('fetchInPage: 页面内执行无返回');
+        if (!result.ok) throw new Error('fetchInPage 请求失败: ' + result.error);
+
+        logger.log('fetchInPage', 'info', 'fetchInPage 完成', { status: result.status, len: result.body ? result.body.length : 0 });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'fetchInPage',
+            success: true,
+            result: {
+                url: requestUrl,
+                timestamp: new Date().toISOString(),
+                text: result.body || '',
+                json: { status: result.status }
+            }
+        });
+    } catch (error) {
+        logger.error('fetchInPage', 'fetchInPage 失败', { error: error.message });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'fetchInPage',
+            success: false,
+            error: error.message
+        });
+    } finally {
+        if (targetTabId !== null && data.closeTab !== false) {
+            try { await chrome.tabs.remove(targetTabId); } catch (_) {}
         }
     }
 }

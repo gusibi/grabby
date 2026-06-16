@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"go.uber.org/zap"
 
 	"go-server/internal/infrastructure/sqlite"
@@ -38,8 +39,11 @@ func TestHandleDailyReturnsStructuredContentWithoutReportWrapper(t *testing.T) {
 	handler := NewAIHandlers(db, nil, nil, zap.NewNop())
 	req := httptest.NewRequest(http.MethodGet, "/open/api/ai/daily?date=2026-06-13&type=morning", nil)
 	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
 
-	handler.HandleDaily(rec, req)
+	if err := handler.HandleDaily(c); err != nil {
+		t.Fatalf("HandleDaily returned error: %v", err)
+	}
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())

@@ -1,0 +1,29 @@
+info:
+  name: twitter_timeline
+  type: http
+  seq: 10
+
+http:
+  method: post
+  url: "{{host}}/api/twitter/timeline"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "kind": "for_you",
+        "limit": 40
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

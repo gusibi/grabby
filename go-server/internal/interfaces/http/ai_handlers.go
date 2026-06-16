@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/labstack/echo/v4"
 	"github.com/yuin/goldmark"
 	"go.uber.org/zap"
 
@@ -40,55 +41,42 @@ func NewAIHandlers(db *sqlite.Database, aiEngine *appai.AIEngine, dailyManager *
 	}
 }
 
+// aiErr writes the AI envelope error body `{"success":false,"error":...}`.
+func aiErr(c echo.Context, code int, msg string) error {
+	return c.JSON(code, map[string]any{"success": false, "error": msg})
+}
+
 // HandleQuality retrieves quality items filtering by AI scores.
-func (h *AIHandlers) HandleQuality(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleQuality(c echo.Context) error {
 	scoreMin := h.aiEngine.Settings().QualityThreshold
-	if sMinStr := r.URL.Query().Get("score_min"); sMinStr != "" {
-		if s, err := strconv.Atoi(sMinStr); err == nil {
-			scoreMin = s
-		}
+	if s, err := strconv.Atoi(c.QueryParam("score_min")); err == nil {
+		scoreMin = s
 	}
-
-	category := r.URL.Query().Get("category")
-	sourceCategory := r.URL.Query().Get("source_category")
 
 	days := 7
-	if daysStr := r.URL.Query().Get("days"); daysStr != "" {
-		if d, err := strconv.Atoi(daysStr); err == nil {
-			days = d
-		}
+	if d, err := strconv.Atoi(c.QueryParam("days")); err == nil {
+		days = d
 	}
 
 	limit := 20
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
-		}
+	if l, err := strconv.Atoi(c.QueryParam("limit")); err == nil {
+		limit = l
 	}
 
-	cursor := r.URL.Query().Get("cursor")
-
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
-		AICategory:     category,
-		SourceCategory: sourceCategory,
+		AICategory:     c.QueryParam("category"),
+		SourceCategory: c.QueryParam("source_category"),
 		ScoreMin:       scoreMin,
 		Days:           days,
 		Limit:          limit,
-		Cursor:         cursor,
+		Cursor:         c.QueryParam("cursor"),
 	})
 	if err != nil {
 		h.logger.Error("Failed to query quality items", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":     true,
 		"items":       items,
 		"next_cursor": nextCursor,
@@ -96,67 +84,44 @@ func (h *AIHandlers) HandleQuality(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleCategories gets all AI semantic categories stats.
-func (h *AIHandlers) HandleCategories(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleCategories(c echo.Context) error {
 	stats, err := h.db.GetAICategories()
 	if err != nil {
 		h.logger.Error("Failed to query AI categories", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":    true,
 		"categories": stats,
 	})
 }
 
 // HandleItems gets items filtered by AI category.
-func (h *AIHandlers) HandleItems(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	category := r.URL.Query().Get("category")
-	sourceCategory := r.URL.Query().Get("source_category")
-
+func (h *AIHandlers) HandleItems(c echo.Context) error {
 	scoreMin := 0
-	if sMinStr := r.URL.Query().Get("score_min"); sMinStr != "" {
-		if s, err := strconv.Atoi(sMinStr); err == nil {
-			scoreMin = s
-		}
+	if s, err := strconv.Atoi(c.QueryParam("score_min")); err == nil {
+		scoreMin = s
 	}
 
 	limit := 20
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
-		}
+	if l, err := strconv.Atoi(c.QueryParam("limit")); err == nil {
+		limit = l
 	}
 
-	cursor := r.URL.Query().Get("cursor")
-
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
-		AICategory:     category,
-		SourceCategory: sourceCategory,
+		AICategory:     c.QueryParam("category"),
+		SourceCategory: c.QueryParam("source_category"),
 		ScoreMin:       scoreMin,
 		Limit:          limit,
-		Cursor:         cursor,
+		Cursor:         c.QueryParam("cursor"),
 	})
 	if err != nil {
 		h.logger.Error("Failed to query AI items", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":     true,
 		"items":       items,
 		"next_cursor": nextCursor,
@@ -164,59 +129,34 @@ func (h *AIHandlers) HandleItems(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleAnalysis retrieves details of an AI analysis for a specific item.
-func (h *AIHandlers) HandleAnalysis(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	idStr, _, ok := pathIDAndSubAction(r.URL.Path, "analysis")
-	if !ok {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-	itemID, err := strconv.ParseInt(idStr, 10, 64)
+func (h *AIHandlers) HandleAnalysis(c echo.Context) error {
+	itemID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
-		return
+		return c.String(http.StatusBadRequest, "Invalid ID format")
 	}
 
 	analysis, err := h.db.GetAIAnalysis(itemID)
 	if err != nil {
 		h.logger.Error("Failed to query AI analysis", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
-
 	if analysis == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusNotFound)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "Analysis not found",
-		})
-		return
+		return aiErr(c, http.StatusNotFound, "Analysis not found")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":  true,
 		"analysis": analysis,
 	})
 }
 
 // HandleDaily retrieves the AI Daily Report for a date and type.
-func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	dateStr := r.URL.Query().Get("date")
+func (h *AIHandlers) HandleDaily(c echo.Context) error {
+	dateStr := c.QueryParam("date")
 	if dateStr == "" {
 		dateStr = time.Now().Format("2006-01-02")
 	}
-	reportType := r.URL.Query().Get("type")
+	reportType := c.QueryParam("type")
 	if reportType == "" {
 		reportType = "daily"
 	}
@@ -224,25 +164,21 @@ func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
 	report, err := h.db.GetAIDailyReport(dateStr, reportType)
 	if err != nil {
 		h.logger.Error("Failed to query daily report", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
 	if report == nil {
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		return c.JSON(http.StatusOK, map[string]any{
 			"success":     true,
 			"report_date": dateStr,
 			"report_type": reportType,
 		})
-		return
 	}
 
 	var content map[string]any
 	if err := json.Unmarshal([]byte(report.Content), &content); err != nil {
 		h.logger.Error("Failed to parse daily report content", zap.String("date", dateStr), zap.String("type", reportType), zap.Error(err))
-		http.Error(w, "Invalid daily report content", http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, "Invalid daily report content")
 	}
 
 	content["success"] = true
@@ -255,53 +191,38 @@ func (h *AIHandlers) HandleDaily(w http.ResponseWriter, r *http.Request) {
 	content["model_used"] = report.ModelUsed
 	content["generated_at"] = report.GeneratedAt
 
-	_ = json.NewEncoder(w).Encode(content)
+	return c.JSON(http.StatusOK, content)
 }
 
 // HandleDailyList retrieves a list of recent daily reports.
-func (h *AIHandlers) HandleDailyList(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleDailyList(c echo.Context) error {
 	limit := 10
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil {
-			limit = l
-		}
+	if l, err := strconv.Atoi(c.QueryParam("limit")); err == nil {
+		limit = l
 	}
-	reportType := r.URL.Query().Get("type")
 
-	reports, err := h.db.GetAIDailyReports(limit, reportType)
+	reports, err := h.db.GetAIDailyReports(limit, c.QueryParam("type"))
 	if err != nil {
 		h.logger.Error("Failed to query daily reports list", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success": true,
 		"reports": reports,
 	})
 }
 
 // HandleDailyGenerate manually triggers a daily report generation.
-func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleDailyGenerate(c echo.Context) error {
 	var req struct {
 		Date       string `json:"date"`
 		ReportType string `json:"report_type"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&req)
+	_ = c.Bind(&req)
 
 	if req.Date == "" {
-		req.Date = r.URL.Query().Get("date")
+		req.Date = c.QueryParam("date")
 	}
 	if req.Date == "" {
 		req.Date = time.Now().Format("2006-01-02")
@@ -360,34 +281,26 @@ func (h *AIHandlers) HandleDailyGenerate(w http.ResponseWriter, r *http.Request)
 		}
 	}()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success": true,
 		"message": "Report generation started in the background",
 	})
 }
 
 // HandleDailyRSS generates an RSS 2.0 feed of recent daily reports.
-func (h *AIHandlers) HandleDailyRSS(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleDailyRSS(c echo.Context) error {
 	limit := 20
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if l, err := strconv.Atoi(limitStr); err == nil && l > 0 {
-			limit = l
-		}
+	if l, err := strconv.Atoi(c.QueryParam("limit")); err == nil && l > 0 {
+		limit = l
 	}
 
 	reports, err := h.db.GetAIDailyReports(limit, "")
 	if err != nil {
 		h.logger.Error("Failed to query reports for RSS", zap.Error(err))
-		http.Error(w, "Internal server error", http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, "Internal server error")
 	}
 
+	r := c.Request()
 	baseURL := "http"
 	if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
 		baseURL += "s"
@@ -440,9 +353,8 @@ func (h *AIHandlers) HandleDailyRSS(w http.ResponseWriter, r *http.Request) {
 
 	buf.WriteString("</channel>\n</rss>")
 
-	w.Header().Set("Content-Type", "application/rss+xml; charset=utf-8")
-	w.Header().Set("Cache-Control", "public, max-age=300")
-	_, _ = w.Write(buf.Bytes())
+	c.Response().Header().Set("Cache-Control", "public, max-age=300")
+	return c.Blob(http.StatusOK, "application/rss+xml; charset=utf-8", buf.Bytes())
 }
 
 func xmlEscape(s string) string {
@@ -457,74 +369,46 @@ func xmlCdata(s string) string {
 }
 
 // HandleReanalyze reanalyzes an item synchronously.
-func (h *AIHandlers) HandleReanalyze(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
+func (h *AIHandlers) HandleReanalyze(c echo.Context) error {
+	itemID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return c.String(http.StatusBadRequest, "Invalid ID format")
 	}
 
-	idStr, _, ok := pathIDAndSubAction(r.URL.Path, "reanalyze")
-	if !ok {
-		http.Error(w, "Invalid path", http.StatusBadRequest)
-		return
-	}
-	itemID, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		http.Error(w, "Invalid ID format", http.StatusBadRequest)
-		return
-	}
-
-	err = h.aiEngine.AnalyzeItem(itemID)
-	if err != nil {
+	if err := h.aiEngine.AnalyzeItem(itemID); err != nil {
 		h.logger.Error("Manual AI analysis failed", zap.Int64("item_id", itemID), zap.Error(err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
+		return aiErr(c, http.StatusInternalServerError, err.Error())
 	}
 
 	analysis, err := h.db.GetAIAnalysis(itemID)
 	if err != nil {
 		h.logger.Error("Failed to get updated analysis", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":  true,
 		"analysis": analysis,
 	})
 }
 
 // HandleStats returns AI processing pipeline statistics.
-func (h *AIHandlers) HandleStats(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleStats(c echo.Context) error {
 	totalProcessed, err := h.db.CountAIAnalyses()
 	if err != nil {
 		h.logger.Error("Stats query failed", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
 	totalPending, err := h.db.CountUnprocessedAIItems()
 	if err != nil {
 		h.logger.Error("Stats query failed", zap.Error(err))
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
+		return c.String(http.StatusInternalServerError, err.Error())
 	}
 
 	avgScore, _ := h.db.AverageAIQualityScore()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":         true,
 		"total_processed": totalProcessed,
 		"total_pending":   totalPending,
@@ -534,33 +418,19 @@ func (h *AIHandlers) HandleStats(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleGetSettings retrieves the current AI settings.
-func (h *AIHandlers) HandleGetSettings(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	settings := h.aiEngine.Settings()
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+func (h *AIHandlers) HandleGetSettings(c echo.Context) error {
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":  true,
-		"settings": settings,
+		"settings": h.aiEngine.Settings(),
 	})
 }
 
 // HandleSaveSettings updates the AI settings.
-func (h *AIHandlers) HandleSaveSettings(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
+func (h *AIHandlers) HandleSaveSettings(c echo.Context) error {
 	var req ai.AISettings
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+	if err := c.Bind(&req); err != nil {
 		h.logger.Error("Failed to decode settings request body", zap.Error(err))
-		http.Error(w, `{"error":"Invalid request body"}`, http.StatusBadRequest)
-		return
+		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
 	}
 
 	// Normalize settings
@@ -598,41 +468,18 @@ func (h *AIHandlers) HandleSaveSettings(w http.ResponseWriter, r *http.Request) 
 	_ = h.db.SaveSetting("ai_evening_report_time", req.EveningReportTime)
 
 	// 2. Reload settings in the AI Engine
-	err := h.aiEngine.ReloadSettings(req)
-	if err != nil {
+	if err := h.aiEngine.ReloadSettings(req); err != nil {
 		h.logger.Error("Failed to reload AI engine settings", zap.Error(err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
+		return aiErr(c, http.StatusInternalServerError, err.Error())
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success": true,
-	})
+	return c.JSON(http.StatusOK, map[string]any{"success": true})
 }
 
 // HandleTestConnection tests the AI connection using the latest available scraped item.
-func (h *AIHandlers) HandleTestConnection(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	enabled := h.aiEngine.IsEnabled()
-
-	if !enabled {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "AI 引擎未启用，请先开启 '启用 AI 语义分析与评分' 开关并保存配置。",
-		})
-		return
+func (h *AIHandlers) HandleTestConnection(c echo.Context) error {
+	if !h.aiEngine.IsEnabled() {
+		return aiErr(c, http.StatusBadRequest, "AI 引擎未启用，请先开启 '启用 AI 语义分析与评分' 开关并保存配置。")
 	}
 
 	items, err := h.db.GetUnanalyzedItems(1)
@@ -672,16 +519,9 @@ func (h *AIHandlers) HandleTestConnection(w http.ResponseWriter, r *http.Request
 			Config:          "{}",
 		})
 
-		_, err = h.db.InsertScrapedItem(mockItem)
-		if err != nil {
+		if _, err = h.db.InsertScrapedItem(mockItem); err != nil {
 			h.logger.Error("Failed to insert mock item for test", zap.Error(err))
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusInternalServerError)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"success": false,
-				"error":   fmt.Sprintf("写入测试数据失败: %v", err),
-			})
-			return
+			return aiErr(c, http.StatusInternalServerError, fmt.Sprintf("写入测试数据失败: %v", err))
 		}
 
 		testItemID, testItemTitle, err = h.db.GetScrapedItemByURL(mockItem.URL)
@@ -691,42 +531,22 @@ func (h *AIHandlers) HandleTestConnection(w http.ResponseWriter, r *http.Request
 	}
 
 	if testItemID == 0 {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "无法创建或获取测试数据项，请手动添加数据源抓取部分内容后重试。",
-		})
-		return
+		return aiErr(c, http.StatusInternalServerError, "无法创建或获取测试数据项，请手动添加数据源抓取部分内容后重试。")
 	}
 
 	h.logger.Info("Running synchronous AI test on item", zap.Int64("item_id", testItemID), zap.String("title", testItemTitle))
 
-	err = h.aiEngine.AnalyzeItem(testItemID)
-	if err != nil {
+	if err := h.aiEngine.AnalyzeItem(testItemID); err != nil {
 		h.logger.Error("AI test analysis failed", zap.Error(err))
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   fmt.Sprintf("AI 接口连接失败: %v", err),
-		})
-		return
+		return aiErr(c, http.StatusInternalServerError, fmt.Sprintf("AI 接口连接失败: %v", err))
 	}
 
 	analysis, err := h.db.GetAIAnalysis(testItemID)
 	if err != nil || analysis == nil {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusInternalServerError)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "AI 分析已执行，但读取结果记录失败。",
-		})
-		return
+		return aiErr(c, http.StatusInternalServerError, "AI 分析已执行，但读取结果记录失败。")
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success":    true,
 		"item_title": testItemTitle,
 		"analysis":   analysis,
@@ -734,29 +554,35 @@ func (h *AIHandlers) HandleTestConnection(w http.ResponseWriter, r *http.Request
 }
 
 // HandleStartEvaluation enqueues all unanalyzed items for processing.
-func (h *AIHandlers) HandleStartEvaluation(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	enabled := h.aiEngine.IsEnabled()
-
-	if !enabled {
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusBadRequest)
-		_ = json.NewEncoder(w).Encode(map[string]any{
-			"success": false,
-			"error":   "AI 引擎未启用，请先开启 AI 评估功能并保存配置。",
-		})
-		return
+func (h *AIHandlers) HandleStartEvaluation(c echo.Context) error {
+	if !h.aiEngine.IsEnabled() {
+		return aiErr(c, http.StatusBadRequest, "AI 引擎未启用，请先开启 AI 评估功能并保存配置。")
 	}
 
 	go h.aiEngine.RunBackfill()
 
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(map[string]any{
+	return c.JSON(http.StatusOK, map[string]any{
 		"success": true,
 		"message": "AI 评测队列已启动，正在后台增量评估未分析的文章。",
 	})
+}
+
+// RegisterAIHandlers wires the AI read/generate/settings endpoints.
+func RegisterAIHandlers(openAPI, api *echo.Group, deps Dependencies) {
+	h := NewAIHandlers(deps.DB, deps.AIEngine, deps.DailyManager, deps.Logger)
+	openAPI.GET("/ai/quality", h.HandleQuality)
+	openAPI.GET("/ai/categories", h.HandleCategories)
+	openAPI.GET("/ai/items", h.HandleItems)
+	openAPI.GET("/ai/analysis/:id", h.HandleAnalysis)
+	openAPI.GET("/ai/daily", h.HandleDaily)
+	openAPI.GET("/ai/daily/list", h.HandleDailyList)
+	openAPI.GET("/ai/daily/rss", h.HandleDailyRSS)
+	openAPI.GET("/ai/stats", h.HandleStats)
+
+	api.POST("/ai/daily/generate", h.HandleDailyGenerate)
+	api.POST("/ai/reanalyze/:id", h.HandleReanalyze)
+	api.GET("/ai/settings", h.HandleGetSettings)
+	api.POST("/ai/settings", h.HandleSaveSettings)
+	api.POST("/ai/test", h.HandleTestConnection)
+	api.POST("/ai/start_eval", h.HandleStartEvaluation)
 }

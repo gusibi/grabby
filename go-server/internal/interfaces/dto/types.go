@@ -31,6 +31,9 @@ type ExtractAPIResponse struct {
 	URL      string `json:"url"`
 	Title    string `json:"title"`
 	Markdown string `json:"markdown"`
+	// Cached is true when the result came from the extract_cache table rather
+	// than a fresh browser fetch.
+	Cached bool `json:"cached"`
 }
 
 // ScreenshotAPIRequest is the POST /api/screenshot request body.
@@ -45,6 +48,67 @@ type ScreenshotAPIResponse struct {
 	Success   bool   `json:"success"`
 	URL       string `json:"url"`
 	ImageData string `json:"imageData"`
+}
+
+// RunPageScriptAPIRequest is the POST /api/run_page_script request body.
+// It invokes the extension's whitelisted-page-script primitive (plan §4.1).
+type RunPageScriptAPIRequest struct {
+	URL     string         `json:"url"`
+	Script  string         `json:"script"`            // whitelisted script name
+	Params  map[string]any `json:"params,omitempty"`  // structured args for the script
+	Visible bool           `json:"visible,omitempty"` // briefly activate the tab
+	Browser string         `json:"browser,omitempty"`
+}
+
+// RunPageScriptAPIResponse is the POST /api/run_page_script response body.
+type RunPageScriptAPIResponse struct {
+	Success bool           `json:"success"`
+	URL     string         `json:"url"`
+	JSON    map[string]any `json:"json,omitempty"` // object results
+	Text    string         `json:"text,omitempty"` // non-object results (JSON-encoded)
+}
+
+// FetchInPageAPIRequest is the POST /api/fetch_in_page request body.
+// It invokes the extension's in-page fetch primitive (plan §4.2): the request
+// runs in the page's MAIN world, sharing its cookies/origin.
+type FetchInPageAPIRequest struct {
+	URL         string            `json:"url"`                  // page context to open
+	RequestURL  string            `json:"requestUrl,omitempty"` // fetch target (defaults to url)
+	Method      string            `json:"method,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        string            `json:"body,omitempty"`
+	Credentials string            `json:"credentials,omitempty"` // fetch credentials mode (default include)
+	Visible     bool              `json:"visible,omitempty"`
+	Browser     string            `json:"browser,omitempty"`
+}
+
+// FetchInPageAPIResponse is the POST /api/fetch_in_page response body.
+type FetchInPageAPIResponse struct {
+	Success bool   `json:"success"`
+	URL     string `json:"url"`
+	Status  int    `json:"status,omitempty"`
+	Text    string `json:"text"`
+}
+
+// TwitterSearchAPIRequest is the POST /api/twitter/search request body.
+type TwitterSearchAPIRequest struct {
+	Query   string `json:"query"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// TwitterTimelineAPIRequest is the POST /api/twitter/timeline request body.
+type TwitterTimelineAPIRequest struct {
+	Kind    string `json:"kind,omitempty"` // "for_you" | "following"
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// TwitterLikesAPIRequest is the POST /api/twitter/likes request body.
+type TwitterLikesAPIRequest struct {
+	Handle  string `json:"handle"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
 }
 
 // HealthResponse is the GET /open/api/health response body.

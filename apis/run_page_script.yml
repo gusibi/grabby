@@ -1,0 +1,30 @@
+info:
+  name: run_page_script
+  type: http
+  seq: 7
+
+http:
+  method: post
+  url: "{{host}}/api/run_page_script"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+        "script": "youtube.initialPlayerResponse",
+        "params": {}
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

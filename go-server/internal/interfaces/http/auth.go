@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
-	"encoding/json"
 	"net/http"
 	"strings"
 	"time"
@@ -117,82 +116,49 @@ func clearSessionCookie(w http.ResponseWriter) {
 	})
 }
 
-func writeUnauthorized(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]any{
-		"success": false,
-		"error":   "admin login required",
-	})
-}
-
 func RegisterAuthHandlers(group *echo.Group, deps Dependencies) {
 	auth := newAdminAuth(deps.Settings)
 
-	group.GET("/auth/session", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+	group.GET("/auth/session", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, map[string]any{
 			"success":       true,
 			"auth_required": auth.enabled(),
-			"authenticated": auth.isAuthenticated(r),
+			"authenticated": auth.isAuthenticated(c.Request()),
 		})
-	}))
+	})
 
-	group.POST("/auth/login", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
+	group.POST("/auth/login", func(c echo.Context) error {
 		if !auth.enabled() {
-			w.Header().Set("Content-Type", "application/json")
-			_ = json.NewEncoder(w).Encode(map[string]any{
+			return c.JSON(http.StatusOK, map[string]any{
 				"success":       true,
 				"auth_required": false,
 				"authenticated": true,
 			})
-			return
 		}
 
 		var req struct {
 			Key string `json:"key"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, `{"success":false,"error":"invalid request body"}`, http.StatusBadRequest)
-			return
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"success": false, "error": "invalid request body"})
 		}
 		if subtle.ConstantTimeCompare([]byte(req.Key), []byte(auth.adminKey)) != 1 {
-			w.Header().Set("Content-Type", "application/json")
-			w.WriteHeader(http.StatusUnauthorized)
-			_ = json.NewEncoder(w).Encode(map[string]any{
-				"success": false,
-				"error":   "invalid admin key",
-			})
-			return
+			return c.JSON(http.StatusUnauthorized, map[string]any{"success": false, "error": "invalid admin key"})
 		}
 
-		auth.setSessionCookie(w)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		auth.setSessionCookie(c.Response())
+		return c.JSON(http.StatusOK, map[string]any{
 			"success":       true,
 			"auth_required": true,
 			"authenticated": true,
 		})
-	}))
+	})
 
-	group.POST("/auth/logout", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodPost {
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-		clearSessionCookie(w)
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(map[string]any{
+	group.POST("/auth/logout", func(c echo.Context) error {
+		clearSessionCookie(c.Response())
+		return c.JSON(http.StatusOK, map[string]any{
 			"success":       true,
 			"authenticated": false,
 		})
-	}))
+	})
 }

@@ -1,0 +1,31 @@
+info:
+  name: fetch_in_page
+  type: http
+  seq: 8
+
+http:
+  method: post
+  url: "{{host}}/api/fetch_in_page"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "url": "https://www.reddit.com/r/golang/",
+        "requestUrl": "https://www.reddit.com/r/golang/.json",
+        "method": "GET",
+        "credentials": "include"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

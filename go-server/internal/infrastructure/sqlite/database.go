@@ -4,7 +4,9 @@ import (
 	"database/sql"
 	"fmt"
 
-	_ "modernc.org/sqlite"
+	glebarez "github.com/glebarez/sqlite"
+	"gorm.io/gorm"
+	gormlogger "gorm.io/gorm/logger"
 
 	"go-server/internal/domain/ai"
 	"go-server/internal/domain/item"
@@ -31,7 +33,8 @@ func NormalizeAISettings(settings AISettings) AISettings {
 }
 
 type Database struct {
-	db *sql.DB
+	db   *sql.DB
+	gorm *gorm.DB
 }
 
 func NewDatabase(dbPath string) (*Database, error) {
@@ -60,10 +63,28 @@ func NewDatabase(dbPath string) (*Database, error) {
 	db.SetMaxOpenConns(1)
 	db.SetMaxIdleConns(2)
 
-	d := &Database{db: db}
+	// GORM shares the same *sql.DB connection pool so the new repos and the
+	// existing hand-written SQL hit one sqlite file without extra lock contention.
+	// Silence GORM's own SQL logger; the app handles returned errors via zap and
+	// does not want per-query / record-not-found noise on stdout.
+	gormDB, err := gorm.Open(glebarez.Dialector{Conn: db}, &gorm.Config{
+		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+	})
+	if err != nil {
+		db.Close()
+		return nil, fmt.Errorf("failed to open gorm: %w", err)
+	}
+
+	d := &Database{db: db, gorm: gormDB}
 	if err := d.migrate(); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("migration failed: %w", err)
+	}
+
+	// AutoMigrate only the GORM-managed tables (extract cache + tweet archive).
+	if err := gormDB.AutoMigrate(&ExtractCache{}, &TweetRecord{}); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("gorm auto-migrate failed: %w", err)
 	}
 
 	if err := d.seedDefaultSources(); err != nil {

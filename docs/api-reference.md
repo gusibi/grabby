@@ -72,6 +72,14 @@ Authorization: Bearer your_token
 | `url` | string | 是 | 要提取的网页 URL |
 | `browser` | string | 否 | 指定使用的浏览器名称，省略时使用默认浏览器 |
 
+#### 查询参数
+
+| 参数 | 类型 | 默认值 | 说明 |
+|------|------|--------|------|
+| `refresh` | boolean | false | `true`/`1` 时跳过缓存强制重新抓取并更新缓存 |
+
+> 缓存：提取结果按 URL 存入 `extract_cache` 表。命中缓存直接返回（`cached: true`），不再走浏览器抓取；只有抓取成功（markdown 非空）才会写入缓存。需要最新内容时带 `?refresh=true`。
+
 #### 成功响应 (200)
 
 ```json
@@ -79,7 +87,8 @@ Authorization: Bearer your_token
   "success": true,
   "url": "https://example.com",
   "title": "Example Domain",
-  "markdown": "# Example Domain\n\nThis domain is for use in illustrative examples..."
+  "markdown": "# Example Domain\n\nThis domain is for use in illustrative examples...",
+  "cached": false
 }
 ```
 
@@ -89,6 +98,7 @@ Authorization: Bearer your_token
 | `url` | string | 实际提取的 URL |
 | `title` | string | 网页标题 |
 | `markdown` | string | 提取的 Markdown 内容 |
+| `cached` | boolean | 是否来自缓存（`true`=命中 `extract_cache`，`false`=本次新抓取） |
 
 #### 错误响应
 
@@ -145,6 +155,220 @@ Authorization: Bearer your_token
 #### 错误响应
 
 与 `/api/extract` 相同（`503` / `502` / `504`）。
+
+---
+
+### Twitter/X 接口
+
+这三个接口是 X 站点适配器的 HTTP 入口（见 `docs/browser-executor-plan.md` §7），与同名 MCP 工具 `twitter_search` / `twitter_timeline` / `twitter_likes` **共用同一套适配器与底层 `intercept` 原语**，仅是把能力额外暴露成 HTTP，便于 `http api -> 浏览器` 的工作流直接调用。
+
+均依赖**用户已登录**的浏览器；返回空或报错通常意味着未登录或 X 页面结构变化（错误信息会带 `matched X/Y responses`），而非真的没有内容。
+
+> 存储：`search` / `timeline` / `likes` 抓到的推文都会按推文 ID upsert 进同一张 `tweets` 表（含 `source` 字段标记来源），跨多次抓取自动去重存档。存储为尽力而为，失败只记日志、不影响接口返回。
+
+所有 Twitter 接口的成功响应结构一致：
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "tweets": [ /* 单条结构见「推文结构」 */ ]
+}
+```
+
+错误响应：`503`（无已连接浏览器）/ `502`（浏览器执行无可用结果，如未登录 / 页面结构变化）/ `400`（请求体非法）。
+
+#### POST /api/twitter/search
+
+在已登录浏览器中搜索 X/Twitter，返回结构化推文。
+
+```http
+POST /api/twitter/search HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "query": "golang",
+  "limit": 40,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索关键词 |
+| `limit` | number | 否 | 40 | 返回推文上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### POST /api/twitter/timeline
+
+读取用户主页时间线（需已登录）。
+
+```http
+POST /api/twitter/timeline HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "kind": "for_you",
+  "limit": 40,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `kind` | string | 否 | `for_you` | `for_you`（推荐）或 `following`（关注） |
+| `limit` | number | 否 | 40 | 返回推文上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### POST /api/twitter/likes
+
+读取 `x.com/<handle>/likes` 的点赞推文（读取自己的点赞需已登录）。
+
+```http
+POST /api/twitter/likes HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "handle": "jack",
+  "limit": 60,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `handle` | string | 是 | - | X 用户名（不含 `@`），如 `jack` |
+| `limit` | number | 否 | 60 | 返回推文上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+推文字段结构见下方 MCP 工具的「推文结构」。
+
+---
+
+### POST /api/run_page_script
+
+在目标页面里执行**白名单页面脚本**（浏览器执行器原语，见 `docs/browser-executor-plan.md` §4.1），用于读取页面 JS 变量、JSON-LD、meta 等不在可见 DOM 里的数据。只接受内置脚本名，不接受任意 JS。
+
+#### 请求
+
+```http
+POST /api/run_page_script HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "script": "youtube.initialPlayerResponse",
+  "params": {},
+  "visible": false,
+  "browser": "chrome-office"
+}
+```
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 要打开的页面 URL（脚本执行上下文） |
+| `script` | string | 是 | - | 白名单脚本名，见下表 |
+| `params` | object | 否 | `{}` | 传给脚本的结构化参数（不会拼进脚本体） |
+| `visible` | boolean | 否 | false | 是否短暂激活标签页，结束后恢复原标签页 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**当前白名单脚本**：
+
+| 脚本名 | 返回 |
+|--------|------|
+| `youtube.initialPlayerResponse` | YouTube `window.ytInitialPlayerResponse`（含字幕轨等） |
+| `bilibili.initialState` | B站 `window.__INITIAL_STATE__` |
+| `page.extractJsonLd` | 页面所有 `application/ld+json` 解析结果（`{items:[...]}`） |
+| `page.readMeta` | 页面 `<meta property/name>` 键值对 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "url": "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+  "json": { "...": "脚本返回的对象（对象类结果）" }
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | boolean | 是否成功 |
+| `url` | string | 实际执行的页面 URL |
+| `json` | object | 脚本返回的对象（对象类结果时出现） |
+| `text` | string | 脚本返回的非对象结果（数组/标量，JSON 编码后字符串；可选） |
+
+> 脚本名不在白名单时返回 `502`，错误信息为 `script not allowed: <name>`。
+
+#### 错误响应
+
+与 `/api/extract` 相同（`400` / `503` / `502` / `504`）。
+
+---
+
+### POST /api/fetch_in_page
+
+在目标页面的上下文里发起 `fetch`（浏览器执行器原语，见 `docs/browser-executor-plan.md` §4.2）。请求运行在页面 MAIN world，**共享页面 Cookie 与 Origin**，因此带登录态、更接近真实请求。适合 Reddit `.json`、YouTube timedtext 等同源简单 GET。
+
+> 注意：不万能。CORS、SameSite Cookie、CSRF token、站点自定义 header 仍需调用方按站点显式处理。
+
+#### 请求
+
+```http
+POST /api/fetch_in_page HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "url": "https://www.reddit.com/r/golang/comments/xxxx/",
+  "requestUrl": "https://www.reddit.com/r/golang/comments/xxxx/.json",
+  "method": "GET",
+  "headers": { "Accept": "application/json" },
+  "credentials": "include",
+  "browser": "chrome-office"
+}
+```
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 要打开的页面（提供请求上下文与 Cookie/Origin） |
+| `requestUrl` | string | 否 | 同 `url` | 实际 fetch 的地址（可与页面不同） |
+| `method` | string | 否 | `GET` | HTTP 方法 |
+| `headers` | object | 否 | - | 自定义请求头 |
+| `body` | string | 否 | - | 请求体 |
+| `credentials` | string | 否 | `include` | fetch credentials 模式 |
+| `visible` | boolean | 否 | false | 是否短暂激活标签页 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "url": "https://www.reddit.com/r/golang/comments/xxxx/.json",
+  "status": 200,
+  "text": "{...响应体原文...}"
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | boolean | 是否成功 |
+| `url` | string | 实际请求的 URL |
+| `status` | number | HTTP 响应状态码 |
+| `text` | string | 响应体原文（调用方自行解析 JSON/文本） |
+
+#### 错误响应
+
+与 `/api/extract` 相同（`400` / `503` / `502` / `504`）。页面内 fetch 抛错（CORS/网络等）时返回 `502`，错误信息为 `fetchInPage 请求失败: ...`。
 
 ---
 
@@ -458,6 +682,8 @@ MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Event
 | `capture` | 网页截图 | `url`、`fullPage` |
 | `navigate` / `open` | 打开/导航到 URL | `url` |
 | `intercept` | **新增**：早注入捕获页面 XHR/GraphQL 响应（X/Twitter 等） | `url`、`visible`、`closeTab`、`params` |
+| `runPageScript` | **新增**：执行白名单页面脚本，读取页面 JS 变量/JSON-LD/meta | `url`、`params.script`、`params.params`、`visible`、`closeTab` |
+| `fetchInPage` | **新增**：在页面上下文发 fetch（带登录态） | `url`、`params.requestUrl`、`params.method/headers/body/credentials`、`visible`、`closeTab` |
 
 ### 消息格式
 
@@ -480,7 +706,7 @@ MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Event
 |------|------|------|
 | `source` | string | 消息来源标识 |
 | `action` | string | 动作类型 |
-| `command` | string | 命令类型：`extract` / `capture` / `navigate` / `open` / `intercept` |
+| `command` | string | 命令类型：`extract` / `capture` / `navigate` / `open` / `intercept` / `runPageScript` / `fetchInPage` |
 | `url` | string | 目标 URL |
 | `fullPage` | boolean | 截图时是否截取全页面 |
 | `message_id` | string | 消息唯一 ID，用于匹配响应 |
@@ -537,7 +763,7 @@ MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Event
 | `result.content` | object | 提取类命令的正文（Markdown 等） |
 | `result.imageData` | string | 截图类命令的 Base64 图片 |
 | `result.items` | array | **新增**：`intercept` 捕获到的原始响应记录列表（服务端适配器再按 operation 过滤、解析） |
-| `result.text` / `result.json` | string / object | **新增**：原始文本 / 结构化对象承载（预留给 `fetchInPage` / `runPageScript`） |
+| `result.text` / `result.json` | string / object | **新增**：原始文本 / 结构化对象承载（`fetchInPage` 回响应体 `text` + `json.status`；`runPageScript` 对象结果回 `json`、非对象回 `text`） |
 | `error` | string | 错误信息（失败时） |
 
 ---
