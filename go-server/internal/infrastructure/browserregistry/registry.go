@@ -21,7 +21,7 @@ type browserRegistryFile struct {
 type BrowserRegistry struct {
 	mu       sync.RWMutex
 	path     string
-	browsers map[string]string
+	browsers map[string]*browser.BrowserRegistration
 }
 
 func NewBrowserRegistry(path string) (*BrowserRegistry, error) {
@@ -31,7 +31,7 @@ func NewBrowserRegistry(path string) (*BrowserRegistry, error) {
 
 	registry := &BrowserRegistry{
 		path:     path,
-		browsers: make(map[string]string),
+		browsers: make(map[string]*browser.BrowserRegistration),
 	}
 	if err := registry.load(); err != nil {
 		return nil, err
@@ -53,11 +53,15 @@ func (br *BrowserRegistry) load() error {
 		return err
 	}
 
-	for _, browser := range file.Browsers {
-		connectID := strings.TrimSpace(browser.ConnectID)
-		name := strings.TrimSpace(browser.Name)
+	for _, b := range file.Browsers {
+		connectID := strings.TrimSpace(b.ConnectID)
+		name := strings.TrimSpace(b.Name)
 		if connectID != "" && name != "" {
-			br.browsers[connectID] = name
+			br.browsers[connectID] = &browser.BrowserRegistration{
+				ConnectID: connectID,
+				Name:      name,
+				Banned:    b.Banned,
+			}
 		}
 	}
 	return nil
@@ -76,10 +80,7 @@ func (br *BrowserRegistry) save() error {
 
 	file := browserRegistryFile{Browsers: make([]browser.BrowserRegistration, 0, len(ids))}
 	for _, connectID := range ids {
-		file.Browsers = append(file.Browsers, browser.BrowserRegistration{
-			ConnectID: connectID,
-			Name:      br.browsers[connectID],
-		})
+		file.Browsers = append(file.Browsers, *br.browsers[connectID])
 	}
 
 	data, err := json.MarshalIndent(file, "", "  ")
@@ -108,37 +109,87 @@ func (br *BrowserRegistry) Register(connectID, name string) (browser.BrowserRegi
 	br.mu.Lock()
 	defer br.mu.Unlock()
 
-	if existingName, ok := br.browsers[connectID]; ok {
-		if existingName == name {
-			return browser.BrowserRegistration{ConnectID: connectID, Name: name}, nil
+	if reg, ok := br.browsers[connectID]; ok {
+		if reg.Name == name {
+			return *reg, nil
 		}
 		return browser.BrowserRegistration{}, ErrBrowserRegistryConflict
 	}
 
-	for existingID, existingName := range br.browsers {
-		if existingID != connectID && existingName == name {
+	for existingID, reg := range br.browsers {
+		if existingID != connectID && reg.Name == name {
 			return browser.BrowserRegistration{}, ErrBrowserRegistryConflict
 		}
 	}
 
-	br.browsers[connectID] = name
+	reg := &browser.BrowserRegistration{ConnectID: connectID, Name: name}
+	br.browsers[connectID] = reg
 	if err := br.save(); err != nil {
 		delete(br.browsers, connectID)
 		return browser.BrowserRegistration{}, err
 	}
 
-	return browser.BrowserRegistration{ConnectID: connectID, Name: name}, nil
+	return *reg, nil
+}
+
+func (br *BrowserRegistry) Ban(connectID string) error {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+
+	reg, ok := br.browsers[connectID]
+	if !ok {
+		return errors.New("browser registration not found")
+	}
+
+	reg.Banned = true
+	return br.save()
+}
+
+func (br *BrowserRegistry) Unban(connectID string) error {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+
+	reg, ok := br.browsers[connectID]
+	if !ok {
+		return errors.New("browser registration not found")
+	}
+
+	reg.Banned = false
+	return br.save()
+}
+
+
+func (br *BrowserRegistry) List() []browser.BrowserRegistration {
+	br.mu.RLock()
+	defer br.mu.RUnlock()
+
+	list := make([]browser.BrowserRegistration, 0, len(br.browsers))
+	for _, reg := range br.browsers {
+		list = append(list, *reg)
+	}
+	sort.Slice(list, func(i, j int) bool {
+		return list[i].Name < list[j].Name
+	})
+	return list
 }
 
 func (br *BrowserRegistry) Validate(connectID, name string) bool {
 	br.mu.RLock()
 	defer br.mu.RUnlock()
-	return br.browsers[connectID] == name
+	reg, ok := br.browsers[connectID]
+	if !ok {
+		return false
+	}
+	return reg.Name == name && !reg.Banned
 }
 
 func (br *BrowserRegistry) GetName(connectID string) (string, bool) {
 	br.mu.RLock()
 	defer br.mu.RUnlock()
-	name, ok := br.browsers[connectID]
-	return name, ok
+	reg, ok := br.browsers[connectID]
+	if !ok {
+		return "", false
+	}
+	return reg.Name, true
 }
+

@@ -120,7 +120,12 @@ func (wm *WebSocketManager) GetBrowserList() []browser.BrowserInfo {
 	list := make([]browser.BrowserInfo, 0, len(wm.browserNames))
 	for connID, name := range wm.browserNames {
 		if _, ok := wm.activeConnections[connID]; ok {
-			list = append(list, browser.BrowserInfo{ConnID: connID, Name: name})
+			list = append(list, browser.BrowserInfo{
+				ConnID: connID,
+				Name:   name,
+				Online: true,
+				Banned: false,
+			})
 		}
 	}
 	return list

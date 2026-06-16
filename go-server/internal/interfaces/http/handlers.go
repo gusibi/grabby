@@ -17,6 +17,7 @@ import (
 	"github.com/yuin/goldmark"
 	"go.uber.org/zap"
 
+	"go-server/internal/domain/browser"
 	"go-server/internal/domain/capture"
 	"go-server/internal/domain/item"
 	"go-server/internal/domain/source"
@@ -69,7 +70,17 @@ func RegisterHandlers(openAPI, api *echo.Group, deps Dependencies) {
 			return
 		}
 
-		list := wsManager.GetBrowserList()
+		regs := browserRegistry.List()
+		list := make([]browser.BrowserInfo, 0, len(regs))
+		for _, reg := range regs {
+			list = append(list, browser.BrowserInfo{
+				ConnID: reg.ConnectID,
+				Name:   reg.Name,
+				Online: wsManager.HasConnection(reg.ConnectID),
+				Banned: reg.Banned,
+			})
+		}
+
 		resp := dto.BrowserListResponse{
 			Browsers: list,
 			Count:    len(list),
@@ -138,6 +149,70 @@ func RegisterHandlers(openAPI, api *echo.Group, deps Dependencies) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
 	}))
+
+	// Browser ban endpoint
+	api.POST("/browsers/ban", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			ConnID string `json:"conn_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		if req.ConnID == "" {
+			http.Error(w, `{"detail":"conn_id is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		// First, kick/disconnect the browser if it's currently connected.
+		_ = wsManager.Kick(req.ConnID)
+
+		// Then ban it.
+		if err := browserRegistry.Ban(req.ConnID); err != nil {
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}))
+
+	// Browser unban endpoint
+	api.POST("/browsers/unban", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+
+		var req struct {
+			ConnID string `json:"conn_id"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, `{"detail":"Invalid request body"}`, http.StatusBadRequest)
+			return
+		}
+
+		if req.ConnID == "" {
+			http.Error(w, `{"detail":"conn_id is required"}`, http.StatusBadRequest)
+			return
+		}
+
+		if err := browserRegistry.Unban(req.ConnID); err != nil {
+			http.Error(w, fmt.Sprintf(`{"detail":"%s"}`, err.Error()), http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{"success": true})
+	}))
+
+
 
 	// API Extract endpoint
 	api.POST("/extract", wrapHandlerFunc(func(w http.ResponseWriter, r *http.Request) {

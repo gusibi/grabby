@@ -66,4 +66,15 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ conn_id: connId }),
   }),
+  banBrowser: (connId: string) => jsonFetch("/api/browsers/ban", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conn_id: connId }),
+  }),
+  unbanBrowser: (connId: string) => jsonFetch("/api/browsers/unban", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ conn_id: connId }),
+  }),
 };
+

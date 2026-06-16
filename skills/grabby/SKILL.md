@@ -13,19 +13,23 @@ description: 抓取网页内容（URL转Markdown）并从本地 Grabby 服务读
 
 Grabby 服务在后台持续抓取订阅源并用 AI 进行分类评分，可直接调 API 读取结果。**无需浏览器扩展**。
 
-服务地址：`http://localhost:5040`（或环境变量 `$GRABBY_SERVER_URL`）
+服务地址：`http://localhost:5040`（或环境变量 `$GRABBY_SERVER_URL`）。
+
+使用本 skill 时优先调用脚本：`scripts/grabby-api.sh`。脚本内部调用 HTTP API，并自动读取：
+- `GRABBY_SERVER_URL` — 服务地址，默认 `http://localhost:5040`
+- `GRABBY_API_TOKEN` — 可选，访问 `/api/*` 认证接口时使用
 
 ### 1. 获取今日日报 / 早报 / 晚报
 
 ```bash
 # 今日日报（type 可选 daily | morning | evening）
-curl -s "http://localhost:5040/api/ai/daily?date=$(date +%F)&type=daily"
+scripts/grabby-api.sh daily daily "$(date +%F)"
 
 # 最新早报
-curl -s "http://localhost:5040/api/ai/daily?type=morning"
+scripts/grabby-api.sh daily morning
 
 # 最新晚报
-curl -s "http://localhost:5040/api/ai/daily?type=evening"
+scripts/grabby-api.sh daily evening
 ```
 
 返回字段说明：
@@ -41,17 +45,17 @@ curl -s "http://localhost:5040/api/ai/daily?type=evening"
 
 先查可用分类：
 ```bash
-curl -s "http://localhost:5040/api/ai/categories" | jq '.categories[] | {name, count, avg_score}'
+scripts/grabby-api.sh categories | jq '.categories[] | {name, count, avg_score}'
 ```
 
 然后按分类拉取文章：
 ```bash
 # 获取 AI 相关新闻（category 填分类名，如 "AI"、"财经"、"科技"、"国际"）
-curl -s "http://localhost:5040/api/ai/items?category=AI&limit=10" | jq '.items[] | {title, url, ai_category, score: .quality_score, summary: .ai_summary}'
+scripts/grabby-api.sh items AI 10 | jq '.items[] | {title, url, ai_category, score: .quality_score, summary: .ai_summary}'
 ```
 
 常用参数：
-- `category` — AI 语义分类名（来自 `/api/ai/categories`）
+- `category` — AI 语义分类名（来自 `/open/api/ai/categories`）
 - `source_category` — 数据源原始分类
 - `score_min` — 质量分最低值（0-10 分制，默认 0，推荐 6+）
 - `limit` — 返回条数（默认 20）
@@ -61,62 +65,61 @@ curl -s "http://localhost:5040/api/ai/items?category=AI&limit=10" | jq '.items[]
 
 ```bash
 # 最近 7 天评分 ≥ 6 的优质内容（评分为 0-10 分制）
-curl -s "http://localhost:5040/api/ai/quality?score_min=6&days=7&limit=10" | jq '.items[] | {title, url, score: .quality_score, category: .ai_category, summary: .ai_summary}'
+scripts/grabby-api.sh quality 6 7 10 | jq '.items[] | {title, url, score: .quality_score, category: .ai_category, summary: .ai_summary}'
 ```
 
 ### 如何展示给用户
 
 - 日报/早报/晚报：直接按 `sections` 分组展示结构化 JSON
 - 新闻列表：显示标题、链接、AI 分类、评分和 AI 摘要
-- 若服务不可用（curl 失败），提示用户启动服务：`grabby start go` 或 `grabby start python`
+- 若服务不可用（脚本失败），提示用户启动本地 Grabby 服务，并检查 `$GRABBY_SERVER_URL`
 
 ---
 
 ## 二、抓取网页内容
 
-### 1. 检查 grabby CLI
+### 1. 检查服务与浏览器连接
 
 ```bash
-command -v grabby
+scripts/grabby-api.sh health
 ```
 
-- 找到 → 继续
-- 未找到 → 安装：
-  ```bash
-  cd ~/.grabby/src && python3 scripts/install.py --type python
-  ```
-  或克隆后安装：
-  ```bash
-  git clone https://github.com/gusibi/mcp-web-capture.git ~/.grabby/src
-  cd ~/.grabby/src && python3 scripts/install.py --type python
-  ```
+判断方式：
+- 脚本请求失败或非 200：服务未运行或地址不对，提示用户启动本地 Grabby 服务或检查 `$GRABBY_SERVER_URL`
+- `browser_connected: true`：可以继续抓取
+- `browser_connected: false`：服务已运行但没有浏览器扩展连接，提示用户打开 Grabby Chrome 扩展
 
-### 2. 检查服务与浏览器
+### 2. 抓取网页
 
 ```bash
-grabby health
+scripts/grabby-api.sh extract "https://example.com"
 ```
 
-- exit 0：服务运行且浏览器已连接 → 继续
-- exit 1：服务未运行 → `grabby start python`
-- exit 2：服务运行但浏览器未连接 → 提示用户打开 Grabby Chrome 扩展
-
-### 3. 抓取网页
+指定浏览器时传 `browser`：
 
 ```bash
-grabby extract <url>
+scripts/grabby-api.sh extract "https://example.com" "chrome-office"
 ```
 
-返回 JSON：`{"title": "...", "url": "...", "markdown": "..."}`
+返回 JSON：`{"success": true, "title": "...", "url": "...", "markdown": "..."}`
 
 将 `markdown` 字段内容展示给用户，同时显示 `title` 和 `url`。
 
-### 其他命令
+### 3. 截图网页
 
 ```bash
-grabby screenshot <url>     # 截图
-grabby browsers list        # 查看已连接浏览器
+scripts/grabby-api.sh screenshot "https://example.com"
 ```
+
+返回 JSON：`{"success": true, "url": "...", "imageData": "data:image/png;base64,..."}`。
+
+### 4. 查看已连接浏览器
+
+```bash
+scripts/grabby-api.sh browsers
+```
+
+如未设置 `GRABBY_API_TOKEN` 且服务端启用了认证，`/api/*` 会返回 401。让用户设置 `GRABBY_API_TOKEN`，或先在浏览器中登录管理后台。
 
 ---
 
@@ -124,7 +127,8 @@ grabby browsers list        # 查看已连接浏览器
 
 | 情况 | 处理 |
 |------|------|
-| 服务未运行 | `grabby start go/python` 或检查 `$GRABBY_SERVER_URL` |
+| 服务未运行 | 启动本地 Grabby 服务，或检查 `$GRABBY_SERVER_URL` |
 | 日报为 null | 提示今日尚未生成，可建议用户在 Grabby 界面触发生成 |
 | 分类为空 | 可能 AI 分析未启用，告知用户在设置中开启 AI 语义分析 |
 | 浏览器未连接（抓取时）| 提示打开 Grabby Chrome 扩展 |
+| `/api/*` 返回 401 | 设置 `GRABBY_API_TOKEN`，或通过 Cookie 登录管理后台 |

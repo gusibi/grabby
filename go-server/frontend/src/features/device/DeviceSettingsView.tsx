@@ -8,6 +8,8 @@ import { api } from "@/lib/api";
 interface BrowserInfo {
   conn_id: string;
   name: string;
+  online: boolean;
+  banned: boolean;
 }
 
 interface DeviceSettingsViewProps {
@@ -84,6 +86,42 @@ export function DeviceSettingsView({ isAuthenticated }: DeviceSettingsViewProps)
     }
   };
 
+  const handleBan = async (connId: string, name: string) => {
+    if (!confirm(`确定要永久封禁设备 "${name}" (ID: ${connId}) 吗？封禁后该设备将无法再次连接。`)) {
+      return;
+    }
+    try {
+      const res = await api.banBrowser(connId);
+      if (res.success) {
+        fetchConnectedBrowsers();
+      } else {
+        alert("封禁设备失败: " + (res.detail || "未知原因"));
+      }
+    } catch (err) {
+      console.error("Failed to ban browser", err);
+      alert("网络错误，封禁设备失败");
+    }
+  };
+
+  const handleUnban = async (connId: string, name: string) => {
+    if (!confirm(`确定要解封设备 "${name}" (ID: ${connId}) 吗？解封后该设备将可以重新连接。`)) {
+      return;
+    }
+    try {
+      const res = await api.unbanBrowser(connId);
+      if (res.success) {
+        fetchConnectedBrowsers();
+      } else {
+        alert("解封设备失败: " + (res.detail || "未知原因"));
+      }
+    } catch (err) {
+      console.error("Failed to unban browser", err);
+      alert("网络错误，解封设备失败");
+    }
+  };
+
+
+
   return (
     <div className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-[#121212] p-8">
       <div className="max-w-4xl mx-auto space-y-8 pb-12">
@@ -152,50 +190,99 @@ export function DeviceSettingsView({ isAuthenticated }: DeviceSettingsViewProps)
           {/* Connected Device List */}
           <Card className="md:col-span-2 border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl overflow-hidden">
             <CardHeader className="border-b border-black/5 dark:border-white/5 p-6 bg-zinc-50/50 dark:bg-zinc-900/50">
-              <CardTitle className="text-base font-bold">当前连接中的设备 ({browsers.length})</CardTitle>
+              <CardTitle className="text-base font-bold">已注册的设备列表 ({browsers.length})</CardTitle>
               <CardDescription className="text-xs">
-                正在通过 WebSocket 保持心跳连接的实时浏览器实例。
+                管理已在服务中登记的浏览器扩展设备，可执行断开连接和封禁操作。
               </CardDescription>
             </CardHeader>
             <CardContent className="p-0">
               {browsers.length === 0 ? (
                 <div className="p-12 text-center text-zinc-400 dark:text-zinc-500">
                   <Laptop className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-xs font-semibold">没有检测到已连接的设备</p>
-                  <p className="text-[10px] mt-1">请启动 Chrome 浏览器并启用 Grabby 扩展程序。</p>
+                  <p className="text-xs font-semibold">没有检测到已注册的设备</p>
+                  <p className="text-[10px] mt-1">请在下方表单中注册一个新的设备 ID。</p>
                 </div>
               ) : (
                 <div className="divide-y divide-black/5 dark:divide-white/5">
                   {browsers.map((b) => (
                     <div key={b.conn_id} className="p-4 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20 transition-colors">
                       <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-blue-50 dark:bg-zinc-800 text-blue-500 flex items-center justify-center shrink-0">
+                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                          b.banned 
+                            ? "bg-rose-50 dark:bg-rose-950/20 text-rose-500" 
+                            : b.online 
+                              ? "bg-blue-50 dark:bg-zinc-800 text-blue-500" 
+                              : "bg-zinc-100 dark:bg-zinc-900 text-zinc-400"
+                        }`}>
                           <Laptop className="w-5 h-5" />
                         </div>
                         <div>
                           <div className="flex items-center gap-2">
                             <h5 className="font-bold text-sm leading-none">{b.name}</h5>
-                            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-                            <span className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.2 rounded font-bold">
-                              在线
-                            </span>
+                            {b.banned ? (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
+                                <span className="text-[9px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.2 rounded font-bold">
+                                  已封禁
+                                </span>
+                              </>
+                            ) : b.online ? (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.2 rounded font-bold">
+                                  在线
+                                </span>
+                              </>
+                            ) : (
+                              <>
+                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
+                                <span className="text-[9px] text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.2 rounded font-bold">
+                                  离线
+                                </span>
+                              </>
+                            )}
                           </div>
                           <p className="text-[10px] text-zinc-400 font-mono mt-1 select-all">{b.conn_id}</p>
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
                         <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
-                          实时抓取就绪
+                          {b.banned ? "已禁止连接" : b.online ? "实时抓取就绪" : "等待连接"}
                         </div>
                         {isAuthenticated && (
-                          <Button
-                            onClick={() => handleKick(b.conn_id, b.name)}
-                            size="sm"
-                            variant="ghost"
-                            className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 rounded-lg gap-1"
-                          >
-                            断开
-                          </Button>
+                          <div className="flex items-center gap-1.5">
+                            {b.banned ? (
+                              <Button
+                                onClick={() => handleUnban(b.conn_id, b.name)}
+                                size="sm"
+                                variant="ghost"
+                                className="h-7 text-xs text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 px-2 rounded-lg"
+                              >
+                                解封
+                              </Button>
+                            ) : (
+                              <>
+                                {b.online && (
+                                  <Button
+                                    onClick={() => handleKick(b.conn_id, b.name)}
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 px-2 rounded-lg"
+                                  >
+                                    断开
+                                  </Button>
+                                )}
+                                <Button
+                                  onClick={() => handleBan(b.conn_id, b.name)}
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 rounded-lg"
+                                >
+                                  封禁
+                                </Button>
+                              </>
+                            )}
+                          </div>
                         )}
                       </div>
                     </div>

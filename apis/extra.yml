@@ -5,14 +5,14 @@ info:
 
 http:
   method: post
-  url: http://localhost:5040/api/extract
+  url: "{{host}}/api/extract"
   headers:
     - name: Content-Type
       value: application/json
     - name: X-API-Key
-      value: your_admin_key
+      value: "{{api_key}}"
     - name: X-Grabby-Token
-      value: your_admin_key
+      value: "{{api_key}}"
   body:
     type: json
     data: |-
