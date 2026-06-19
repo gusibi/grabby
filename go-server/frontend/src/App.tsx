@@ -10,6 +10,8 @@ import { AISettingsView } from "@/features/ai-settings/AISettingsView";
 import { LogsView } from "@/features/logs/LogsView";
 import { DailyReportView } from "@/features/daily-report/DailyReportView";
 import { DeviceSettingsView } from "@/features/device/DeviceSettingsView";
+import { ExtractCapturesView } from "@/features/captures/ExtractCapturesView";
+import { TwitterCapturesView } from "@/features/captures/TwitterCapturesView";
 import { AuthDialog } from "@/features/auth/AuthDialog";
 import { api } from "@/lib/api";
 import type { AICategory, AIProviderProfile, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
@@ -736,7 +738,7 @@ export default function App() {
       const [pathPart, queryPart] = rawHash.split('?');
       const parts = pathPart.replace(/^\//, '').split('/');
       const params = new URLSearchParams(queryPart || '');
-      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily'];
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily', 'captures-extract', 'captures-twitter'];
       const hashView = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
       const hashDate = parts[1];
       const hashType = parts[2];
@@ -820,7 +822,7 @@ export default function App() {
       const [pathPart, queryPart] = currentHash.split('?');
       const parts = pathPart.replace(/^\//, '').split('/');
       const params = new URLSearchParams(queryPart || '');
-      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily'];
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily', 'captures-extract', 'captures-twitter'];
       const view = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
       const date = parts[1];
       const type = parts[2];
@@ -856,7 +858,7 @@ export default function App() {
   }, [currentView]);
 
   useEffect(() => {
-    const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device"];
+    const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device", "captures-extract", "captures-twitter"];
     if (authRequired && !isAuthenticated && adminViews.includes(currentView)) {
       setCurrentView("grid");
     }
@@ -875,11 +877,6 @@ export default function App() {
           fetchDailyReport={fetchDailyReport}
           fetchReportList={fetchReportList}
           fetchLogs={fetchLogs}
-          isShowOnlyAIQuality={isShowOnlyAIQuality}
-          setIsShowOnlyAIQuality={setIsShowOnlyAIQuality}
-          setSelectedAICategory={setSelectedAICategory}
-          aiCategories={aiCategories}
-          selectedAICategory={selectedAICategory}
           selectedSourceCategory={selectedSourceCategory}
           setSelectedSourceCategory={setSelectedSourceCategory}
           toggleDarkMode={toggleDarkMode}
@@ -1015,6 +1012,14 @@ export default function App() {
 
           {currentView === "device" && (
             <DeviceSettingsView isAuthenticated={isAuthenticated} />
+          )}
+
+          {currentView === "captures-extract" && (
+            <ExtractCapturesView />
+          )}
+
+          {currentView === "captures-twitter" && (
+            <TwitterCapturesView />
           )}
 
         </main>

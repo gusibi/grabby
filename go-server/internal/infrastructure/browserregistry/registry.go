@@ -158,7 +158,6 @@ func (br *BrowserRegistry) Unban(connectID string) error {
 	return br.save()
 }
 
-
 func (br *BrowserRegistry) List() []browser.BrowserRegistration {
 	br.mu.RLock()
 	defer br.mu.RUnlock()
@@ -192,4 +191,3 @@ func (br *BrowserRegistry) GetName(connectID string) (string, bool) {
 	}
 	return reg.Name, true
 }
-

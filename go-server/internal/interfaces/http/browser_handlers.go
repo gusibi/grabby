@@ -46,6 +46,29 @@ func RegisterBrowserHandlers(api *echo.Group, deps Dependencies) {
 	api.POST("/screenshot", h.screenshot)
 	api.POST("/run_page_script", h.runPageScript)
 	api.POST("/fetch_in_page", h.fetchInPage)
+
+	// Capture records (read-only history of stored extractions).
+	api.GET("/captures/extract", h.listExtractCaptures)
+}
+
+// listExtractCaptures returns the stored extraction history (metadata only).
+func (h *browserHandlers) listExtractCaptures(c echo.Context) error {
+	limit, offset := pageParams(c, 50)
+	rows, total, err := h.deps.DB.ListExtractCache(limit, offset)
+	if err != nil {
+		return detailErr(c, http.StatusInternalServerError, err.Error())
+	}
+	items := make([]dto.ExtractRecord, 0, len(rows))
+	for _, r := range rows {
+		items = append(items, dto.ExtractRecord{
+			URL:       r.URL,
+			Title:     r.Title,
+			Chars:     len([]rune(r.Markdown)),
+			CreatedAt: r.CreatedAt,
+			UpdatedAt: r.UpdatedAt,
+		})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": items, "total": total})
 }
 
 // send resolves the target browser, forwards one command, and maps transport /

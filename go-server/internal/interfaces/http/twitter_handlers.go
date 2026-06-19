@@ -27,6 +27,19 @@ func RegisterTwitterHandlers(api *echo.Group, deps Dependencies) {
 	api.POST("/twitter/search", h.search)
 	api.POST("/twitter/timeline", h.timeline)
 	api.POST("/twitter/likes", h.likes)
+
+	// Capture records (read-only archive of fetched tweets).
+	api.GET("/captures/twitter", h.listCaptures)
+}
+
+// listCaptures returns archived tweets, optionally filtered by ?source=.
+func (h *twitterHandlers) listCaptures(c echo.Context) error {
+	limit, offset := pageParams(c, 50)
+	rows, total, err := h.deps.DB.ListTweets(c.QueryParam("source"), limit, offset)
+	if err != nil {
+		return detailErr(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{"items": rows, "total": total})
 }
 
 func (h *twitterHandlers) search(c echo.Context) error {

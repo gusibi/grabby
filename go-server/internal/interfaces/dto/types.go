@@ -111,6 +111,16 @@ type TwitterLikesAPIRequest struct {
 	Browser string `json:"browser,omitempty"`
 }
 
+// ExtractRecord is one row in the GET /api/captures/extract list. Markdown is
+// omitted from the list (only its length) to keep the payload light.
+type ExtractRecord struct {
+	URL       string    `json:"url"`
+	Title     string    `json:"title"`
+	Chars     int       `json:"chars"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+}
+
 // HealthResponse is the GET /open/api/health response body.
 type HealthResponse struct {
 	Status           string    `json:"status"`

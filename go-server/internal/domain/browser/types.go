@@ -14,4 +14,3 @@ type BrowserInfo struct {
 	Online bool   `json:"online"`
 	Banned bool   `json:"banned"`
 }
-

@@ -81,14 +81,14 @@ func NewLMStudioClient(baseURL, model string, logger *zap.Logger) *LMStudioClien
 }
 
 type chatRequest struct {
-	Model        string          `json:"model"`
-	Messages     []chatMessage   `json:"messages"`
+	Model          string          `json:"model"`
+	Messages       []chatMessage   `json:"messages"`
 	ResponseFormat *responseFormat `json:"response_format,omitempty"`
 }
 
 type responseFormat struct {
-	Type       string       `json:"type"`
-	JSONSchema *jsonSchema  `json:"json_schema,omitempty"`
+	Type       string      `json:"type"`
+	JSONSchema *jsonSchema `json:"json_schema,omitempty"`
 }
 
 type jsonSchema struct {

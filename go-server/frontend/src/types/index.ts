@@ -1,4 +1,30 @@
-export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings" | "device";
+export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings" | "device" | "captures-extract" | "captures-twitter";
+
+// 抓取记录：网页提取缓存的一条记录
+export interface ExtractCaptureRecord {
+  url: string;
+  title: string;
+  chars: number;
+  created_at: string;
+  updated_at: string;
+}
+
+// 抓取记录：归档的一条推文
+export interface TweetCaptureRecord {
+  id: string;
+  text: string;
+  author: string;
+  author_name: string;
+  tweet_created_at: string;
+  favorite_count: number;
+  retweet_count: number;
+  reply_count: number;
+  quote_count: number;
+  url: string;
+  media: string[] | null;
+  source: string;
+  fetched_at: string;
+}
 
 export interface Source {
   id: string;

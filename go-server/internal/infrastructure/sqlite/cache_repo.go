@@ -28,19 +28,19 @@ func (ExtractCache) TableName() string { return "extract_cache" }
 // TweetRecord is one archived tweet. search / timeline / likes all upsert into
 // this single table keyed by the tweet id, deduping across fetches.
 type TweetRecord struct {
-	ID             string    `gorm:"primaryKey;column:id"`
-	Text           string    `gorm:"column:text"`
-	Author         string    `gorm:"column:author"`
-	AuthorName     string    `gorm:"column:author_name"`
-	TweetCreatedAt string    `gorm:"column:tweet_created_at"` // tweet's own timestamp (string from X)
-	FavoriteCount  int       `gorm:"column:favorite_count"`
-	RetweetCount   int       `gorm:"column:retweet_count"`
-	ReplyCount     int       `gorm:"column:reply_count"`
-	QuoteCount     int       `gorm:"column:quote_count"`
-	URL            string    `gorm:"column:url"`
-	Media          []string  `gorm:"column:media;serializer:json"`
-	Source         string    `gorm:"column:source"` // "search" | "timeline" | "likes"
-	FetchedAt      time.Time `gorm:"column:fetched_at"`
+	ID             string    `gorm:"primaryKey;column:id" json:"id"`
+	Text           string    `gorm:"column:text" json:"text"`
+	Author         string    `gorm:"column:author" json:"author"`
+	AuthorName     string    `gorm:"column:author_name" json:"author_name"`
+	TweetCreatedAt string    `gorm:"column:tweet_created_at" json:"tweet_created_at"` // tweet's own timestamp (string from X)
+	FavoriteCount  int       `gorm:"column:favorite_count" json:"favorite_count"`
+	RetweetCount   int       `gorm:"column:retweet_count" json:"retweet_count"`
+	ReplyCount     int       `gorm:"column:reply_count" json:"reply_count"`
+	QuoteCount     int       `gorm:"column:quote_count" json:"quote_count"`
+	URL            string    `gorm:"column:url" json:"url"`
+	Media          []string  `gorm:"column:media;serializer:json" json:"media"`
+	Source         string    `gorm:"column:source" json:"source"` // "search" | "timeline" | "likes"
+	FetchedAt      time.Time `gorm:"column:fetched_at" json:"fetched_at"`
 }
 
 // TableName pins the table name.
@@ -67,6 +67,40 @@ func (d *Database) SaveExtractCache(url, title, markdown string) error {
 		Columns:   []clause.Column{{Name: "url"}},
 		DoUpdates: clause.AssignmentColumns([]string{"title", "markdown", "updated_at"}),
 	}).Create(&rec).Error
+}
+
+// ListExtractCache returns cached extractions ordered by most-recently updated,
+// plus the total row count for pagination.
+func (d *Database) ListExtractCache(limit, offset int) ([]ExtractCache, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var total int64
+	if err := d.gorm.Model(&ExtractCache{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []ExtractCache
+	err := d.gorm.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&rows).Error
+	return rows, total, err
+}
+
+// ListTweets returns archived tweets ordered by most-recently fetched, optionally
+// filtered by source ("search"/"timeline"/"likes"), plus the total count.
+func (d *Database) ListTweets(source string, limit, offset int) ([]TweetRecord, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	q := d.gorm.Model(&TweetRecord{})
+	if source != "" {
+		q = q.Where("source = ?", source)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []TweetRecord
+	err := q.Order("fetched_at DESC").Limit(limit).Offset(offset).Find(&rows).Error
+	return rows, total, err
 }
 
 // SaveTweets upserts a batch of tweets keyed by id (latest fetch wins).

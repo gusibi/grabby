@@ -55,6 +55,10 @@ export const api = {
   }),
   testAI: () => jsonFetch("/api/ai/test", { method: "POST" }),
   startEvaluation: () => jsonFetch("/api/ai/start_eval", { method: "POST" }),
+  getExtractCaptures: (limit = 100, offset = 0) => jsonFetch(`/api/captures/extract?limit=${limit}&offset=${offset}`),
+  getTwitterCaptures: (source = "", limit = 100, offset = 0) => jsonFetch(
+    `/api/captures/twitter?limit=${limit}&offset=${offset}${source ? `&source=${encodeURIComponent(source)}` : ""}`
+  ),
   getBrowsers: () => jsonFetch("/api/browsers"),
   registerBrowser: (connectId: string, name: string) => jsonFetch("/api/browsers/register", {
     method: "POST",

@@ -1,5 +1,5 @@
-import { LayoutGrid, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles, Laptop } from "lucide-react";
-import type { AICategory, AppView, Stats } from "@/types";
+import { LayoutGrid, Settings, FileText, ChevronLeft, ChevronRight, Moon, Sun, Sparkles, Laptop, Globe, AtSign } from "lucide-react";
+import type { AppView, Stats } from "@/types";
 
 interface SidebarProps {
   isSidebarCollapsed: boolean;
@@ -9,11 +9,6 @@ interface SidebarProps {
   fetchDailyReport: () => void;
   fetchReportList: () => void;
   fetchLogs: () => void;
-  isShowOnlyAIQuality: boolean;
-  setIsShowOnlyAIQuality: (value: boolean | ((prev: boolean) => boolean)) => void;
-  setSelectedAICategory: (value: string) => void;
-  aiCategories: AICategory[];
-  selectedAICategory: string;
   selectedSourceCategory: string;
   setSelectedSourceCategory: (value: string) => void;
   toggleDarkMode: () => void;
@@ -31,11 +26,6 @@ export function Sidebar({
   fetchDailyReport,
   fetchReportList,
   fetchLogs,
-  isShowOnlyAIQuality,
-  setIsShowOnlyAIQuality,
-  setSelectedAICategory,
-  aiCategories,
-  selectedAICategory,
   selectedSourceCategory,
   setSelectedSourceCategory,
   toggleDarkMode,
@@ -87,42 +77,39 @@ export function Sidebar({
               </button>
             </nav>
 
-            {!isSidebarCollapsed && (
-              <div className="pt-4 border-t border-black/5 dark:border-white/5">
-                <h3 className="px-3 py-2 text-[10px] font-extrabold text-indigo-500 dark:text-indigo-400 uppercase tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-3.5 h-3.5" />
-                  AI 智能筛选 AI Filter
+            <div className="pt-4 border-t border-black/5 dark:border-white/5">
+              {!isSidebarCollapsed && (
+                <h3 className="px-3 py-2 text-[10px] font-bold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+                  抓取记录 Captures
                 </h3>
-                <nav className="space-y-1">
-                  <button
-                    onClick={() => {
-                      setIsShowOnlyAIQuality((prev: boolean) => !prev);
-                      setSelectedAICategory("all");
-                      if (currentView !== "grid") setCurrentView("grid");
-                    }}
-                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${isShowOnlyAIQuality ? "text-indigo-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
-                  >
-                    <span>只看 AI 优质内容 (≥7分)</span>
-                    <span className="text-[9px] px-1 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-400 rounded font-bold">AI</span>
-                  </button>
-                  
-                  {aiCategories.map((cat) => (
-                    <button
-                      key={cat.name}
-                      onClick={() => {
-                        setSelectedAICategory(cat.name === selectedAICategory ? "all" : cat.name);
-                        setIsShowOnlyAIQuality(false);
-                        if (currentView !== "grid") setCurrentView("grid");
-                      }}
-                      className={`w-full flex items-center justify-between px-3 py-1.5 rounded-lg text-xs hover:bg-black/5 dark:hover:bg-white/5 transition-all ${selectedAICategory === cat.name ? "text-indigo-500 font-semibold" : "text-zinc-600 dark:text-zinc-400"}`}
-                    >
-                      <span>{cat.name} ({cat.avg_score.toFixed(1)}分)</span>
-                      <span>{cat.count}</span>
-                    </button>
-                  ))}
-                </nav>
-              </div>
-            )}
+              )}
+              <nav className="space-y-1">
+                <button
+                  onClick={() => setCurrentView("captures-extract")}
+                  title="网页提取记录"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
+                    currentView === "captures-extract"
+                      ? "bg-blue-600 text-white shadow-md font-semibold"
+                      : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <Globe className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>网页提取 Extract</span>}
+                </button>
+                <button
+                  onClick={() => setCurrentView("captures-twitter")}
+                  title="推文归档"
+                  className={`w-full flex items-center gap-3 px-3 py-2 rounded-xl text-sm transition-all font-medium ${
+                    currentView === "captures-twitter"
+                      ? "bg-blue-600 text-white shadow-md font-semibold"
+                      : "text-zinc-600 dark:text-zinc-400 hover:bg-black/5 dark:hover:bg-white/5"
+                  }`}
+                >
+                  <AtSign className="w-4 h-4" />
+                  {!isSidebarCollapsed && <span>推文归档 Twitter</span>}
+                </button>
+              </nav>
+            </div>
 
             {!isSidebarCollapsed && (
               <div className="pt-4 border-t border-black/5 dark:border-white/5">
