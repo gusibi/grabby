@@ -432,7 +432,7 @@ Authorization: Bearer your_token
 
 #### POST /api/xiaohongshu/note
 
-抓取一个小红书笔记详情（标题、正文、图片、作者、互动数）。
+抓取一个小红书笔记详情（标题、正文、图片、作者、互动数）和前 100 条顶层评论。评论通过浏览器拦截 `/api/sns/web/v2/comment/page`，滚动页面触发分页；每条顶层评论会保留接口随带的 `sub_comments`。
 
 ```http
 POST /api/xiaohongshu/note HTTP/1.1
@@ -466,7 +466,22 @@ Authorization: Bearer your_token
     "comment_count": "0",
     "share_count": "1",
     "images": ["http://.../img1.jpg", "http://.../img2.jpg"],
-    "url": "https://www.xiaohongshu.com/explore/..."
+    "url": "https://www.xiaohongshu.com/explore/...",
+    "comments": [
+      {
+        "id": "6a2adcb3000000002b029634",
+        "note_id": "691345f70000000003010c2b",
+        "content": "MacBook 能用吗[偷笑R]",
+        "author": "闲散产品人",
+        "author_id": "6970ffd900000000190352f8",
+        "ip_location": "四川",
+        "like_count": "0",
+        "liked": false,
+        "create_time": 1781193907000,
+        "sub_comment_count": "5",
+        "sub_comments": []
+      }
+    ]
   }
 }
 ```

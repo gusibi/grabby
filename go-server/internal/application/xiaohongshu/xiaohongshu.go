@@ -29,19 +29,38 @@ import (
 
 // Note is a structured Xiaohongshu note (post).
 type Note struct {
-	ID             string   `json:"id"`
-	Title          string   `json:"title"`
-	Desc           string   `json:"desc"`   // body text
-	Type           string   `json:"type"`   // "normal" | "video"
-	Author         string   `json:"author"` // nick_name
-	AuthorID       string   `json:"author_id"`
-	LikedCount     string   `json:"liked_count"`
-	CollectedCount string   `json:"collected_count"`
-	CommentCount   string   `json:"comment_count"`
-	ShareCount     string   `json:"share_count"`
-	Images         []string `json:"images,omitempty"`
-	URL            string   `json:"url"`
-	XsecToken      string   `json:"xsec_token,omitempty"`
+	ID             string    `json:"id"`
+	Title          string    `json:"title"`
+	Desc           string    `json:"desc"`   // body text
+	Type           string    `json:"type"`   // "normal" | "video"
+	Author         string    `json:"author"` // nick_name
+	AuthorID       string    `json:"author_id"`
+	LikedCount     string    `json:"liked_count"`
+	CollectedCount string    `json:"collected_count"`
+	CommentCount   string    `json:"comment_count"`
+	ShareCount     string    `json:"share_count"`
+	Images         []string  `json:"images,omitempty"`
+	URL            string    `json:"url"`
+	XsecToken      string    `json:"xsec_token,omitempty"`
+	Comments       []Comment `json:"comments,omitempty"`
+}
+
+// Comment is a structured Xiaohongshu note comment.
+type Comment struct {
+	ID              string    `json:"id"`
+	NoteID          string    `json:"note_id"`
+	Content         string    `json:"content"`
+	Author          string    `json:"author"`
+	AuthorID        string    `json:"author_id"`
+	AuthorAvatar    string    `json:"author_avatar,omitempty"`
+	IPLocation      string    `json:"ip_location,omitempty"`
+	LikeCount       string    `json:"like_count"`
+	Liked           bool      `json:"liked"`
+	CreateTime      int64     `json:"create_time"`
+	ShowTags        []string  `json:"show_tags,omitempty"`
+	Pictures        []string  `json:"pictures,omitempty"`
+	SubCommentCount string    `json:"sub_comment_count,omitempty"`
+	SubComments     []Comment `json:"sub_comments,omitempty"`
 }
 
 // Sender is the subset of the WebSocket manager this adapter needs.
@@ -125,11 +144,24 @@ func FetchNote(ctx context.Context, wm Sender, logger *zap.Logger, noteURL strin
 	if !ok {
 		return nil, fmt.Errorf("note %s not found in __INITIAL_STATE__ — check login state or that the note is accessible", noteID)
 	}
+	comments, err := fetchNoteComments(ctx, wm, logger, noteURL, opts, 100)
+	if err != nil {
+		if logger != nil {
+			logger.Warn("xiaohongshu note comments fetch failed",
+				zap.String("url", noteURL),
+				zap.String("note_id", noteID),
+				zap.Error(err),
+			)
+		}
+	} else {
+		note.Comments = comments
+	}
 
 	if logger != nil {
 		logger.Info("xiaohongshu note parsed",
 			zap.String("url", noteURL),
 			zap.String("note_id", note.ID),
+			zap.Int("comments", len(note.Comments)),
 		)
 	}
 	return note, nil
@@ -323,6 +355,68 @@ func UserNotes(ctx context.Context, wm Sender, logger *zap.Logger, userURL strin
 		notes = notes[:limit]
 	}
 	return notes, nil
+}
+
+func fetchNoteComments(ctx context.Context, wm Sender, logger *zap.Logger, noteURL string, opts Options, limit int) ([]Comment, error) {
+	connID, err := wm.ResolveBrowserConnID(opts.Browser)
+	if err != nil {
+		return nil, fmt.Errorf("browser not available: %w", err)
+	}
+	req := &capture.BrowserRequest{
+		Source:   "mcp_client",
+		Action:   "mcp_request",
+		Command:  "intercept",
+		URL:      noteURL,
+		Visible:  true,
+		CloseTab: true,
+		Params: map[string]any{
+			"scrollRounds": opts.scrollRounds(10),
+			"maxCaptures":  200,
+		},
+	}
+	resp, err := wm.SendMessage(ctx, req, connID)
+	if err != nil {
+		return nil, fmt.Errorf("intercept comments failed: %w", err)
+	}
+	if !resp.Success && resp.Error != "" {
+		return nil, fmt.Errorf("intercept comments error: %s", resp.Error)
+	}
+
+	comments := make([]Comment, 0, limit)
+	seen := make(map[string]struct{})
+	matched := 0
+	for _, raw := range resp.Result.Items {
+		rec, ok := toRecord(raw)
+		if !ok || !strings.Contains(rec.URL, "/api/sns/web/v2/comment/page") {
+			continue
+		}
+		matched++
+		for _, c := range extractCommentsFromBody(rec.Body) {
+			if c.ID == "" {
+				continue
+			}
+			if _, dup := seen[c.ID]; dup {
+				continue
+			}
+			seen[c.ID] = struct{}{}
+			comments = append(comments, c)
+			if len(comments) >= limit {
+				break
+			}
+		}
+		if len(comments) >= limit {
+			break
+		}
+	}
+	if logger != nil {
+		logger.Info("xiaohongshu comments parsed",
+			zap.String("url", noteURL),
+			zap.Int("captures", len(resp.Result.Items)),
+			zap.Int("matched", matched),
+			zap.Int("comments", len(comments)),
+		)
+	}
+	return comments, nil
 }
 
 func fetchUserNotesInitialState(ctx context.Context, wm Sender, logger *zap.Logger, userURL string, opts Options) ([]Note, error) {
@@ -648,6 +742,60 @@ func extractNotesFromListing(body, label string) []Note {
 	return out
 }
 
+func extractCommentsFromBody(body string) []Comment {
+	if strings.TrimSpace(body) == "" {
+		return nil
+	}
+	var root struct {
+		Data struct {
+			Comments []json.RawMessage `json:"comments"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal([]byte(body), &root); err != nil {
+		return nil
+	}
+	out := make([]Comment, 0, len(root.Data.Comments))
+	for _, raw := range root.Data.Comments {
+		var m map[string]any
+		if err := json.Unmarshal(raw, &m); err != nil {
+			continue
+		}
+		c := commentFromMap(m)
+		if c.ID != "" {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+func commentFromMap(m map[string]any) Comment {
+	user := asMap(m["user_info"])
+	c := Comment{
+		ID:              asString(m["id"]),
+		NoteID:          asString(m["note_id"]),
+		Content:         asString(m["content"]),
+		Author:          asString(user["nickname"]),
+		AuthorID:        asString(user["user_id"]),
+		AuthorAvatar:    asString(user["image"]),
+		IPLocation:      asString(m["ip_location"]),
+		LikeCount:       asString(m["like_count"]),
+		Liked:           asBool(m["liked"]),
+		CreateTime:      asInt64(m["create_time"]),
+		ShowTags:        asStringSlice(m["show_tags"]),
+		Pictures:        picturesFromAny(m["pictures"]),
+		SubCommentCount: asString(m["sub_comment_count"]),
+	}
+	for _, raw := range asSlice(m["sub_comments"]) {
+		if sub := asMap(raw); sub != nil {
+			sc := commentFromMap(sub)
+			if sc.ID != "" {
+				c.SubComments = append(c.SubComments, sc)
+			}
+		}
+	}
+	return c
+}
+
 func userNotesFromInitialStateResult(jsonValue map[string]any, text string) ([]Note, error) {
 	var root map[string]any
 	if jsonValue != nil {
@@ -783,6 +931,38 @@ func asSlice(v any) []any {
 	return s
 }
 
+func asStringSlice(v any) []string {
+	items := asSlice(v)
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		if s := asString(item); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+func picturesFromAny(v any) []string {
+	items := asSlice(v)
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		pic := asMap(item)
+		if pic == nil {
+			continue
+		}
+		if u := firstString(pic["url_default"], pic["urlDefault"], pic["url_pre"], pic["urlPre"]); u != "" {
+			out = append(out, u)
+		}
+	}
+	return out
+}
+
 func firstString(values ...any) string {
 	for _, v := range values {
 		if s := asString(v); s != "" {
@@ -795,4 +975,22 @@ func firstString(values ...any) string {
 func asString(v any) string {
 	s, _ := v.(string)
 	return s
+}
+
+func asBool(v any) bool {
+	b, _ := v.(bool)
+	return b
+}
+
+func asInt64(v any) int64 {
+	switch n := v.(type) {
+	case float64:
+		return int64(n)
+	case int64:
+		return n
+	case int:
+		return int64(n)
+	default:
+		return 0
+	}
 }

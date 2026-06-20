@@ -272,6 +272,95 @@ func TestUserNotesFromInitialState(t *testing.T) {
 	}
 }
 
+const sampleCommentPageBody = `{
+  "data": {
+    "has_more": false,
+    "comments": [
+      {
+        "status": 0,
+        "content": "MacBook 能用吗[偷笑R]",
+        "sub_comments": [
+          {
+            "id": "6a2cd10100000000290362fa",
+            "content": "可以的，mac  都可以",
+            "liked": false,
+            "user_info": {
+              "image": "https://sns-avatar-qc.xhscdn.com/avatar/a.jpg",
+              "user_id": "65fd1cd5000000000600c8c1",
+              "nickname": "魔犁 AI"
+            },
+            "ip_location": "广东",
+            "pictures": [],
+            "note_id": "6a1a6a480000000007011dd2",
+            "like_count": "0",
+            "show_tags": ["is_author"],
+            "create_time": 1781321986000
+          }
+        ],
+        "note_id": "6a1a6a480000000007011dd2",
+        "like_count": "0",
+        "show_tags": [],
+        "create_time": 1781193907000,
+        "sub_comment_count": "5",
+        "id": "6a2adcb3000000002b029634",
+        "user_info": {
+          "user_id": "6970ffd900000000190352f8",
+          "nickname": "闲散产品人",
+          "image": "https://sns-avatar-qc.xhscdn.com/avatar/b.jpg"
+        },
+        "ip_location": "四川",
+        "pictures": []
+      },
+      {
+        "id": "6a2920ae00000000270286b3",
+        "note_id": "6a1a6a480000000007011dd2",
+        "like_count": "1",
+        "user_info": {
+          "user_id": "55c2e0bb41a2b30962132f2e",
+          "nickname": "文山湖赛艇队长",
+          "image": "https://sns-avatar-qc.xhscdn.com/avatar/c.jpg"
+        },
+        "pictures": [
+          {
+            "url_pre": "http://sns-webpic-qc.xhscdn.com/comment/pre",
+            "url_default": "http://sns-webpic-qc.xhscdn.com/comment/default"
+          }
+        ],
+        "content": "真的麻了，这破遥控不显示名称的",
+        "create_time": 1781080239000,
+        "liked": true
+      }
+    ]
+  }
+}`
+
+func TestExtractCommentsFromBody(t *testing.T) {
+	comments := extractCommentsFromBody(sampleCommentPageBody)
+	if len(comments) != 2 {
+		t.Fatalf("expected 2 comments, got %d", len(comments))
+	}
+	first := comments[0]
+	if first.ID != "6a2adcb3000000002b029634" || first.Content != "MacBook 能用吗[偷笑R]" {
+		t.Errorf("first comment: %+v", first)
+	}
+	if first.Author != "闲散产品人" || first.AuthorID != "6970ffd900000000190352f8" {
+		t.Errorf("first author: %+v", first)
+	}
+	if first.SubCommentCount != "5" || len(first.SubComments) != 1 {
+		t.Fatalf("sub comments: %+v", first)
+	}
+	if first.SubComments[0].Author != "魔犁 AI" || first.SubComments[0].ShowTags[0] != "is_author" {
+		t.Errorf("sub comment: %+v", first.SubComments[0])
+	}
+	second := comments[1]
+	if !second.Liked || second.LikeCount != "1" || second.CreateTime != 1781080239000 {
+		t.Errorf("second meta: %+v", second)
+	}
+	if len(second.Pictures) != 1 || second.Pictures[0] != "http://sns-webpic-qc.xhscdn.com/comment/default" {
+		t.Errorf("pictures: %+v", second.Pictures)
+	}
+}
+
 func TestNoteIDFromURL(t *testing.T) {
 	cases := map[string]string{
 		"https://www.xiaohongshu.com/explore/691345f70000000003010c2b?xsec_token=x": "691345f70000000003010c2b",

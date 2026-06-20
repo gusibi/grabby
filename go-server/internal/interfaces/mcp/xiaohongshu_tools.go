@@ -19,7 +19,7 @@ import (
 func registerXiaohongshuTools(mcpSvr *server.MCPServer, wm *browserws.WebSocketManager, logger *zap.Logger) {
 	// xiaohongshu_note
 	noteTool := mcp.NewTool("xiaohongshu_note",
-		mcp.WithDescription("Fetch a Xiaohongshu (小红书) note's detail from its explore URL, using the user's logged-in browser. Returns the note (title, desc, images, author, interaction counts)."),
+		mcp.WithDescription("Fetch a Xiaohongshu (小红书) note's detail from its explore URL, using the user's logged-in browser. Returns the note (title, desc, images, author, interaction counts) and up to the first 100 top-level comments."),
 		mcp.WithString("url", mcp.Required(), mcp.Description("Xiaohongshu note explore URL")),
 		mcp.WithString("browser", mcp.Description("Browser name to use (optional)")),
 	)
