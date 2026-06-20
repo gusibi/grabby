@@ -419,6 +419,100 @@ Authorization: Bearer your_token
 
 ---
 
+### 小红书接口
+
+小红书是独立站点适配器，与同名 MCP 工具 `xiaohongshu_note`/`xiaohongshu_search`/`xiaohongshu_user_notes` 共用同一套适配器。与 Reddit（fetchInPage .json）不同，小红书混合两种原语：
+
+- **笔记详情**：走 `runPageScript` 读取页面 SSR 的 `window.__INITIAL_STATE__.note.noteDetailMap`（笔记数据服务端渲染，非 XHR）。
+- **搜索 / 用户主页笔记**：走 `intercept` 早注入拦截 `/api/sns/web/v1/search/notes`、`/api/sns/web/v1/user_posted` 的 XHR 响应。
+
+**登录态由用户提前保证**（浏览器已登录小红书），服务只管正确抓取。风控由调用方考虑（使用场景低频，非爬虫）。
+
+错误响应：`503`（无已连接浏览器）/ `502`（浏览器执行无可用结果，如未登录 / 页面结构变化 / 接口未捕获）/ `400`（请求体非法）。
+
+#### POST /api/xiaohongshu/note
+
+抓取一个小红书笔记详情（标题、正文、图片、作者、互动数）。
+
+```http
+POST /api/xiaohongshu/note HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "url": "https://www.xiaohongshu.com/explore/691345f70000000003010c2b?xsec_token=...&xsec_source=pc_search"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `url` | string | 是 | 笔记 explore URL（含 xsec_token） |
+| `browser` | string | 否 | 指定使用的浏览器名称 |
+
+成功响应：
+
+```json
+{
+  "success": true,
+  "note": {
+    "id": "691345f70000000003010c2b",
+    "title": "Java→Go无痛入门",
+    "desc": "Java工程师转Go实战系列-01/07",
+    "type": "normal",
+    "author": "执一｜AI与云计算",
+    "author_id": "5f938394000000000100b307",
+    "liked_count": "23",
+    "collected_count": "13",
+    "comment_count": "0",
+    "share_count": "1",
+    "images": ["http://.../img1.jpg", "http://.../img2.jpg"],
+    "url": "https://www.xiaohongshu.com/explore/..."
+  }
+}
+```
+
+#### POST /api/xiaohongshu/search
+
+在小红书搜索笔记，返回结构化笔记列表。
+
+```http
+POST /api/xiaohongshu/search HTTP/1.1
+Content-Type: application/json
+
+{ "query": "golang", "limit": 50 }
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索关键词 |
+| `limit` | number | 否 | 50 | 返回笔记上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+成功响应：`{ "success": true, "count": N, "notes": [...] }`，每条 note 含 `id`/`title`/`author`/`author_id`/`liked_count`/`url`/`xsec_token` 等。
+
+#### POST /api/xiaohongshu/user_notes
+
+抓取一个小红书用户发布的笔记列表。
+
+```http
+POST /api/xiaohongshu/user_notes HTTP/1.1
+Content-Type: application/json
+
+{ "url": "https://www.xiaohongshu.com/user/profile/5f938394000000000100b307", "limit": 50 }
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 用户主页 URL |
+| `limit` | number | 否 | 50 | 返回笔记上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+成功响应：`{ "success": true, "count": N, "notes": [...] }`，note 字段同 search。
+
+> search 与 user_notes 抓到的笔记按 id upsert 进 `xhs_notes` 表，跨多次抓取去重存档。
+
+---
+
 ### POST /api/run_page_script
 
 在目标页面里执行**白名单页面脚本**（浏览器执行器原语，见 `docs/browser-executor-plan.md` §4.1），用于读取页面 JS 变量、JSON-LD、meta 等不在可见 DOM 里的数据。只接受内置脚本名，不接受任意 JS。
@@ -848,6 +942,47 @@ MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Event
 | `browser` | string | 否 | - | 指定使用的浏览器名称 |
 
 **返回**：帖子数组的 JSON 字符串。字段结构见上方「Reddit 接口」。
+
+---
+
+### tool: xiaohongshu_note
+
+抓取一个小红书笔记详情（需已登录浏览器）。
+
+| 参数 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `url` | string | 是 | 笔记 explore URL |
+| `browser` | string | 否 | 指定使用的浏览器名称 |
+
+**返回**：笔记对象的 JSON 字符串。字段结构见上方「小红书接口」。
+
+---
+
+### tool: xiaohongshu_search
+
+在小红书搜索笔记（需已登录浏览器）。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索关键词 |
+| `limit` | number | 否 | 50 | 返回笔记上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**返回**：笔记数组的 JSON 字符串。
+
+---
+
+### tool: xiaohongshu_user_notes
+
+抓取一个小红书用户发布的笔记列表（需已登录浏览器）。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 用户主页 URL |
+| `limit` | number | 否 | 50 | 返回笔记上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**返回**：笔记数组的 JSON 字符串。
 
 #### 推文结构
 

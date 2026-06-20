@@ -22,5 +22,5 @@
 
 ## 内容归档（Record）
 
-- **内容表按站点独立**：`tweets` 表只存 Twitter 内容（`source` 字段 `"search"/"timeline"/"likes"` 是 Twitter 内部意图区分）；Reddit 等其它站点用各自独立的 record 表（如 `reddit_posts`）。
+- **内容表按站点独立**：`tweets` 表只存 Twitter 内容（`source` 字段 `"search"/"timeline"/"likes"` 是 Twitter 内部意图区分）；Reddit 用 `reddit_posts`，小红书用 `xhs_notes`，其它站点各自独立 record 表。
 - **每平台独立内容表原则（确定，不再讨论）**：每个平台一张独立内容表，不跨平台共用。评论区等大体量、低时效数据不落库，只实时返回。

@@ -625,19 +625,103 @@ async function handleRunPageScriptCommand(data) {
         const scriptParams = (data.params && data.params.params) || {};
         logger.log('runPageScript', 'info', '开始执行白名单脚本', { url: data.url, script: scriptName });
 
-        const tab = await navigateToUrl(data.url, data.visible === true);
+        const fastInitialState = scriptName === 'xiaohongshu.userNotesInitialState';
+        const tab = await navigateToUrl(data.url, data.visible === true, { waitForStable: !fastInitialState });
         targetTabId = tab.id;
 
         const [{ result } = {}] = await chrome.scripting.executeScript({
             target: { tabId: targetTabId },
             world: 'MAIN',
             // 注意：func 被序列化注入，访问不到外部闭包；白名单必须内联在函数体内。
-            func: (name, params) => {
+            func: async (name, params) => {
                 switch (name) {
                     case 'youtube.initialPlayerResponse':
                         return window.ytInitialPlayerResponse ?? null;
                     case 'bilibili.initialState':
                         return window.__INITIAL_STATE__ ?? null;
+                    case 'xiaohongshu.initialState': {
+                        // 小红书笔记详情走 SSR：数据在 window.__INITIAL_STATE__.note.noteDetailMap。
+                        // 直接返回该对象（plain object）；structured clone + WS JSON 序列化会
+                        // 自动省略值为 undefined 的属性，服务端拿到的 map 是干净的。
+                        const st = window.__INITIAL_STATE__;
+                        if (!st) return null;
+                        try {
+                            return st.note?.noteDetailMap ?? {};
+                        } catch (_) {
+                            return null;
+                        }
+                    }
+                    case 'xiaohongshu.userNotesInitialState': {
+                        const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+                        const findInitialStateScript = () => {
+                            for (const script of document.scripts) {
+                                const text = script.textContent || '';
+                                if (text.includes('window.__INITIAL_STATE__')) return text;
+                            }
+                            return '';
+                        };
+                        const extractAssignedObject = (text) => {
+                            const marker = 'window.__INITIAL_STATE__';
+                            const markerIndex = text.indexOf(marker);
+                            if (markerIndex < 0) return '';
+                            const start = text.indexOf('{', markerIndex);
+                            if (start < 0) return '';
+                            let depth = 0;
+                            let inString = false;
+                            let escaped = false;
+                            for (let i = start; i < text.length; i++) {
+                                const ch = text[i];
+                                if (inString) {
+                                    if (escaped) {
+                                        escaped = false;
+                                    } else if (ch === '\\') {
+                                        escaped = true;
+                                    } else if (ch === '"') {
+                                        inString = false;
+                                    }
+                                    continue;
+                                }
+                                if (ch === '"') {
+                                    inString = true;
+                                } else if (ch === '{') {
+                                    depth++;
+                                } else if (ch === '}') {
+                                    depth--;
+                                    if (depth === 0) return text.slice(start, i + 1);
+                                }
+                            }
+                            return '';
+                        };
+                        const notesFromScript = () => {
+                            const scriptText = findInitialStateScript();
+                            const objectText = extractAssignedObject(scriptText);
+                            if (!objectText) return { notes: [], source: 'script', scriptFound: !!scriptText, parseError: 'initial state object not found' };
+                            try {
+                                const undefinedCount = (objectText.match(/\bundefined\b/g) || []).length;
+                                const normalized = objectText.replace(/\bundefined\b/g, 'null');
+                                const parsed = JSON.parse(normalized);
+                                return { notes: parsed?.user?.notes ?? [], source: 'script', scriptFound: true, undefinedCount };
+                            } catch (e) {
+                                return { notes: [], source: 'script', scriptFound: true, parseError: String((e && e.message) || e), prefix: objectText.slice(0, 200) };
+                            }
+                        };
+                        for (let i = 0; i < 20; i++) {
+                            const st = window.__INITIAL_STATE__;
+                            try {
+                                const notes = st?.user?.notes;
+                                if (Array.isArray(notes) && notes.length > 0) {
+                                    return { notes, __debug: { source: 'window', href: location.href, userKeys: Object.keys(st?.user || {}) } };
+                                }
+                            } catch (_) {}
+                            const fromScript = notesFromScript();
+                            if (Array.isArray(fromScript.notes) && fromScript.notes.length > 0) {
+                                return { notes: fromScript.notes, __debug: { source: fromScript.source, href: location.href, scriptFound: fromScript.scriptFound, undefinedCount: fromScript.undefinedCount } };
+                            }
+                            await sleep(250);
+                        }
+                        const fromScript = notesFromScript();
+                        return { notes: fromScript.notes, __debug: { source: fromScript.source, href: location.href, hasInitialState: !!window.__INITIAL_STATE__, userKeys: Object.keys(window.__INITIAL_STATE__?.user || {}), scriptFound: fromScript.scriptFound, parseError: fromScript.parseError, prefix: fromScript.prefix } };
+                    }
                     case 'page.extractJsonLd': {
                         const items = [];
                         document.querySelectorAll('script[type="application/ld+json"]').forEach((s) => {
@@ -667,6 +751,34 @@ async function handleRunPageScriptCommand(data) {
         const pageResult = isPlainObject
             ? { url: data.url, timestamp: new Date().toISOString(), json: result }
             : { url: data.url, timestamp: new Date().toISOString(), text: JSON.stringify(result ?? null) };
+
+        if (scriptName === 'xiaohongshu.userNotesInitialState') {
+            const groups = Array.isArray(result?.notes) ? result.notes : [];
+            const sample = [];
+            for (const group of groups) {
+                const items = Array.isArray(group) ? group : [group];
+                for (const item of items) {
+                    if (!item || sample.length >= 3) break;
+                    const card = item.noteCard || item.note_card || item;
+                    sample.push({
+                        id: item.id || card.noteId || card.note_id || card.id || '',
+                        title: card.displayTitle || card.display_title || card.title || '',
+                        type: card.type || '',
+                        xsecToken: item.xsecToken || item.xsec_token || card.xsecToken || card.xsec_token || '',
+                        author: card.user?.nickName || card.user?.nickname || card.user?.nick_name || '',
+                        likedCount: card.interactInfo?.likedCount || card.interact_info?.liked_count || ''
+                    });
+                }
+                if (sample.length >= 3) break;
+            }
+            logger.log('runPageScript', 'info', 'xiaohongshu.userNotesInitialState 结果', {
+                groupCount: groups.length,
+                firstGroupCount: Array.isArray(groups[0]) ? groups[0].length : (groups[0] ? 1 : 0),
+                totalSampled: sample.length,
+                sample,
+                debug: result?.__debug
+            });
+        }
 
         logger.log('runPageScript', 'info', 'runPageScript 完成', { script: scriptName, hasResult: result != null });
         websocketManager.sendMessage({
@@ -768,7 +880,7 @@ async function handleFetchInPageCommand(data) {
 // 返回创建的 tab 对象，调用方可直接用 tab.id 提取内容
 // active: 是否激活新标签页。现有命令不传 -> 保持旧行为(true)；
 //         新命令(intercept 等)默认后台加载，避免抢用户焦点(见 plan §4.4)。
-async function navigateToUrl(url, active = true) {
+async function navigateToUrl(url, active = true, options = {}) {
     return new Promise((resolve, reject) => {
         try {
             chrome.tabs.create({ url, active }, (tab) => {
@@ -780,6 +892,10 @@ async function navigateToUrl(url, active = true) {
                 const listener = async (updatedTabId, changeInfo) => {
                     if (updatedTabId === tab.id && changeInfo.status === 'complete') {
                         chrome.tabs.onUpdated.removeListener(listener);
+                        if (options.waitForStable === false) {
+                            resolve(tab);
+                            return;
+                        }
                         // 页面框架加载完成，再等待内容稳定
                         try {
                             await waitForPageStable(tab.id);

@@ -1,0 +1,29 @@
+info:
+  name: xiaohongshu_search
+  type: http
+  seq: 16
+
+http:
+  method: post
+  url: "{{host}}/api/xiaohongshu/search"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "query": "golang",
+        "limit": 50
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

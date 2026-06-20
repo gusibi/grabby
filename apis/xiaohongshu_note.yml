@@ -1,0 +1,28 @@
+info:
+  name: xiaohongshu_note
+  type: http
+  seq: 15
+
+http:
+  method: post
+  url: "{{host}}/api/xiaohongshu/note"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "url": "https://www.xiaohongshu.com/explore/691345f70000000003010c2b?xsec_token=ABADwXUo_Kq0PtaJCdZ-m__SnWnwJYPATbaoVqN6UomrQ=&xsec_source=pc_search"
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

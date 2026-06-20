@@ -65,6 +65,28 @@ type RedditPost struct {
 // TableName pins the table name.
 func (RedditPost) TableName() string { return "reddit_posts" }
 
+// XhsNote is one archived Xiaohongshu note, keyed by note id. search / user
+// notes / note detail fetches upsert into this single table, deduping across
+// fetches.
+type XhsNote struct {
+	ID             string  `gorm:"primaryKey;column:id" json:"id"`
+	Title          string  `gorm:"column:title" json:"title"`
+	Desc           string  `gorm:"column:desc" json:"desc"`
+	Type           string  `gorm:"column:type" json:"type"`
+	Author         string  `gorm:"column:author" json:"author"`
+	AuthorID       string  `gorm:"column:author_id" json:"author_id"`
+	LikedCount     string  `gorm:"column:liked_count" json:"liked_count"`
+	CollectedCount string  `gorm:"column:collected_count" json:"collected_count"`
+	CommentCount   string  `gorm:"column:comment_count" json:"comment_count"`
+	ShareCount     string  `gorm:"column:share_count" json:"share_count"`
+	URL            string  `gorm:"column:url" json:"url"`
+	Images         []string `gorm:"column:images;serializer:json" json:"images"`
+	FetchedAt      time.Time `gorm:"column:fetched_at" json:"fetched_at"`
+}
+
+// TableName pins the table name.
+func (XhsNote) TableName() string { return "xhs_notes" }
+
 // GetExtractCache returns the cached extraction for url, or (nil, nil) on miss.
 func (d *Database) GetExtractCache(url string) (*ExtractCache, error) {
 	var rec ExtractCache
@@ -166,6 +188,37 @@ func (d *Database) SaveRedditPosts(records []RedditPost) error {
 		DoUpdates: clause.AssignmentColumns([]string{
 			"title", "author", "subreddit", "url", "content_url",
 			"body", "score", "num_comments", "created_utc", "fetched_at",
+		}),
+	}).Create(&records).Error
+}
+
+// ListXhsNotes returns archived Xiaohongshu notes ordered by most-recently
+// fetched, plus the total count.
+func (d *Database) ListXhsNotes(limit, offset int) ([]XhsNote, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	var total int64
+	if err := d.gorm.Model(&XhsNote{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []XhsNote
+	err := d.gorm.Order("fetched_at DESC").Limit(limit).Offset(offset).Find(&rows).Error
+	return rows, total, err
+}
+
+// SaveXhsNotes upserts a batch of Xiaohongshu notes keyed by id (latest fetch
+// wins).
+func (d *Database) SaveXhsNotes(records []XhsNote) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return d.gorm.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"title", "desc", "type", "author", "author_id",
+			"liked_count", "collected_count", "comment_count", "share_count",
+			"url", "images", "fetched_at",
 		}),
 	}).Create(&records).Error
 }

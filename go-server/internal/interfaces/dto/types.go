@@ -157,6 +157,46 @@ type RedditSearchAPIResponse struct {
 	Posts   []any `json:"posts"`
 }
 
+// XhsNoteAPIRequest is the POST /api/xiaohongshu/note request body.
+type XhsNoteAPIRequest struct {
+	URL     string `json:"url"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// XhsNoteAPIResponse is the POST /api/xiaohongshu/note response body.
+type XhsNoteAPIResponse struct {
+	Success bool `json:"success"`
+	Note    any  `json:"note"`
+}
+
+// XhsSearchAPIRequest is the POST /api/xiaohongshu/search request body.
+type XhsSearchAPIRequest struct {
+	Query   string `json:"query"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// XhsSearchAPIResponse is the POST /api/xiaohongshu/search response body.
+type XhsSearchAPIResponse struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+	Notes   []any `json:"notes"`
+}
+
+// XhsUserNotesAPIRequest is the POST /api/xiaohongshu/user_notes request body.
+type XhsUserNotesAPIRequest struct {
+	URL    string `json:"url"`
+	Limit  int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// XhsUserNotesAPIResponse is the POST /api/xiaohongshu/user_notes response body.
+type XhsUserNotesAPIResponse struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+	Notes   []any `json:"notes"`
+}
+
 // ExtractRecord is one row in the GET /api/captures/extract list. Markdown is
 // omitted from the list (only its length) to keep the payload light.
 type ExtractRecord struct {
@@ -234,6 +274,26 @@ type RedditSearchParams struct {
 	Sort      string `json:"sort,omitempty"`
 	Limit     int    `json:"limit,omitempty"`
 	Browser   string `json:"browser,omitempty"`
+}
+
+// XhsNoteParams for the "xiaohongshu_note" MCP tool.
+type XhsNoteParams struct {
+	URL     string `json:"url"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// XhsSearchParams for the "xiaohongshu_search" MCP tool.
+type XhsSearchParams struct {
+	Query   string `json:"query"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// XhsUserNotesParams for the "xiaohongshu_user_notes" MCP tool.
+type XhsUserNotesParams struct {
+	URL     string `json:"url"`
+	Limit   int    `json:"limit,omitempty"`
+	Browser string `json:"browser,omitempty"`
 }
 
 // ParseArgs converts raw MCP arguments (any/map) into a typed struct.

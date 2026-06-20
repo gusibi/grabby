@@ -158,3 +158,50 @@ func TestSaveRedditPostsEmpty(t *testing.T) {
 		t.Fatalf("SaveRedditPosts(nil) should be no-op, got %v", err)
 	}
 }
+
+func TestSaveXhsNotesUpsertsByID(t *testing.T) {
+	db := newTestDB(t)
+
+	first := []XhsNote{{
+		ID: "note1", Title: "First", Author: "alice", Type: "normal",
+		LikedCount: "10", Images: []string{"http://xhs/img1.jpg"},
+	}}
+	if err := db.SaveXhsNotes(first); err != nil {
+		t.Fatalf("SaveXhsNotes first: %v", err)
+	}
+
+	// Same id with updated liked count: upsert, not duplicate.
+	second := []XhsNote{{
+		ID: "note1", Title: "First", Author: "alice", Type: "normal",
+		LikedCount: "25", Images: []string{"http://xhs/img1.jpg"},
+	}}
+	if err := db.SaveXhsNotes(second); err != nil {
+		t.Fatalf("SaveXhsNotes second: %v", err)
+	}
+
+	var count int64
+	if err := db.gorm.Model(&XhsNote{}).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 row after upsert, got %d", count)
+	}
+
+	var rec XhsNote
+	if err := db.gorm.First(&rec, "id = ?", "note1").Error; err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if rec.LikedCount != "25" {
+		t.Fatalf("expected upserted liked_count, got %+v", rec)
+	}
+	if len(rec.Images) != 1 || rec.Images[0] != "http://xhs/img1.jpg" {
+		t.Fatalf("images not persisted: %+v", rec.Images)
+	}
+}
+
+func TestSaveXhsNotesEmpty(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.SaveXhsNotes(nil); err != nil {
+		t.Fatalf("SaveXhsNotes(nil) should be no-op, got %v", err)
+	}
+}

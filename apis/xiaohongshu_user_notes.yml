@@ -1,0 +1,29 @@
+info:
+  name: xiaohongshu_user_notes
+  type: http
+  seq: 17
+
+http:
+  method: post
+  url: "{{host}}/api/xiaohongshu/user_notes"
+  headers:
+    - name: Content-Type
+      value: application/json
+    - name: X-API-Key
+      value: "{{api_key}}"
+    - name: X-Grabby-Token
+      value: "{{api_key}}"
+  body:
+    type: json
+    data: |-
+      {
+        "url": "https://www.xiaohongshu.com/user/profile/5f938394000000000100b307",
+        "limit": 50
+      }
+  auth: inherit
+
+settings:
+  encodeUrl: false
+  timeout: 0
+  followRedirects: true
+  maxRedirects: 5

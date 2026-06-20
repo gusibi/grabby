@@ -17,6 +17,7 @@ func NewServer(wm *browserws.WebSocketManager, settings *config.Settings, logger
 	registerBrowserTools(mcpSvr, wm, logger)
 	registerTwitterTools(mcpSvr, wm, logger)
 	registerRedditTools(mcpSvr, wm, logger)
+	registerXiaohongshuTools(mcpSvr, wm, logger)
 
 	return server.NewSSEServer(mcpSvr)
 }
