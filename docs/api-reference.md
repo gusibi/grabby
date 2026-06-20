@@ -248,6 +248,177 @@ Authorization: Bearer your_token
 
 ---
 
+### Reddit 接口
+
+Reddit 适配器是独立站点适配器（见 `docs/prd-likes-incremental-and-reddit.md`），与同名 MCP 工具 `reddit_thread` 共用同一套适配器与底层 `fetchInPage` 原语，额外暴露成 HTTP 便于 `http api -> 浏览器` 工作流直接调用。
+
+Reddit 的 `.json` 端点是公开 API；适配器在已登录浏览器中打开帖子页（提供 Cookie/Origin 上下文），再 fetch 同一 URL 加 `.json` 后缀。**登录态由用户提前保证**（浏览器已登录 Reddit），服务只管正确抓取。
+
+错误响应：`503`（无已连接浏览器）/ `502`（浏览器执行无可用结果，如未登录 / 页面不可访问 / Reddit 返回错误）/ `400`（请求体非法）。
+
+#### POST /api/reddit/thread
+
+抓取一个 Reddit 帖子及其评论树，返回结构化的帖子与嵌套评论。
+
+```http
+POST /api/reddit/thread HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "url": "https://www.reddit.com/r/golang/comments/abc123/go_124_released/",
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | Reddit 帖子 permalink |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "url": "https://www.reddit.com/r/golang/comments/abc123/go_124_released/",
+  "post": {
+    "id": "abc123",
+    "title": "Go 1.24 released",
+    "author": "gopher",
+    "subreddit": "golang",
+    "url": "https://www.reddit.com/r/golang/comments/abc123/go_124_released/",
+    "content_url": "https://go.dev/blog/go1.24",
+    "body": "Discussion thread for the new release.",
+    "score": 542,
+    "num_comments": 31,
+    "created_utc": 1718000000.5
+  },
+  "comments": [
+    {
+      "id": "c1",
+      "author": "alice",
+      "body": "Finally generics are stable.",
+      "score": 12,
+      "created_utc": 1718000100.0,
+      "replies": [
+        { "id": "c1a", "author": "bob", "body": "they have been since 1.18", "score": 3, "created_utc": 1718000200.0 }
+      ]
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | boolean | 是否成功 |
+| `url` | string | 帖子 permalink |
+| `post` | object | 帖子（见下） |
+| `comments` | array | 顶层评论树，每条可嵌套 `replies` |
+
+帖子字段：`id` / `title` / `author` / `subreddit` / `url`（permalink）/ `content_url`（帖子指向的外链）/ `body`（selftext）/ `score` / `num_comments` / `created_utc`。
+
+> 评论实时返回、不落库。
+
+#### POST /api/reddit/subreddit
+
+抓取一个 subreddit 的最新帖子列表（`/new` 排序），返回结构化帖子。
+
+```http
+POST /api/reddit/subreddit HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "subreddit": "golang",
+  "limit": 100,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `subreddit` | string | 是 | - | 版块名，不含 `r/`，如 `golang` |
+| `limit` | number | 否 | 100 | 返回帖子上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "posts": [
+    {
+      "id": "p1",
+      "title": "First post",
+      "author": "alice",
+      "subreddit": "golang",
+      "url": "https://www.reddit.com/r/golang/comments/p1/first_post/",
+      "content_url": "https://example.com/article1",
+      "body": "",
+      "score": 100,
+      "num_comments": 5,
+      "created_utc": 1718000000.0
+    }
+  ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | boolean | 是否成功 |
+| `count` | integer | 返回帖子数 |
+| `posts` | array | 帖子数组，字段同上方「帖子字段」 |
+
+> 用 `after` 游标分页取多页直到 `limit`；每条帖子按 id upsert 进 `reddit_posts` 表，跨多次抓取去重存档。
+
+#### POST /api/reddit/search
+
+在 Reddit 搜索帖子，返回结构化帖子。可限定在单个 subreddit 内搜索。
+
+```http
+POST /api/reddit/search HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "query": "ai agent",
+  "subreddit": "golang",
+  "sort": "relevance",
+  "limit": 100,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索关键词 |
+| `subreddit` | string | 否 | - | 限定版块内搜索（不含 `r/`）；省略则全站搜索 |
+| `sort` | string | 否 | Reddit 默认 | `relevance` / `new` / `top` / `comments` |
+| `limit` | number | 否 | 100 | 返回帖子上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "count": 2,
+  "posts": [ /* 帖子数组，字段同「帖子字段」 */ ]
+}
+```
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `success` | boolean | 是否成功 |
+| `count` | integer | 返回帖子数 |
+| `posts` | array | 帖子数组，字段同上方「帖子字段」 |
+
+> 全站搜索走 `/search.json`，限定版块走 `/r/{name}/search.json?restrict_sr=1`。用 `after` 游标分页取多页直到 `limit`；每条帖子按 id upsert 进 `reddit_posts` 表。
+
+---
+
 ### POST /api/run_page_script
 
 在目标页面里执行**白名单页面脚本**（浏览器执行器原语，见 `docs/browser-executor-plan.md` §4.1），用于读取页面 JS 变量、JSON-LD、meta 等不在可见 DOM 里的数据。只接受内置脚本名，不接受任意 JS。
@@ -634,6 +805,49 @@ MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Event
 **返回**：推文数组的 JSON 字符串。
 
 > 注意：X 的点赞页可见性与接口结构变动频繁。若返回为空或报错（错误信息会带 `matched X/Y responses`），通常意味着未登录或页面结构已变化，而非真的没有点赞。
+
+---
+
+### tool: reddit_thread
+
+抓取一个 Reddit 帖子及其评论树（需已登录浏览器）。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | Reddit 帖子 permalink URL |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**返回**：帖子的 JSON 字符串（`post` 对象 + 嵌套 `comments` 数组）。字段结构见上方「Reddit 接口」。
+
+---
+
+### tool: reddit_subreddit
+
+抓取一个 Reddit subreddit 的最新帖子列表（需已登录浏览器）。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `subreddit` | string | 是 | - | 版块名，不含 `r/`，如 `golang` |
+| `limit` | number | 否 | 100 | 返回帖子上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**返回**：帖子数组的 JSON 字符串。字段结构见上方「Reddit 接口」。
+
+---
+
+### tool: reddit_search
+
+在 Reddit 搜索帖子（需已登录浏览器），可限定在单个 subreddit 内。
+
+| 参数 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `query` | string | 是 | - | 搜索关键词 |
+| `subreddit` | string | 否 | - | 限定版块内搜索（不含 `r/`） |
+| `sort` | string | 否 | Reddit 默认 | `relevance` / `new` / `top` / `comments` |
+| `limit` | number | 否 | 100 | 返回帖子上限 |
+| `browser` | string | 否 | - | 指定使用的浏览器名称 |
+
+**返回**：帖子数组的 JSON 字符串。字段结构见上方「Reddit 接口」。
 
 #### 推文结构
 

@@ -1,11 +1,11 @@
 info:
-  name: twitter_search
+  name: reddit_thread
   type: http
-  seq: 9
+  seq: 12
 
 http:
   method: post
-  url: "{{host}}/api/twitter/search"
+  url: "{{host}}/api/reddit/thread"
   headers:
     - name: Content-Type
       value: application/json
@@ -17,8 +17,7 @@ http:
     type: json
     data: |-
       {
-        "query": "wise 卡值得开吗",
-        "limit": 40
+        "url": "https://www.reddit.com/r/vibecoding/comments/1uadref/subagents_in_a_nutshell/"
       }
   auth: inherit
 

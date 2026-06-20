@@ -91,3 +91,70 @@ func TestSaveTweetsEmpty(t *testing.T) {
 		t.Fatalf("SaveTweets(nil) should be no-op, got %v", err)
 	}
 }
+
+func TestSaveRedditPostsUpsertsByID(t *testing.T) {
+	db := newTestDB(t)
+
+	first := []RedditPost{{
+		ID: "p1", Title: "First", Author: "alice", Subreddit: "golang",
+		Score: 100, NumComments: 5, CreatedUTC: 1718000000.0,
+	}}
+	if err := db.SaveRedditPosts(first); err != nil {
+		t.Fatalf("SaveRedditPosts first: %v", err)
+	}
+
+	// Same id with updated score: upsert, not duplicate.
+	second := []RedditPost{{
+		ID: "p1", Title: "First", Author: "alice", Subreddit: "golang",
+		Score: 150, NumComments: 7, CreatedUTC: 1718000000.0,
+	}}
+	if err := db.SaveRedditPosts(second); err != nil {
+		t.Fatalf("SaveRedditPosts second: %v", err)
+	}
+
+	var count int64
+	if err := db.gorm.Model(&RedditPost{}).Count(&count).Error; err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("expected 1 row after upsert, got %d", count)
+	}
+
+	var rec RedditPost
+	if err := db.gorm.First(&rec, "id = ?", "p1").Error; err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	if rec.Score != 150 || rec.NumComments != 7 {
+		t.Fatalf("expected upserted counts, got %+v", rec)
+	}
+}
+
+func TestListRedditPostsFiltersBySubreddit(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.SaveRedditPosts([]RedditPost{
+		{ID: "a", Title: "a", Subreddit: "golang", Score: 1},
+		{ID: "b", Title: "b", Subreddit: "rust", Score: 2},
+	}); err != nil {
+		t.Fatalf("SaveRedditPosts: %v", err)
+	}
+
+	rows, total, err := db.ListRedditPosts("golang", 50, 0)
+	if err != nil {
+		t.Fatalf("ListRedditPosts: %v", err)
+	}
+	if total != 1 || len(rows) != 1 || rows[0].ID != "a" {
+		t.Fatalf("expected 1 golang post, got total=%d rows=%+v", total, rows)
+	}
+
+	all, totalAll, _ := db.ListRedditPosts("", 50, 0)
+	if totalAll != 2 || len(all) != 2 {
+		t.Fatalf("expected 2 posts unfiltered, got total=%d", totalAll)
+	}
+}
+
+func TestSaveRedditPostsEmpty(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.SaveRedditPosts(nil); err != nil {
+		t.Fatalf("SaveRedditPosts(nil) should be no-op, got %v", err)
+	}
+}

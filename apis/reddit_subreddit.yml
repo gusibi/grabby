@@ -1,11 +1,11 @@
 info:
-  name: twitter_search
+  name: reddit_subreddit
   type: http
-  seq: 9
+  seq: 13
 
 http:
   method: post
-  url: "{{host}}/api/twitter/search"
+  url: "{{host}}/api/reddit/subreddit"
   headers:
     - name: Content-Type
       value: application/json
@@ -17,8 +17,8 @@ http:
     type: json
     data: |-
       {
-        "query": "wise 卡值得开吗",
-        "limit": 40
+        "subreddit": "vibecoding",
+        "limit": 100
       }
   auth: inherit
 

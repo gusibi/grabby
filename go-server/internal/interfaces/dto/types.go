@@ -111,6 +111,52 @@ type TwitterLikesAPIRequest struct {
 	Browser string `json:"browser,omitempty"`
 }
 
+// RedditThreadAPIRequest is the POST /api/reddit/thread request body. It opens
+// the post's permalink in the browser and fetches the same URL with a .json
+// suffix (plan: docs/prd-likes-incremental-and-reddit.md).
+type RedditThreadAPIRequest struct {
+	URL     string `json:"url"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// RedditThreadAPIResponse is the POST /api/reddit/thread response body.
+type RedditThreadAPIResponse struct {
+	Success bool   `json:"success"`
+	URL     string `json:"url"`
+	Post    any    `json:"post"`
+	Comments []any `json:"comments"`
+}
+
+// RedditSubredditAPIRequest is the POST /api/reddit/subreddit request body.
+type RedditSubredditAPIRequest struct {
+	Subreddit string `json:"subreddit"`
+	Limit     int    `json:"limit,omitempty"`
+	Browser   string `json:"browser,omitempty"`
+}
+
+// RedditSubredditAPIResponse is the POST /api/reddit/subreddit response body.
+type RedditSubredditAPIResponse struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+	Posts   []any `json:"posts"`
+}
+
+// RedditSearchAPIRequest is the POST /api/reddit/search request body.
+type RedditSearchAPIRequest struct {
+	Query     string `json:"query"`
+	Subreddit string `json:"subreddit,omitempty"` // limit search to one subreddit when set
+	Sort      string `json:"sort,omitempty"`      // relevance | new | top | comments
+	Limit     int    `json:"limit,omitempty"`
+	Browser   string `json:"browser,omitempty"`
+}
+
+// RedditSearchAPIResponse is the POST /api/reddit/search response body.
+type RedditSearchAPIResponse struct {
+	Success bool `json:"success"`
+	Count   int  `json:"count"`
+	Posts   []any `json:"posts"`
+}
+
 // ExtractRecord is one row in the GET /api/captures/extract list. Markdown is
 // omitted from the list (only its length) to keep the payload light.
 type ExtractRecord struct {
@@ -166,6 +212,28 @@ type TwitterLikesParams struct {
 	Handle  string `json:"handle"`
 	Limit   int    `json:"limit,omitempty"`
 	Browser string `json:"browser,omitempty"`
+}
+
+// RedditThreadParams for the "reddit_thread" MCP tool.
+type RedditThreadParams struct {
+	URL     string `json:"url"`
+	Browser string `json:"browser,omitempty"`
+}
+
+// RedditSubredditParams for the "reddit_subreddit" MCP tool.
+type RedditSubredditParams struct {
+	Subreddit string `json:"subreddit"`
+	Limit     int    `json:"limit,omitempty"`
+	Browser   string `json:"browser,omitempty"`
+}
+
+// RedditSearchParams for the "reddit_search" MCP tool.
+type RedditSearchParams struct {
+	Query     string `json:"query"`
+	Subreddit string `json:"subreddit,omitempty"`
+	Sort      string `json:"sort,omitempty"`
+	Limit     int    `json:"limit,omitempty"`
+	Browser   string `json:"browser,omitempty"`
 }
 
 // ParseArgs converts raw MCP arguments (any/map) into a typed struct.

@@ -1,11 +1,11 @@
 info:
-  name: twitter_search
+  name: reddit_search
   type: http
-  seq: 9
+  seq: 14
 
 http:
   method: post
-  url: "{{host}}/api/twitter/search"
+  url: "{{host}}/api/reddit/search"
   headers:
     - name: Content-Type
       value: application/json
@@ -17,8 +17,10 @@ http:
     type: json
     data: |-
       {
-        "query": "wise 卡值得开吗",
-        "limit": 40
+        "query": "ai agent",
+        "subreddit": "",
+        "sort": "relevance",
+        "limit": 100
       }
   auth: inherit
 

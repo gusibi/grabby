@@ -17,7 +17,7 @@ http:
     type: json
     data: |-
       {
-        "kind": "for_you",
+        "kind": "gusibix",
         "limit": 40
       }
   auth: inherit

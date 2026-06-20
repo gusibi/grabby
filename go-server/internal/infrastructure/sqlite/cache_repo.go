@@ -46,6 +46,25 @@ type TweetRecord struct {
 // TableName pins the table name.
 func (TweetRecord) TableName() string { return "tweets" }
 
+// RedditPost is one archived Reddit submission, keyed by post id. subreddit
+// listing fetches upsert into this single table, deduping across fetches.
+type RedditPost struct {
+	ID          string  `gorm:"primaryKey;column:id" json:"id"`
+	Title       string  `gorm:"column:title" json:"title"`
+	Author      string  `gorm:"column:author" json:"author"`
+	Subreddit   string  `gorm:"column:subreddit" json:"subreddit"`
+	URL         string  `gorm:"column:url" json:"url"`         // permalink on reddit
+	ContentURL  string  `gorm:"column:content_url" json:"content_url"`
+	Body        string  `gorm:"column:body" json:"body"`
+	Score       int     `gorm:"column:score" json:"score"`
+	NumComments int     `gorm:"column:num_comments" json:"num_comments"`
+	CreatedUTC  float64 `gorm:"column:created_utc" json:"created_utc"`
+	FetchedAt   time.Time `gorm:"column:fetched_at" json:"fetched_at"`
+}
+
+// TableName pins the table name.
+func (RedditPost) TableName() string { return "reddit_posts" }
+
 // GetExtractCache returns the cached extraction for url, or (nil, nil) on miss.
 func (d *Database) GetExtractCache(url string) (*ExtractCache, error) {
 	var rec ExtractCache
@@ -114,6 +133,39 @@ func (d *Database) SaveTweets(records []TweetRecord) error {
 			"text", "author", "author_name", "tweet_created_at",
 			"favorite_count", "retweet_count", "reply_count", "quote_count",
 			"url", "media", "source", "fetched_at",
+		}),
+	}).Create(&records).Error
+}
+
+// ListRedditPosts returns archived Reddit posts ordered by most-recently fetched,
+// optionally filtered by subreddit, plus the total count.
+func (d *Database) ListRedditPosts(subreddit string, limit, offset int) ([]RedditPost, int64, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	q := d.gorm.Model(&RedditPost{})
+	if subreddit != "" {
+		q = q.Where("subreddit = ?", subreddit)
+	}
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+	var rows []RedditPost
+	err := q.Order("fetched_at DESC").Limit(limit).Offset(offset).Find(&rows).Error
+	return rows, total, err
+}
+
+// SaveRedditPosts upserts a batch of Reddit posts keyed by id (latest fetch wins).
+func (d *Database) SaveRedditPosts(records []RedditPost) error {
+	if len(records) == 0 {
+		return nil
+	}
+	return d.gorm.Clauses(clause.OnConflict{
+		Columns: []clause.Column{{Name: "id"}},
+		DoUpdates: clause.AssignmentColumns([]string{
+			"title", "author", "subreddit", "url", "content_url",
+			"body", "score", "num_comments", "created_utc", "fetched_at",
 		}),
 	}).Create(&records).Error
 }
