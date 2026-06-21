@@ -17,9 +17,9 @@ http:
     type: json
     data: |-
       {
-        "url": "https://www.xiaohongshu.com/user/profile/5f938394000000000100b307",
+        "url": "https://www.xiaohongshu.com/user/profile/65fd1cd5000000000600c8c1",
         "limit": 50
-      }
+      } 
   auth: inherit
 
 settings:
