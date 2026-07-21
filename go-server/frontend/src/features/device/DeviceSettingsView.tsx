@@ -1,8 +1,11 @@
 import { useState, useEffect } from "react";
 import { Laptop, CheckCircle2, XCircle, Plus, RefreshCw, AlertCircle, Wifi, ShieldCheck } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@astryxdesign/core/Button";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Card } from "@astryxdesign/core/Card";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { Badge } from "@astryxdesign/core/Badge";
+import { VStack, HStack } from "@astryxdesign/core/Layout";
 import { api } from "@/lib/api";
 
 interface BrowserInfo {
@@ -56,7 +59,6 @@ export function DeviceSettingsView({ isAuthenticated }: DeviceSettingsViewProps)
         setMessage({ type: "success", text: `设备 "${deviceName}" 注册成功！` });
         setConnectId("");
         setDeviceName("");
-        // Refresh connected list
         fetchConnectedBrowsers();
       } else {
         setMessage({ type: "error", text: res.detail || res.error || "注册失败" });
@@ -120,261 +122,226 @@ export function DeviceSettingsView({ isAuthenticated }: DeviceSettingsViewProps)
     }
   };
 
-
-
   return (
-    <div className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-[#121212] p-8">
-      <div className="max-w-4xl mx-auto space-y-8 pb-12">
-        <div className="flex items-center justify-between">
+    <div className="flex-1 overflow-y-auto bg-body p-8">
+      <VStack gap={6} className="max-w-4xl mx-auto pb-12">
+        <HStack gap={3} vAlign="center" hAlign="between">
           <div>
-            <h2 className="text-xl font-bold tracking-tight">设备与连接设置</h2>
-            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+            <h2 className="text-xl font-bold tracking-tight text-primary">设备与连接设置</h2>
+            <p className="text-xs text-secondary mt-1">
               管理连接到 Grabby 服务的浏览器扩展设备，并查看当前的 WebSocket 连接状态。
             </p>
           </div>
           <Button
             onClick={fetchConnectedBrowsers}
-            variant="outline"
+            variant="secondary"
             size="sm"
-            disabled={isLoading}
-            className="gap-1.5 h-8 text-xs font-semibold"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />
-            刷新状态
-          </Button>
-        </div>
+            isDisabled={isLoading}
+            isLoading={isLoading}
+            label="刷新状态"
+            icon={<RefreshCw className="w-3.5 h-3.5" />}
+          />
+        </HStack>
 
         <div className="grid md:grid-cols-3 gap-6">
           {/* Connection Status Summary */}
-          <Card className="md:col-span-1 border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-sm font-bold flex items-center gap-2">
+          <Card className="md:col-span-1">
+            <div className="p-4 border-b border-border">
+              <h4 className="text-sm font-bold flex items-center gap-2 text-primary">
                 <Wifi className="w-4 h-4 text-blue-500" />
                 服务状态
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between p-3 bg-zinc-50 dark:bg-zinc-900/50 rounded-xl">
+              </h4>
+            </div>
+            <div className="p-4">
+              <VStack gap={4}>
+                <HStack gap={2} hAlign="between" vAlign="center" className="p-3 bg-muted rounded-xl border border-border">
                   <span className="text-xs font-medium text-zinc-500">连接设备数量</span>
                   <span className="text-lg font-bold">{browsers.length}</span>
-                </div>
-                <div className="flex items-center gap-2 text-xs">
+                </HStack>
+                <HStack gap={2} vAlign="center" className="text-xs">
                   {browsers.length > 0 ? (
                     <>
-                      <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
-                      <span className="text-emerald-600 dark:text-emerald-400 font-semibold">
+                      <CheckCircle2 className="w-4 h-4 text-success shrink-0" />
+                      <span className="text-success font-semibold">
                         已建立浏览器通信
                       </span>
                     </>
                   ) : (
                     <>
-                      <XCircle className="w-4 h-4 text-rose-500 shrink-0" />
-                      <span className="text-rose-600 dark:text-rose-400 font-semibold">
+                      <XCircle className="w-4 h-4 text-error shrink-0" />
+                      <span className="text-error font-semibold">
                         暂无活跃连接设备
                       </span>
                     </>
                   )}
-                </div>
-                <div className="p-3 border border-yellow-500/10 bg-yellow-500/5 rounded-xl text-[10px] text-zinc-500 dark:text-zinc-400 space-y-1 leading-relaxed">
-                  <div className="font-semibold text-yellow-600 dark:text-yellow-500 flex items-center gap-1">
+                </HStack>
+                <VStack gap={1} className="p-3 border border-warning/10 bg-warning/5 rounded-xl text-[10px] text-zinc-500 dark:text-zinc-400 leading-relaxed">
+                  <div className="font-semibold text-warning flex items-center gap-1">
                     <ShieldCheck className="w-3.5 h-3.5" />
                     提示
                   </div>
-                  使用 Grabby Web 网页抓取功能时，必须先在浏览器中安装并启用 Chrome 扩展，并将扩展中的 ID 与服务注册 ID 保持一致。
-                </div>
-              </div>
-            </CardContent>
+                  <span>使用 Grabby Web 网页抓取功能时，必须先在浏览器中安装并启用 Chrome 扩展，并将扩展中的 ID 与服务注册 ID 保持一致。</span>
+                </VStack>
+              </VStack>
+            </div>
           </Card>
 
           {/* Connected Device List */}
-          <Card className="md:col-span-2 border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl overflow-hidden">
-            <CardHeader className="border-b border-black/5 dark:border-white/5 p-6 bg-zinc-50/50 dark:bg-zinc-900/50">
-              <CardTitle className="text-base font-bold">已注册的设备列表 ({browsers.length})</CardTitle>
-              <CardDescription className="text-xs">
+          <Card className="md:col-span-2 overflow-hidden">
+            <div className="border-b border-border p-6 bg-muted">
+              <h4 className="text-base font-bold text-primary">已注册的设备列表 ({browsers.length})</h4>
+              <p className="text-xs text-secondary mt-1">
                 管理已在服务中登记的浏览器扩展设备，可执行断开连接和封禁操作。
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
-              {browsers.length === 0 ? (
-                <div className="p-12 text-center text-zinc-400 dark:text-zinc-500">
-                  <Laptop className="w-10 h-10 mx-auto mb-3 opacity-20" />
-                  <p className="text-xs font-semibold">没有检测到已注册的设备</p>
-                  <p className="text-[10px] mt-1">请在下方表单中注册一个新的设备 ID。</p>
-                </div>
-              ) : (
-                <div className="divide-y divide-black/5 dark:divide-white/5">
-                  {browsers.map((b) => (
-                    <div key={b.conn_id} className="p-4 flex items-center justify-between hover:bg-zinc-50/50 dark:hover:bg-zinc-900/20 transition-colors">
-                      <div className="flex items-center gap-3">
-                        <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                          b.banned 
-                            ? "bg-rose-50 dark:bg-rose-950/20 text-rose-500" 
-                            : b.online 
-                              ? "bg-blue-50 dark:bg-zinc-800 text-blue-500" 
-                              : "bg-zinc-100 dark:bg-zinc-900 text-zinc-400"
-                        }`}>
-                          <Laptop className="w-5 h-5" />
-                        </div>
-                        <div>
-                          <div className="flex items-center gap-2">
-                            <h5 className="font-bold text-sm leading-none">{b.name}</h5>
-                            {b.banned ? (
-                              <>
-                                <span className="w-1.5 h-1.5 rounded-full bg-rose-500" />
-                                <span className="text-[9px] text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-1.5 py-0.2 rounded font-bold">
-                                  已封禁
-                                </span>
-                              </>
-                            ) : b.online ? (
-                              <>
-                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
-                                <span className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/20 px-1.5 py-0.2 rounded font-bold">
-                                  在线
-                                </span>
-                              </>
-                            ) : (
-                              <>
-                                <span className="w-1.5 h-1.5 rounded-full bg-zinc-400" />
-                                <span className="text-[9px] text-zinc-500 dark:text-zinc-400 bg-zinc-100 dark:bg-zinc-900 px-1.5 py-0.2 rounded font-bold">
-                                  离线
-                                </span>
-                              </>
-                            )}
-                          </div>
-                          <p className="text-[10px] text-zinc-400 font-mono mt-1 select-all">{b.conn_id}</p>
-                        </div>
+              </p>
+            </div>
+            
+            {browsers.length === 0 ? (
+              <VStack gap={2} hAlign="center" vAlign="center" className="p-12 text-zinc-400 dark:text-zinc-500">
+                <Laptop className="w-10 h-10 mx-auto mb-3 opacity-20" />
+                <p className="text-xs font-semibold">没有检测到已注册的设备</p>
+                <p className="text-[10px] mt-1">请在下方表单中注册一个新的设备 ID。</p>
+              </VStack>
+            ) : (
+              <div className="divide-y divide-border">
+                {browsers.map((b) => (
+                  <div key={b.conn_id} className="p-4 flex items-center justify-between hover:bg-muted transition-colors">
+                    <HStack gap={3} vAlign="center">
+                      <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
+                        b.banned 
+                          ? "bg-rose-50 dark:bg-rose-950/20 text-rose-500" 
+                          : b.online 
+                            ? "bg-blue-subtle text-accent" 
+                            : "bg-zinc-100 dark:bg-zinc-900 text-zinc-400"
+                      }`}>
+                        <Laptop className="w-5 h-5" />
                       </div>
-                      <div className="flex items-center gap-3">
-                        <div className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium">
-                          {b.banned ? "已禁止连接" : b.online ? "实时抓取就绪" : "等待连接"}
-                        </div>
-                        {isAuthenticated && (
-                          <div className="flex items-center gap-1.5">
-                            {b.banned ? (
-                              <Button
-                                onClick={() => handleUnban(b.conn_id, b.name)}
-                                size="sm"
-                                variant="ghost"
-                                className="h-7 text-xs text-indigo-500 hover:text-indigo-600 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 px-2 rounded-lg"
-                              >
-                                解封
-                              </Button>
-                            ) : (
-                              <>
-                                {b.online && (
-                                  <Button
-                                    onClick={() => handleKick(b.conn_id, b.name)}
-                                    size="sm"
-                                    variant="ghost"
-                                    className="h-7 text-xs text-zinc-600 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 px-2 rounded-lg"
-                                  >
-                                    断开
-                                  </Button>
-                                )}
+                      <div>
+                        <HStack gap={2} vAlign="center" className="flex-wrap">
+                          <h5 className="font-bold text-sm leading-none">{b.name}</h5>
+                          {b.banned ? (
+                            <Badge variant="error" label="已封禁" />
+                          ) : b.online ? (
+                            <Badge variant="success" label="在线" />
+                          ) : (
+                            <Badge variant="neutral" label="离线" />
+                          )}
+                        </HStack>
+                        <p className="text-[10px] text-zinc-400 font-mono mt-1 select-all">{b.conn_id}</p>
+                      </div>
+                    </HStack>
+                    <HStack gap={3} vAlign="center">
+                      <span className="text-[10px] text-zinc-400 dark:text-zinc-500 font-medium hidden sm:inline">
+                        {b.banned ? "已禁止连接" : b.online ? "实时抓取就绪" : "等待连接"}
+                      </span>
+                      {isAuthenticated && (
+                        <HStack gap={1.5} vAlign="center">
+                          {b.banned ? (
+                            <Button
+                              onClick={() => handleUnban(b.conn_id, b.name)}
+                              size="sm"
+                              variant="ghost"
+                              label="解封"
+                            />
+                          ) : (
+                            <>
+                              {b.online && (
                                 <Button
-                                  onClick={() => handleBan(b.conn_id, b.name)}
+                                  onClick={() => handleKick(b.conn_id, b.name)}
                                   size="sm"
                                   variant="ghost"
-                                  className="h-7 text-xs text-rose-500 hover:text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 px-2 rounded-lg"
-                                >
-                                  封禁
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </CardContent>
+                                  label="断开"
+                                />
+                              )}
+                              <Button
+                                onClick={() => handleBan(b.conn_id, b.name)}
+                                size="sm"
+                                variant="ghost"
+                                label="封禁"
+                              />
+                            </>
+                          )}
+                        </HStack>
+                      )}
+                    </HStack>
+                  </div>
+                ))}
+              </div>
+            )}
           </Card>
         </div>
 
         {/* Register Device Form */}
         {isAuthenticated && (
-          <Card className="border border-black/5 dark:border-white/5 bg-white dark:bg-[#1c1c1e] shadow-sm rounded-2xl">
-            <CardHeader>
-              <CardTitle className="text-base font-bold flex items-center gap-2">
+          <Card>
+            <div className="border-b border-border p-6 bg-muted">
+              <h4 className="text-base font-bold flex items-center gap-2 text-primary">
                 <Plus className="w-5 h-5 text-indigo-500" />
                 注册新设备/浏览器
-              </CardTitle>
-              <CardDescription className="text-xs">
+              </h4>
+              <p className="text-xs text-secondary mt-1">
                 在 Grabby 服务中登记一个专用的设备连接标识（Connect ID），只有注册的设备 ID 才可以建立连接并接收网页抓取任务。
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              </p>
+            </div>
+            <div className="p-6">
               <form onSubmit={handleRegister} className="space-y-4 max-w-xl">
-              {message && (
-                <div className={`p-3 rounded-xl flex items-center gap-2 text-xs font-semibold ${
-                  message.type === "success" 
-                    ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400" 
-                    : "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400"
-                }`}>
-                  {message.type === "success" ? (
-                    <CheckCircle2 className="w-4 h-4 text-emerald-500" />
-                  ) : (
-                    <AlertCircle className="w-4 h-4 text-rose-500" />
-                  )}
-                  {message.text}
-                </div>
-              )}
+                {message && (
+                  <div className={`p-3 rounded-xl flex items-center gap-2 text-xs font-semibold ${
+                    message.type === "success" 
+                      ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/20 dark:text-emerald-400" 
+                      : "bg-rose-50 text-rose-700 dark:bg-rose-950/20 dark:text-rose-400"
+                  }`}>
+                    {message.type === "success" ? (
+                      <CheckCircle2 className="w-4 h-4 text-success" />
+                    ) : (
+                      <AlertCircle className="w-4 h-4 text-error" />
+                    )}
+                    {message.text}
+                  </div>
+                )}
 
-              <div className="grid md:grid-cols-2 gap-4">
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                    设备连接 ID (Connect ID) *
-                  </label>
-                  <Input
-                    placeholder="例如：ebb35609-5aef-472a-a4fd-50cbea38d8e4"
-                    value={connectId}
-                    onChange={(e) => setConnectId(e.target.value)}
-                    className="h-9 text-xs"
-                    required
+                <div className="grid md:grid-cols-2 gap-4">
+                  <VStack gap={1}>
+                    <TextInput
+                      label="设备连接 ID (Connect ID) *"
+                      placeholder="例如：ebb35609-5aef-472a-a4fd-50cbea38d8e4"
+                      value={connectId}
+                      onChange={setConnectId}
+                      isRequired
+                    />
+                    <p className="text-[10px] text-zinc-400 leading-normal">
+                      可在 Chrome 扩展设置面板中复制此 UUID 标识。
+                    </p>
+                  </VStack>
+
+                  <VStack gap={1}>
+                    <TextInput
+                      label="设备名称 (Device Name) *"
+                      placeholder="例如：brave, chrome-mac"
+                      value={deviceName}
+                      onChange={setDeviceName}
+                      isRequired
+                    />
+                    <p className="text-[10px] text-zinc-400 leading-normal">
+                      为此设备指定一个易读的标识名称。
+                    </p>
+                  </VStack>
+                </div>
+
+                <div className="pt-2 flex justify-end">
+                  <Button 
+                    type="submit" 
+                    isDisabled={isRegistering}
+                    isLoading={isRegistering}
+                    variant="primary"
+                    label="确认注册此设备"
+                    icon={<Plus className="w-3.5 h-3.5" />}
                   />
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    可在 Chrome 扩展设置面板中复制此 UUID 标识。
-                  </p>
                 </div>
-
-                <div className="space-y-1.5">
-                  <label className="text-xs font-bold text-zinc-600 dark:text-zinc-400">
-                    设备名称 (Device Name) *
-                  </label>
-                  <Input
-                    placeholder="例如：brave, chrome-mac, office-pc"
-                    value={deviceName}
-                    onChange={(e) => setDeviceName(e.target.value)}
-                    className="h-9 text-xs"
-                    required
-                  />
-                  <p className="text-[10px] text-zinc-400 leading-normal">
-                    为此设备指定一个易读的标识名称。
-                  </p>
-                </div>
-              </div>
-
-              <div className="pt-2 flex justify-end">
-                <Button 
-                  type="submit" 
-                  disabled={isRegistering}
-                  className="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-xs h-9 px-4 rounded-xl gap-1.5 shadow-md shadow-indigo-500/10"
-                >
-                  {isRegistering ? (
-                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                  ) : (
-                    <Plus className="w-3.5 h-3.5" />
-                  )}
-                  确认注册此设备
-                </Button>
-              </div>
               </form>
-            </CardContent>
+            </div>
           </Card>
         )}
-      </div>
+      </VStack>
     </div>
   );
 }

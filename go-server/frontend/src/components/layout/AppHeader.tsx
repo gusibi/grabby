@@ -1,5 +1,7 @@
 import { RefreshCw, Wifi, WifiOff, Plus, Loader2, LogOut } from "lucide-react";
-import { Button } from "@/components/ui/button";
+import { Button } from "@astryxdesign/core/Button";
+import { Heading } from "@astryxdesign/core/Text";
+import { useTranslation } from "@/lib/i18n";
 
 interface AppHeaderProps {
   currentView: import("@/types").AppView;
@@ -22,60 +24,65 @@ export function AppHeader({
   isAuthenticated,
   onLogout
 }: AppHeaderProps) {
+  const { t, language } = useTranslation();
+
   return (
-          <header className="h-14 flex items-center justify-between px-6 border-b border-black/5 dark:border-white/5 bg-white/80 dark:bg-[#1c1c1e]/80 backdrop-blur-md sticky top-0 z-10 shrink-0">
-            <div className="flex items-center gap-3">
-              <h2 className="text-lg font-bold tracking-tight">
-                {currentView === "grid" && "聚合发现 Discovery"}
-                {currentView === "settings" && "订阅数据源 Settings"}
-                {currentView === "ai-settings" && "AI 模型配置 Settings"}
-                {currentView === "logs" && "抓取执行日志 Logs"}
-                {currentView === "daily" && "AI 智能日报 Daily"}
-                {currentView === "device" && "设备与连接设置 Device"}
-              </h2>
-              <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-all ${
-                browserConnected 
-                  ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" 
-                  : "bg-amber-500/10 text-amber-600 dark:text-amber-400"
-              }`}>
-                {browserConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-                {browserConnected ? "插件已连接" : "插件未连接"}
-              </div>
-            </div>
+    <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-body sticky top-0 z-10 shrink-0">
+      <div className="flex items-center gap-3">
+        <Heading level={2}>
+          {currentView === "grid" && t("title.daily").split(" ")[0]}
+          {currentView === "settings" && t("title.sources")}
+          {currentView === "ai-settings" && t("title.aiSettings")}
+          {currentView === "logs" && t("title.logs")}
+          {currentView === "daily" && t("title.daily")}
+          {currentView === "device" && t("title.device")}
+          {currentView === "captures-extract" && t("title.extract")}
+          {currentView === "captures-twitter" && t("title.twitter")}
+        </Heading>
+        <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-all ${
+          browserConnected 
+            ? "bg-success/10 text-success" 
+            : "bg-warning/10 text-warning"
+        }`}>
+          {browserConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
+          {browserConnected 
+            ? (language === "zh" ? "插件已连接" : "Plugin Connected") 
+            : (language === "zh" ? "插件未连接" : "Plugin Offline")}
+        </div>
+      </div>
 
-            <div className="flex items-center gap-3">
-              {currentView === "settings" && isAuthenticated && (
-                <Button onClick={openAddSourceDialog} size="sm" className="bg-blue-600 hover:bg-blue-700 text-white font-medium gap-1.5 h-8 text-xs">
-                  <Plus className="w-3.5 h-3.5" /> 添加数据源
-                </Button>
-              )}
+      <div className="flex items-center gap-3">
+        {currentView === "settings" && isAuthenticated && (
+          <Button 
+            onClick={openAddSourceDialog} 
+            size="sm" 
+            variant="primary"
+            label={t("sources.add")}
+            icon={<Plus className="w-3.5 h-3.5" />}
+          />
+        )}
 
-              {currentView === "grid" && isAuthenticated && (
-                <Button 
-                  onClick={handleScrapeAllEnabled} 
-                  disabled={isScrapingAll}
-                  size="sm" 
-                  className="bg-blue-600 hover:bg-blue-700 text-white font-medium gap-1.5 h-8 text-xs"
-                >
-                  {isScrapingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-                  立即抓取数据
-                </Button>
-              )}
+        {currentView === "grid" && isAuthenticated && (
+          <Button 
+            onClick={handleScrapeAllEnabled} 
+            isDisabled={isScrapingAll}
+            size="sm" 
+            variant="primary"
+            label={t("btn.scrape")}
+            icon={isScrapingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+          />
+        )}
 
-              {authRequired && isAuthenticated && (
-                <Button
-                  onClick={onLogout}
-                  size="sm"
-                  variant="outline"
-                  className="h-8 text-xs gap-1.5 border-zinc-200 dark:border-zinc-800"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  退出
-                </Button>
-              )}
-            </div>
-          </header>
-
-          
+        {authRequired && isAuthenticated && (
+          <Button
+            onClick={onLogout}
+            size="sm"
+            variant="secondary"
+            label={t("nav.logout")}
+            icon={<LogOut className="w-3.5 h-3.5" />}
+          />
+        )}
+      </div>
+    </header>
   );
 }

@@ -17,7 +17,7 @@ http:
     type: json
     data: |-
       {
-        "url": "https://www.xiaohongshu.com/explore/691345f70000000003010c2b?xsec_token=ABADwXUo_Kq0PtaJCdZ-m__SnWnwJYPATbaoVqN6UomrQ=&xsec_source=pc_search"
+        "url": "https://www.xiaohongshu.com/explore/6a1a6a480000000007011dd2?xsec_token=ABPO_POjmWXSOMEfke3MyeK_CXROSbWeJBcD8i4Vj5XdU%3D&xsec_source=pc_search"
       }
   auth: inherit
 

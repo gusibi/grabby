@@ -1,5 +1,12 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import { useState, useEffect, useRef } from "react";
+import { Theme } from "@astryxdesign/core/theme";
+import { stoneTheme } from "@astryxdesign/theme-stone/built";
+import { neutralTheme } from "@astryxdesign/theme-neutral/built";
+import { matchaTheme } from "@astryxdesign/theme-matcha/built";
+import { gothicTheme } from "@astryxdesign/theme-gothic/built";
+import { AppShell } from "@astryxdesign/core/AppShell";
+import { Layout } from "@astryxdesign/core/Layout";
 import { Sidebar } from "@/components/layout/Sidebar";
 import { AppHeader } from "@/components/layout/AppHeader";
 import { GridView } from "@/features/items/GridView";
@@ -70,6 +77,15 @@ export default function App() {
   const [selectedSourceCategory, setSelectedSourceCategory] = useState<string>("all");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
+  const [themeId, setThemeId] = useState<string>(() => localStorage.getItem("grabby_theme") || "stone");
+
+  const themesMap: Record<string, any> = {
+    stone: stoneTheme,
+    neutral: neutralTheme,
+    matcha: matchaTheme,
+    gothic: gothicTheme,
+  };
+  const activeTheme = themesMap[themeId] || stoneTheme;
   const [browserConnected, setBrowserConnected] = useState<boolean>(false);
   const [authRequired, setAuthRequired] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
@@ -866,184 +882,196 @@ export default function App() {
 
 
   return (
-    <div className="flex w-screen h-screen bg-zinc-100 dark:bg-[#0f0f0f] text-zinc-900 dark:text-zinc-100 font-sans">
-      <div className="flex w-full h-full overflow-hidden bg-white dark:bg-[#1c1c1e] animate-fade-in">
-        
-        <Sidebar
-          isSidebarCollapsed={isSidebarCollapsed}
-          currentView={currentView}
-          setCurrentView={setCurrentView}
-          stats={stats}
-          fetchDailyReport={fetchDailyReport}
-          fetchReportList={fetchReportList}
-          fetchLogs={fetchLogs}
-          selectedSourceCategory={selectedSourceCategory}
-          setSelectedSourceCategory={setSelectedSourceCategory}
-          toggleDarkMode={toggleDarkMode}
-          darkMode={darkMode}
-          setIsSidebarCollapsed={setIsSidebarCollapsed}
-          authRequired={authRequired}
-          isAuthenticated={isAuthenticated}
-        />
-
-        <main className="flex-1 flex flex-col bg-zinc-50 dark:bg-[#121212] overflow-hidden relative">
-          
-          <AppHeader
+    <Theme theme={activeTheme} mode={darkMode ? "dark" : "light"}>
+      <AppShell
+        contentPadding={0}
+        sideNav={
+          <Sidebar
+            isSidebarCollapsed={isSidebarCollapsed}
             currentView={currentView}
-            browserConnected={browserConnected}
-            openAddSourceDialog={openAddSourceDialog}
-            handleScrapeAllEnabled={handleScrapeAllEnabled}
-            isScrapingAll={isScrapingAll}
+            setCurrentView={setCurrentView}
+            stats={stats}
+            fetchDailyReport={fetchDailyReport}
+            fetchReportList={fetchReportList}
+            fetchLogs={fetchLogs}
+            selectedSourceCategory={selectedSourceCategory}
+            setSelectedSourceCategory={setSelectedSourceCategory}
+            toggleDarkMode={toggleDarkMode}
+            darkMode={darkMode}
+            themeId={themeId}
+            onChangeTheme={(t) => {
+              setThemeId(t);
+              localStorage.setItem("grabby_theme", t);
+            }}
+            setIsSidebarCollapsed={setIsSidebarCollapsed}
             authRequired={authRequired}
             isAuthenticated={isAuthenticated}
-            onLogout={handleLogout}
           />
+        }
+      >
+        <Layout
+          height="fill"
+          content={
+            <div className="flex-1 flex flex-col overflow-hidden">
+              <AppHeader
+                currentView={currentView}
+                browserConnected={browserConnected}
+                openAddSourceDialog={openAddSourceDialog}
+                handleScrapeAllEnabled={handleScrapeAllEnabled}
+                isScrapingAll={isScrapingAll}
+                authRequired={authRequired}
+                isAuthenticated={isAuthenticated}
+                onLogout={handleLogout}
+              />
 
-          {currentView === "grid" && (
-            <GridView
-              items={items}
-              selectedAICategory={selectedAICategory}
-              isShowOnlyAIQuality={isShowOnlyAIQuality}
-              setSelectedAICategory={setSelectedAICategory}
-              setIsShowOnlyAIQuality={setIsShowOnlyAIQuality}
-              aiCategories={aiCategories}
-              searchQuery={searchQuery}
-              setSearchQuery={setSearchQuery}
-              setCurrentView={setCurrentView}
-              handleSelectItem={handleSelectItem}
-              toggleStar={toggleStar}
-              hasMore={hasMore}
-              currentPage={currentPage}
-              readItemIds={readItemIds}
-              handlePreviousPage={handlePreviousPage}
-              handleNextPage={handleNextPage}
-              isLoadingItems={isLoadingItems}
-            />
-          )}
+              <div className="flex-1 flex overflow-hidden">
+                {currentView === "grid" && (
+                  <GridView
+                    items={items}
+                    selectedAICategory={selectedAICategory}
+                    isShowOnlyAIQuality={isShowOnlyAIQuality}
+                    setSelectedAICategory={setSelectedAICategory}
+                    setIsShowOnlyAIQuality={setIsShowOnlyAIQuality}
+                    aiCategories={aiCategories}
+                    searchQuery={searchQuery}
+                    setSearchQuery={setSearchQuery}
+                    setCurrentView={setCurrentView}
+                    handleSelectItem={handleSelectItem}
+                    toggleStar={toggleStar}
+                    hasMore={hasMore}
+                    currentPage={currentPage}
+                    readItemIds={readItemIds}
+                    handlePreviousPage={handlePreviousPage}
+                    handleNextPage={handleNextPage}
+                    isLoadingItems={isLoadingItems}
+                  />
+                )}
 
-          <ItemDetailModal
-            item={selectedItem}
-            isOpen={selectedItem !== null}
-            onClose={() => setSelectedItem(null)}
-            isLoadingDetail={isLoadingDetail}
-            itemDetailHtml={itemDetailHtml}
-            toggleStar={toggleStar}
-          />
+                <ItemDetailModal
+                  item={selectedItem}
+                  isOpen={selectedItem !== null}
+                  onClose={() => setSelectedItem(null)}
+                  isLoadingDetail={isLoadingDetail}
+                  itemDetailHtml={itemDetailHtml}
+                  toggleStar={toggleStar}
+                />
 
-          {currentView === "settings" && (
-            <SourcesView
-              sources={sources}
-              handleToggleSourceEnabled={handleToggleSourceEnabled}
-              handleRunSource={handleRunSource}
-              openEditSourceDialog={openEditSourceDialog}
-              handleDeleteSource={handleDeleteSource}
-              isAuthenticated={isAuthenticated}
-            />
-          )}
+                {currentView === "settings" && (
+                  <SourcesView
+                    sources={sources}
+                    handleToggleSourceEnabled={handleToggleSourceEnabled}
+                    handleRunSource={handleRunSource}
+                    openEditSourceDialog={openEditSourceDialog}
+                    handleDeleteSource={handleDeleteSource}
+                    isAuthenticated={isAuthenticated}
+                  />
+                )}
 
-          {currentView === "ai-settings" && (
-            <AISettingsView
-              isLoadingSettings={isLoadingSettings}
-              handleStartEvaluation={handleStartEvaluation}
-              aiEnabled={aiEnabled}
-              setAiEnabled={setAiEnabled}
-              activeProfileId={activeProfileId}
-              handleSelectAIProfile={handleSelectAIProfile}
-              aiProfiles={aiProfiles}
-              handleAddAIProfile={handleAddAIProfile}
-              handleDeleteAIProfile={handleDeleteAIProfile}
-              aiStrategy={aiStrategy}
-              setAiStrategy={setAiStrategy}
-              setAiProfiles={setAiProfiles}
-              aiProfileName={aiProfileName}
-              handleProfileNameChange={handleProfileNameChange}
-              aiProvider={aiProvider}
-              setAiProvider={setAiProvider}
-              aiQualityThreshold={aiQualityThreshold}
-              setAiQualityThreshold={setAiQualityThreshold}
-              aiModel={aiModel}
-              setAiModel={setAiModel}
-              aiApiKey={aiApiKey}
-              setAiApiKey={setAiApiKey}
-              aiRequestsPerMinute={aiRequestsPerMinute}
-              setAiRequestsPerMinute={setAiRequestsPerMinute}
-              aiBaseUrl={aiBaseUrl}
-              setAiBaseUrl={setAiBaseUrl}
-              aiSystemPrompt={aiSystemPrompt}
-              setAiSystemPrompt={setAiSystemPrompt}
-              aiDailyPrompt={aiDailyPrompt}
-              setAiDailyPrompt={setAiDailyPrompt}
-              morningReportEnabled={morningReportEnabled}
-              setMorningReportEnabled={setMorningReportEnabled}
-              morningReportTime={morningReportTime}
-              setMorningReportTime={setMorningReportTime}
-              eveningReportEnabled={eveningReportEnabled}
-              setEveningReportEnabled={setEveningReportEnabled}
-              eveningReportTime={eveningReportTime}
-              setEveningReportTime={setEveningReportTime}
-              aiTestResult={aiTestResult}
-              handleTestAI={handleTestAI}
-              isTestingAI={isTestingAI}
-              isSavingSettings={isSavingSettings}
-              saveAISettings={saveAISettings}
-              isAuthenticated={isAuthenticated}
-            />
-          )}
+                {currentView === "ai-settings" && (
+                  <AISettingsView
+                    isLoadingSettings={isLoadingSettings}
+                    handleStartEvaluation={handleStartEvaluation}
+                    aiEnabled={aiEnabled}
+                    setAiEnabled={setAiEnabled}
+                    activeProfileId={activeProfileId}
+                    handleSelectAIProfile={handleSelectAIProfile}
+                    aiProfiles={aiProfiles}
+                    handleAddAIProfile={handleAddAIProfile}
+                    handleDeleteAIProfile={handleDeleteAIProfile}
+                    aiStrategy={aiStrategy}
+                    setAiStrategy={setAiStrategy}
+                    setAiProfiles={setAiProfiles}
+                    aiProfileName={aiProfileName}
+                    handleProfileNameChange={handleProfileNameChange}
+                    aiProvider={aiProvider}
+                    setAiProvider={setAiProvider}
+                    aiQualityThreshold={aiQualityThreshold}
+                    setAiQualityThreshold={setAiQualityThreshold}
+                    aiModel={aiModel}
+                    setAiModel={setAiModel}
+                    aiApiKey={aiApiKey}
+                    setAiApiKey={setAiApiKey}
+                    aiRequestsPerMinute={aiRequestsPerMinute}
+                    setAiRequestsPerMinute={setAiRequestsPerMinute}
+                    aiBaseUrl={aiBaseUrl}
+                    setAiBaseUrl={setAiBaseUrl}
+                    aiSystemPrompt={aiSystemPrompt}
+                    setAiSystemPrompt={setAiSystemPrompt}
+                    aiDailyPrompt={aiDailyPrompt}
+                    setAiDailyPrompt={setAiDailyPrompt}
+                    morningReportEnabled={morningReportEnabled}
+                    setMorningReportEnabled={setMorningReportEnabled}
+                    morningReportTime={morningReportTime}
+                    setMorningReportTime={setMorningReportTime}
+                    eveningReportEnabled={eveningReportEnabled}
+                    setEveningReportEnabled={setEveningReportEnabled}
+                    eveningReportTime={eveningReportTime}
+                    setEveningReportTime={setEveningReportTime}
+                    aiTestResult={aiTestResult}
+                    handleTestAI={handleTestAI}
+                    isTestingAI={isTestingAI}
+                    isSavingSettings={isSavingSettings}
+                    saveAISettings={saveAISettings}
+                    isAuthenticated={isAuthenticated}
+                  />
+                )}
 
-          {currentView === "logs" && (
-            <LogsView fetchLogs={fetchLogs} logs={logs} />
-          )}
+                {currentView === "logs" && (
+                  <LogsView fetchLogs={fetchLogs} logs={logs} />
+                )}
 
-          {currentView === "daily" && (
-            <DailyReportView
-              dailyReport={dailyReport}
-              dailyReportHtml={dailyReportHtml}
-              selectedReportDate={selectedReportDate}
-              setSelectedReportDate={setSelectedReportDate}
-              fetchDailyReport={fetchDailyReport}
-              handleGenerateDailyReport={handleGenerateDailyReport}
-              isGeneratingReport={isGeneratingReport}
-              reportList={reportList}
-              selectedReportType={selectedReportType}
-              setSelectedReportType={setSelectedReportType}
-              isAuthenticated={isAuthenticated}
-            />
-          )}
+                {currentView === "daily" && (
+                  <DailyReportView
+                    dailyReport={dailyReport}
+                    dailyReportHtml={dailyReportHtml}
+                    selectedReportDate={selectedReportDate}
+                    setSelectedReportDate={setSelectedReportDate}
+                    fetchDailyReport={fetchDailyReport}
+                    handleGenerateDailyReport={handleGenerateDailyReport}
+                    isGeneratingReport={isGeneratingReport}
+                    reportList={reportList}
+                    selectedReportType={selectedReportType}
+                    setSelectedReportType={setSelectedReportType}
+                    isAuthenticated={isAuthenticated}
+                  />
+                )}
 
-          {currentView === "device" && (
-            <DeviceSettingsView isAuthenticated={isAuthenticated} />
-          )}
+                {currentView === "device" && (
+                  <DeviceSettingsView isAuthenticated={isAuthenticated} />
+                )}
 
-          {currentView === "captures-extract" && (
-            <ExtractCapturesView />
-          )}
+                {currentView === "captures-extract" && (
+                  <ExtractCapturesView />
+                )}
 
-          {currentView === "captures-twitter" && (
-            <TwitterCapturesView />
-          )}
-
-        </main>
-      </div>
-
-      <SourceDialog
-        isSourceDialogOpen={isSourceDialogOpen}
-        setIsSourceDialogOpen={setIsSourceDialogOpen}
-        handleSaveSource={handleSaveSource}
-        editingSource={editingSource}
-        formError={formError}
-        sourceForm={sourceForm}
-        setSourceForm={setSourceForm}
-      />
-      <AuthDialog
-        open={isAuthDialogOpen}
-        onOpenChange={setIsAuthDialogOpen}
-        onAuthenticated={() => {
-          fetchAuthSession();
-          if (isLoginPath()) {
-            window.history.replaceState(null, "", "/#/grid");
+                {currentView === "captures-twitter" && (
+                  <TwitterCapturesView />
+                )}
+              </div>
+            </div>
           }
-        }}
-      />
-    </div>
+        />
+
+        <SourceDialog
+          isSourceDialogOpen={isSourceDialogOpen}
+          setIsSourceDialogOpen={setIsSourceDialogOpen}
+          handleSaveSource={handleSaveSource}
+          editingSource={editingSource}
+          formError={formError}
+          sourceForm={sourceForm}
+          setSourceForm={setSourceForm}
+        />
+        <AuthDialog
+          open={isAuthDialogOpen}
+          onOpenChange={setIsAuthDialogOpen}
+          onAuthenticated={() => {
+            fetchAuthSession();
+            if (isLoginPath()) {
+              window.history.replaceState(null, "", "/#/grid");
+            }
+          }}
+        />
+      </AppShell>
+    </Theme>
   );
 }

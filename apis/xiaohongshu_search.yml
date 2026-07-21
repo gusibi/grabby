@@ -17,7 +17,7 @@ http:
     type: json
     data: |-
       {
-        "query": "golang",
+        "query": "AI SKILL",
         "limit": 50
       }
   auth: inherit

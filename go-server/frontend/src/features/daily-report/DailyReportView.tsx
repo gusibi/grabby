@@ -1,7 +1,10 @@
 import * as React from "react";
-import { RefreshCw, Loader2, Sparkles, Rss, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { RefreshCw, Sparkles, Rss, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { Button } from "@astryxdesign/core/Button";
+import { Card } from "@astryxdesign/core/Card";
+import { Badge } from "@astryxdesign/core/Badge";
+import { Spinner } from "@astryxdesign/core/Spinner";
+import { VStack, HStack } from "@astryxdesign/core/Layout";
 import { parseDailyReportContent } from "@/lib/daily-report";
 import { JsonDailyReportView } from "./JsonDailyReportView";
 import type { DailyReport, ReportListItem } from "@/types";
@@ -91,7 +94,6 @@ export function DailyReportView({
     setIsBusy(true);
     try {
       const todayStr = getLocalDateString();
-      // Backfill last 7 days
       for (let i = 6; i >= 0; i--) {
         const d = getShiftedDate(todayStr, -i);
         const isToday = d === todayStr;
@@ -157,41 +159,41 @@ export function DailyReportView({
   return (
     <div className="flex-1 flex overflow-hidden">
       {/* ── Left Panel: Navigation ── */}
-      <div className="w-60 shrink-0 border-r border-black/5 dark:border-white/5 flex flex-col overflow-hidden bg-white dark:bg-[#1c1c1e]">
+      <div className="w-60 shrink-0 border-r border-border flex flex-col overflow-hidden bg-surface">
         {/* Date Navigation */}
-        <div className="p-3 border-b border-black/5 dark:border-white/5 space-y-2">
-          <div className="flex items-center gap-1">
-            <button
+        <VStack gap={2} className="p-3 border-b border-border">
+          <HStack gap={1} vAlign="center" hAlign="between">
+            <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              label="前一天"
+              icon={<ChevronLeft className="w-4 h-4" />}
               onClick={() => goToDate(prevDate)}
-              className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors"
-              title="前一天"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
+            />
+            <VStack 
               onClick={() => !isAtToday && goToDate(today)}
-              className={`flex-1 px-2 py-1.5 rounded-lg text-center transition-colors ${
-                !isAtToday
-                  ? "hover:bg-zinc-100 dark:hover:bg-zinc-800 cursor-pointer"
-                  : "cursor-default"
+              className={`flex-1 text-center cursor-pointer p-1 rounded hover:bg-muted ${
+                isAtToday ? "cursor-default pointer-events-none" : ""
               }`}
             >
-              <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 leading-tight">
+              <span className="text-xs font-bold text-primary">
                 {formatDisplayDate(selectedReportDate)}
-              </div>
+              </span>
               {!isAtToday && (
-                <div className="text-[10px] text-indigo-500 mt-0.5">← 回到今天</div>
+                <span className="text-[9px] text-indigo-500">← 回到今天</span>
               )}
-            </button>
-            <button
+            </VStack>
+            <Button
+              variant="ghost"
+              size="sm"
+              isIconOnly
+              label="后一天"
+              icon={<ChevronRight className="w-4 h-4" />}
               onClick={() => goToDate(nextDate)}
-              disabled={isAtToday}
-              className="p-1.5 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-              title="后一天"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+              isDisabled={isAtToday}
+            />
+          </HStack>
 
           {/* Quick day pills — last 7 days */}
           <div className="grid grid-cols-7 gap-0.5">
@@ -226,12 +228,12 @@ export function DailyReportView({
             value={selectedReportDate}
             max={today}
             onChange={(e) => e.target.value && goToDate(e.target.value)}
-            className="w-full h-7 text-[11px] px-2 rounded-lg border border-black/5 dark:border-white/5 bg-zinc-50 dark:bg-zinc-900 text-zinc-500 dark:text-zinc-400 cursor-pointer focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
+            className="w-full h-7 text-[11px] px-2 rounded-lg border border-border bg-muted text-secondary cursor-pointer focus:outline-none"
           />
-        </div>
+        </VStack>
 
         {/* Report type tabs */}
-        <div className="p-2 border-b border-black/5 dark:border-white/5 grid grid-cols-4 gap-1">
+        <div className="p-2 border-b border-border grid grid-cols-3 gap-1">
           {REPORT_TABS.map((tab) => (
             <button
               key={tab.key}
@@ -297,8 +299,8 @@ export function DailyReportView({
       </div>
 
       {/* ── Center: Report Content ── */}
-      <div className="flex-1 overflow-y-auto bg-zinc-50/50 dark:bg-[#121212] min-w-0">
-        <div className="max-w-3xl mx-auto p-6 pb-12 space-y-5">
+      <div className="flex-1 overflow-y-auto bg-body min-w-0">
+        <VStack gap={5} className="max-w-3xl mx-auto p-6 pb-12">
           <div>
             <h3 className="text-lg font-black tracking-tight flex items-center gap-2 text-indigo-950 dark:text-white">
               <Sparkles className="w-5 h-5 text-indigo-500" />
@@ -310,9 +312,9 @@ export function DailyReportView({
           </div>
 
           {dailyReport ? (
-            <Card className="border border-indigo-500/10 bg-white dark:bg-[#1c1c1e] shadow-md rounded-2xl overflow-hidden">
-              <CardHeader className="border-b border-black/5 dark:border-white/5 p-6 bg-indigo-50/20 dark:bg-indigo-950/10">
-                <CardTitle className="text-lg font-extrabold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+            <Card className="overflow-hidden">
+              <div className="border-b border-border p-6 bg-muted">
+                <h4 className="text-lg font-extrabold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
                   <span>
                     {dailyReport.report_type === "morning"
                       ? "🌅"
@@ -321,13 +323,13 @@ export function DailyReportView({
                       : "📰"}
                   </span>
                   {dailyReport.title}
-                </CardTitle>
-                <CardDescription className="text-xs text-indigo-600/80 dark:text-indigo-400/80 flex flex-wrap gap-x-4 gap-y-1 mt-1">
+                </h4>
+                <div className="text-xs text-indigo-600/80 dark:text-indigo-400/80 flex flex-wrap gap-x-4 gap-y-1 mt-1">
                   <span>生成时间: {new Date(dailyReport.generated_at).toLocaleString()}</span>
                   <span>使用模型: {dailyReport.model_used}</span>
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-6 md:p-8 space-y-6">
+                </div>
+              </div>
+              <div className="p-6 md:p-8">
                 {(() => {
                   const reportData = parseDailyReportContent(dailyReport?.content);
                   if (reportData) {
@@ -344,83 +346,73 @@ export function DailyReportView({
                     />
                   );
                 })()}
-              </CardContent>
+              </div>
             </Card>
           ) : (
-            <div className="flex flex-col items-center justify-center text-zinc-400 py-32 bg-white dark:bg-[#1c1c1e] rounded-2xl border border-black/5 dark:border-white/5">
-              <Calendar className="w-12 h-12 mb-2 stroke-1 text-zinc-300" />
+            <VStack gap={3} hAlign="center" vAlign="center" className="py-32 bg-surface rounded-2xl border border-border">
+              <Calendar className="w-12 h-12 stroke-1 text-zinc-300" />
               <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
                 该日期暂无日报内容
               </p>
               <p className="text-xs text-zinc-500 mt-1 text-center px-4">
                 选择日期后点击右侧"生成日报"按钮生成
               </p>
-            </div>
+            </VStack>
           )}
-        </div>
+        </VStack>
       </div>
 
       {/* ── Right Panel: Actions & Stats ── */}
-      <div className="w-52 shrink-0 border-l border-black/5 dark:border-white/5 flex flex-col overflow-y-auto bg-white dark:bg-[#1c1c1e]">
-        <div className="p-4 space-y-5">
+      <div className="w-52 shrink-0 border-l border-border flex flex-col overflow-y-auto bg-surface">
+        <VStack gap={5} className="p-4">
           {isAuthenticated && (
-            <div className="space-y-2">
-              <div className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+            <VStack gap={2}>
+              <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                 生成操作
-              </div>
+              </span>
               <Button
                 onClick={() => handleGenerateDailyReport("morning")}
-                disabled={loading}
+                isDisabled={loading}
+                isLoading={loading && selectedReportType === "morning"}
                 size="sm"
-                className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
-              >
-                {loading && selectedReportType === "morning" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  "🌅 生成早报"
-                )}
-              </Button>
+                variant="primary"
+                label="🌅 生成早报"
+              />
               <Button
                 onClick={() => handleGenerateDailyReport("evening")}
-                disabled={loading}
+                isDisabled={loading}
+                isLoading={loading && selectedReportType === "evening"}
                 size="sm"
-                className="w-full h-8 gap-1 text-xs font-semibold bg-indigo-600 hover:bg-indigo-700 text-white font-bold"
-              >
-                {loading && selectedReportType === "evening" ? (
-                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                ) : (
-                  "🌙 生成晚报"
-                )}
-              </Button>
+                variant="primary"
+                label="🌙 生成晚报"
+              />
               <Button
                 onClick={handleGenerateBoth}
-                disabled={loading}
+                isDisabled={loading}
+                isLoading={isBusy}
                 size="sm"
-                variant="outline"
-                className="w-full h-8 gap-1 text-xs font-semibold"
-              >
-                {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "📋 生成早+晚报"}
-              </Button>
+                variant="secondary"
+                label="📋 生成早+晚报"
+              />
               <Button
                 onClick={handleBackfill}
-                disabled={loading}
+                isDisabled={loading}
+                isLoading={isBusy}
                 size="sm"
-                variant="outline"
-                className="w-full h-8 gap-1 text-xs font-semibold text-zinc-600 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
-              >
-                {isBusy ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : "🔄 补齐历史早/晚报"}
-              </Button>
-            </div>
+                variant="secondary"
+                label="🔄 补齐历史早/晚报"
+              />
+            </VStack>
           )}
 
           {/* Stats */}
           {dailyReport && (
-            <div className="space-y-2">
-              <div className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+            <VStack gap={2}>
+              <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
                 数据概览
-              </div>
-              <div className="space-y-1.5">
-                <div className="bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2 rounded-xl">
+              </span>
+              <VStack gap={1.5}>
+                <div className="bg-muted px-3 py-2 rounded-xl">
                   <div className="text-[10px] text-zinc-400 font-bold uppercase">全天处理</div>
                   <div className="text-base font-black text-zinc-900 dark:text-zinc-100">
                     {dailyReport.total_items} 条
@@ -432,13 +424,13 @@ export function DailyReportView({
                     {dailyReport.quality_items} 条
                   </div>
                 </div>
-                <div className="bg-zinc-50 dark:bg-zinc-900/40 px-3 py-2 rounded-xl">
+                <div className="bg-muted px-3 py-2 rounded-xl">
                   <div className="text-[10px] text-zinc-400 font-bold uppercase">质量占比</div>
                   <div className="text-base font-black text-zinc-900 dark:text-zinc-100">
                     {qualityPct}%
                   </div>
                 </div>
-              </div>
+              </VStack>
               <div className="text-[10px] text-zinc-400 space-y-0.5 pt-0.5">
                 <div>
                   模型:{" "}
@@ -451,25 +443,25 @@ export function DailyReportView({
                   </span>
                 </div>
               </div>
-            </div>
+            </VStack>
           )}
 
           {/* RSS */}
-          <div className="space-y-2">
-            <div className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
+          <VStack gap={2}>
+            <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
               订阅
-            </div>
-            <a
+            </span>
+            <Button
               href="/open/api/ai/daily/rss"
               target="_blank"
               rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3 py-2 rounded-xl bg-orange-50 dark:bg-orange-900/10 text-orange-600 dark:text-orange-400 text-xs font-semibold hover:bg-orange-100 dark:hover:bg-orange-900/20 transition-colors no-underline"
-            >
-              <Rss className="w-3.5 h-3.5 shrink-0" />
-              RSS 订阅日报
-            </a>
-          </div>
-        </div>
+              variant="secondary"
+              size="sm"
+              label="RSS 订阅日报"
+              icon={<Rss className="w-3.5 h-3.5 shrink-0 text-orange-500" />}
+            />
+          </VStack>
+        </VStack>
       </div>
     </div>
   );

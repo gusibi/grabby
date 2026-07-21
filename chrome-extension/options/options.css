@@ -1,379 +1,472 @@
 /**
- * 选项页面样式
+ * 选项页面样式 - Astryx Design 风格
  * 定义设置页面的样式
  */
 
 :root {
-    --primary-color: #2196F3;
-    --secondary-color: #607D8B;
-    --success-color: #4CAF50;
-    --danger-color: #F44336;
-    --text-color: #333;
-    --light-text: #757575;
-    --border-color: #E0E0E0;
-    --bg-color: #F5F5F5;
-    --card-bg: #FFFFFF;
+  --primary-color: #28282A;
+  --primary-color-hover: #1e1e20;
+  --secondary-color: #5e5e5e;
+  --secondary-color-hover: #4e4e4e;
+  --success-color: #7f977e;
+  --danger-color: #a58b86;
+  --text-color: #28282A;
+  --light-text: #5e5e5e;
+  --border-color: #e8e8eb;
+  --border-color-hover: #d8d8db;
+  --bg-color: #f3f3f5;
+  --card-bg: #FFFFFF;
+  --success-bg: rgba(127, 151, 126, 0.15);
+  --success-text: #4e634c;
+  --danger-bg: rgba(165, 139, 134, 0.15);
+  --danger-text: #755752;
+  --font-family-body: Montserrat, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --primary-color: #d8d8db;
+    --primary-color-hover: #e8e8eb;
+    --secondary-color: #ababb0;
+    --secondary-color-hover: #bcbcbf;
+    --success-color: #99b298;
+    --danger-color: #c0a5a1;
+    --text-color: #d8d8db;
+    --light-text: #ababb0;
+    --border-color: #2c2c2e;
+    --border-color-hover: #3a3a3c;
+    --bg-color: #171719;
+    --card-bg: #1c1c1e;
+    --success-bg: rgba(153, 178, 152, 0.2);
+    --success-text: #9bb19a;
+    --danger-bg: rgba(192, 165, 161, 0.2);
+    --danger-text: #c7a39d;
+  }
 }
 
 * {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    line-height: 1.6;
-    color: var(--text-color);
-    background-color: var(--bg-color);
-    padding: 20px;
+  font-family: var(--font-family-body);
+  line-height: 1.6;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  padding: 24px;
+  font-size: 13px;
 }
 
 .container {
-    max-width: 800px;
-    margin: 0 auto;
-    background-color: var(--card-bg);
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
+  max-width: 800px;
+  margin: 0 auto;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.02);
+  overflow: hidden;
 }
 
 header {
-    background-color: var(--primary-color);
-    color: white;
-    padding: 20px;
-    text-align: center;
+  border-bottom: 1px solid var(--border-color);
+  padding: 24px;
+  background-color: var(--card-bg);
 }
 
 h1 {
-    font-size: 24px;
-    margin-bottom: 5px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
 }
 
 .subtitle {
-    font-size: 14px;
-    opacity: 0.8;
+  font-size: 12px;
+  color: var(--light-text);
+  margin-top: 4px;
 }
 
 .settings-form {
-    padding: 20px;
+  padding: 24px;
 }
 
 .form-section {
-    margin-bottom: 30px;
-    padding-bottom: 20px;
-    border-bottom: 1px solid var(--border-color);
+  margin-bottom: 32px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border-color);
 }
 
 .form-section:last-child {
-    border-bottom: none;
-    margin-bottom: 0;
-    padding-bottom: 0;
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
 }
 
 .section-title {
-    font-size: 18px;
-    margin-bottom: 15px;
-    color: var(--primary-color);
-    display: flex;
-    align-items: center;
+  font-size: 15px;
+  font-weight: 700;
+  margin-bottom: 20px;
+  color: var(--text-color);
+  display: flex;
+  align-items: center;
+  letter-spacing: -0.2px;
 }
 
 .section-title .icon {
-    margin-right: 8px;
-    font-size: 20px;
+  margin-right: 8px;
+  font-size: 16px;
 }
 
 .form-group {
-    margin-bottom: 15px;
+  margin-bottom: 20px;
+}
+
+.form-group:last-child {
+  margin-bottom: 0;
 }
 
 label {
-    display: block;
-    margin-bottom: 5px;
-    font-weight: 500;
+  display: block;
+  margin-bottom: 6px;
+  font-weight: 600;
+  color: var(--text-color);
 }
 
 input[type="text"],
 input[type="password"],
-select {
-    width: 100%;
-    padding: 10px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    font-size: 14px;
-    transition: border-color 0.3s;
+select,
+textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 13px;
+  font-family: inherit;
+  color: var(--text-color);
+  background-color: var(--bg-color);
+  transition: all 0.15s ease;
 }
 
 input[type="text"]:focus,
 input[type="password"]:focus,
-select:focus {
-    border-color: var(--primary-color);
-    outline: none;
+select:focus,
+textarea:focus {
+  border-color: var(--primary-color);
+  outline: none;
+  box-shadow: 0 0 0 2px var(--border-color);
+}
+
+small {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--light-text);
 }
 
 .range-container {
-    display: flex;
-    align-items: center;
+  display: flex;
+  align-items: center;
+  gap: 12px;
 }
 
 input[type="range"] {
-    flex: 1;
-    height: 5px;
-    -webkit-appearance: none;
-    background: #ddd;
-    outline: none;
-    border-radius: 5px;
+  flex: 1;
+  height: 6px;
+  -webkit-appearance: none;
+  background: var(--border-color);
+  outline: none;
+  border-radius: 3px;
 }
 
 input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 18px;
-    height: 18px;
-    background: var(--primary-color);
-    border-radius: 50%;
-    cursor: pointer;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 0.1s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
 }
 
 .range-value {
-    min-width: 40px;
-    text-align: center;
-    margin-left: 10px;
-    font-weight: bold;
-    color: var(--primary-color);
+  min-width: 32px;
+  text-align: center;
+  font-weight: bold;
+  color: var(--primary-color);
 }
 
 .input-with-button {
-    display: flex;
-    gap: 8px;
+  display: flex;
+  gap: 8px;
 }
 
 .input-with-button input {
-    flex: 1;
+  flex: 1;
 }
 
 .input-with-button .btn {
-    white-space: nowrap;
-    flex-shrink: 0;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .checkbox-group {
-    display: flex;
-    align-items: center;
-    margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .checkbox-group input[type="checkbox"] {
-    margin-right: 10px;
+  accent-color: var(--primary-color);
+  cursor: pointer;
+}
+
+.checkbox-group label {
+  margin-bottom: 0;
+  font-weight: 500;
+  cursor: pointer;
 }
 
 .actions {
-    display: flex;
-    justify-content: space-between;
-    padding: 20px;
-    background-color: #f9f9f9;
-    border-top: 1px solid var(--border-color);
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 20px 24px;
+  background-color: var(--bg-color);
+  border-top: 1px solid var(--border-color);
 }
 
 .btn {
-    padding: 10px 20px;
-    border: none;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: background-color 0.3s, transform 0.1s;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 16px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
 }
 
 .btn:active {
-    transform: translateY(1px);
+  transform: translateY(1px);
 }
 
 .btn.primary {
-    background-color: var(--primary-color);
-    color: white;
+  background-color: var(--primary-color);
+  color: var(--bg-color);
 }
 
 .btn.primary:hover {
-    background-color: #1976D2;
+  opacity: 0.9;
 }
 
 .btn.secondary {
-    background-color: var(--secondary-color);
-    color: white;
+  background-color: var(--card-bg);
+  border-color: var(--border-color);
+  color: var(--text-color);
 }
 
 .btn.secondary:hover {
-    background-color: #546E7A;
+  border-color: var(--border-color-hover);
+  background-color: var(--bg-color);
 }
 
 .btn.danger {
-    background-color: var(--danger-color);
-    color: white;
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
 }
 
 .btn.danger:hover {
-    background-color: #D32F2F;
+  opacity: 0.85;
 }
 
 .notification {
-    padding: 10px 15px;
-    border-radius: 4px;
-    margin-top: 20px;
-    display: none;
+  padding: 12px 16px;
+  border-radius: 6px;
+  margin-top: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  display: none;
 }
 
 .notification.success {
-    background-color: #E8F5E9;
-    color: #2E7D32;
-    border: 1px solid #C8E6C9;
+  background-color: var(--success-bg);
+  color: var(--success-text);
+  border: 1px solid var(--success-color);
 }
 
 .notification.error {
-    background-color: #FFEBEE;
-    color: #C62828;
-    border: 1px solid #FFCDD2;
+  background-color: var(--danger-bg);
+  color: var(--danger-text);
+  border: 1px solid var(--danger-color);
 }
 
 /* 规则管理对话框样式 */
 .dialog-overlay {
-    display: none;
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background-color: rgba(0, 0, 0, 0.5);
-    z-index: 1000;
-    justify-content: center;
-    align-items: center;
+  display: none;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(2px);
+  z-index: 1000;
+  justify-content: center;
+  align-items: center;
 }
 
 .dialog {
-    background-color: white;
-    border-radius: 8px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
-    width: 90%;
-    max-width: 700px;
-    max-height: 90vh;
-    overflow: hidden;
-    display: flex;
-    flex-direction: column;
+  background-color: var(--card-bg);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.08);
+  width: 90%;
+  max-width: 700px;
+  max-height: 90vh;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .dialog-header {
-    padding: 15px 20px;
-    background-color: var(--primary-color);
-    color: white;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--border-color);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
 }
 
 .dialog-title {
-    font-size: 18px;
-    font-weight: 500;
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-color);
 }
 
 .dialog-close {
-    background: none;
-    border: none;
-    color: white;
-    font-size: 20px;
-    cursor: pointer;
+  background: none;
+  border: none;
+  color: var(--light-text);
+  font-size: 20px;
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.dialog-close:hover {
+  color: var(--text-color);
 }
 
 .dialog-content {
-    padding: 20px;
-    overflow-y: auto;
-    flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+  flex: 1;
 }
 
 .rules-list {
-    list-style: none;
-    margin-bottom: 20px;
+  list-style: none;
+  margin-bottom: 20px;
 }
 
 .rules-list li {
-    padding: 15px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    margin-bottom: 10px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+  padding: 12px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background-color: var(--bg-color);
 }
 
 .rules-list .empty-item {
-    color: var(--light-text);
-    text-align: center;
-    padding: 30px 15px;
+  color: var(--light-text);
+  text-align: center;
+  padding: 30px 15px;
+  border: 1px dashed var(--border-color);
+  border-radius: 8px;
+  background-color: transparent;
 }
 
 .rule-info {
-    flex: 1;
+  flex: 1;
 }
 
 .rule-name {
-    font-weight: 500;
-    display: block;
-    margin-bottom: 5px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+  font-size: 13px;
 }
 
 .rule-pattern {
-    font-size: 13px;
-    color: var(--light-text);
-    display: block;
+  font-size: 11px;
+  color: var(--light-text);
+  display: block;
+  font-family: monospace;
 }
 
 .rule-actions {
-    display: flex;
-    gap: 10px;
+  display: flex;
+  gap: 8px;
 }
 
 .btn.small {
-    padding: 5px 10px;
-    font-size: 12px;
+  padding: 4px 8px;
+  font-size: 11px;
+  border-radius: 4px;
 }
 
 /* 规则表单样式 */
 .rule-form {
-    display: none;
-    background-color: #f5f5f5;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    padding: 20px;
-    margin-top: 20px;
+  display: none;
+  background-color: var(--bg-color);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 16px;
+  margin-top: 20px;
 }
 
 .rule-form-title {
-    font-size: 16px;
-    margin-bottom: 15px;
-    color: var(--primary-color);
+  font-size: 14px;
+  font-weight: 700;
+  margin-bottom: 15px;
+  color: var(--text-color);
 }
 
 .selector-inputs {
-    margin-bottom: 15px;
+  margin-bottom: 15px;
 }
 
 .selector-field {
-    display: flex;
-    gap: 10px;
-    margin-bottom: 10px;
-    align-items: center;
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: center;
 }
 
 .selector-key,
 .selector-value {
-    flex: 1;
-    padding: 8px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
+  flex: 1;
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  background-color: var(--card-bg);
+  color: var(--text-color);
+  font-family: inherit;
+  font-size: 12px;
 }
 
 .rule-form-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-    margin-top: 20px;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
 }

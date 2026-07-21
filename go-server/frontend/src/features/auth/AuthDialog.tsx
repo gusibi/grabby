@@ -1,15 +1,9 @@
 import * as React from "react";
-import { Loader2, KeyRound } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
+import { KeyRound } from "lucide-react";
+import { Dialog, DialogHeader } from "@astryxdesign/core/Dialog";
+import { TextInput } from "@astryxdesign/core/TextInput";
+import { Button } from "@astryxdesign/core/Button";
+import { VStack, HStack } from "@astryxdesign/core/Layout";
 import { api } from "@/lib/api";
 
 interface AuthDialogProps {
@@ -45,40 +39,43 @@ export function AuthDialog({ open, onOpenChange, onAuthenticated }: AuthDialogPr
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-indigo-500" />
-              管理授权
-            </DialogTitle>
-            <DialogDescription>输入管理员密钥后可使用设置和生成控制。</DialogDescription>
-          </DialogHeader>
+    <Dialog 
+      isOpen={open} 
+      onOpenChange={onOpenChange}
+      purpose="form"
+      width={400}
+    >
+      <form onSubmit={handleSubmit}>
+        <DialogHeader
+          title="管理授权"
+          subtitle="输入管理员密钥后可使用设置和生成控制。"
+          startContent={<KeyRound className="w-4 h-4 text-indigo-500" />}
+          onOpenChange={onOpenChange}
+          hasDivider
+        />
 
-          <div className="flex flex-col gap-2">
-            <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-              管理密钥
-            </label>
-            <Input
-              autoFocus
-              type="password"
-              value={key}
-              onChange={(e) => setKey(e.target.value)}
-              placeholder="输入密钥"
-              className="h-9 text-sm"
-            />
-            {error && <p className="text-xs font-semibold text-rose-500">{error}</p>}
-          </div>
+        <VStack gap={3} className="py-4">
+          <TextInput
+            type="password"
+            label="管理密钥"
+            placeholder="输入密钥"
+            value={key}
+            onChange={val => setKey(val)}
+            hasAutoFocus
+          />
+          {error && <p className="text-xs font-semibold text-error">{error}</p>}
+        </VStack>
 
-          <DialogFooter>
-            <Button type="submit" disabled={isSubmitting || !key.trim()} className="h-9 text-xs">
-              {isSubmitting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : null}
-              登录
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
+        <HStack gap={3} hAlign="end" className="pt-4 border-t border-border">
+          <Button 
+            type="submit" 
+            variant="primary" 
+            label="登录" 
+            isDisabled={isSubmitting || !key.trim()} 
+            isLoading={isSubmitting}
+          />
+        </HStack>
+      </form>
     </Dialog>
   );
 }
