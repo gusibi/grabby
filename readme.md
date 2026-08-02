@@ -1,6 +1,6 @@
 # Grabby
 
-MCP is a distributed web content harvesting system consisting of a Chrome extension and Python backend service, designed for automated web content collection and processing.
+Grabby is a distributed web content harvesting system consisting of a Chrome extension and a Go backend service, designed for automated web content collection and processing.
 
 ## 项目背景
 
@@ -10,13 +10,9 @@ Grabby 旨在解决大规模网页内容采集的自动化需求，特别适用�
 
 ### 前置要求
 
-- [uv](https://docs.astral.sh/uv/) (Python 包管理器)
+- [Go](https://go.dev/doc/install) 1.21+
+- Node.js（构建扩展与前端）
 - Chrome 浏览器
-
-安装 uv:
-```bash
-curl -LsSf https://astral.sh/uv/install.sh | sh
-```
 
 ### 安装
 
@@ -43,31 +39,29 @@ cd grabby
 # macOS / Linux
 ./start.sh
 
-# 或跨平台 Python 脚本
+# 跨平台（Windows 可用）
 python start.py
 ```
 
-**方式二：直接用 uv 运行**
+两个脚本都只是在 `go-server/` 里执行 `go run .`。
+
+**方式二：编译后运行**
 
 ```bash
-cd python-server
-uv run python main.py
+make run-go      # 构建前端 + Go 二进制并启动
 ```
-
-`uv run` 会自动处理：读取 `pyproject.toml` → 创建虚拟环境 → 安装依赖 → 运行。
-无需手动创建 venv 或安装依赖。
 
 ### 环境配置
 
-所有配置集中在 `python-server/.env` 文件中，无需修改 Python 代码。
+所有配置集中在 `go-server/.env` 文件中，无需修改代码。
 
 ```bash
-cd python-server
+cd go-server
 cp .env.example .env   # 首次使用，复制模板
 # 编辑 .env 修改配置
 ```
 
-`python-server/.env` 示例：
+`go-server/.env` 示例：
 
 ```bash
 # 服务器监听地址
@@ -76,13 +70,12 @@ HOST=0.0.0.0
 # 服务器监听端口
 PORT=5040
 
-# 浏览器扩展连接ID（与浏览器端 API 密钥必须一致）
-CONNECT_ID=browser-tools
+# 管理后台登录密钥（留空表示不需要登录）
+GRABBY_ADMIN_KEY=
 
-# API 密钥（用于 HTTP/WebSocket 端点保护，可选）
-# 留空表示关闭 API key 校验（允许所有请求）
-# 配置后，客户端需在请求头中携带 X-API-Key: <your_api_key>
-API_KEY=
+# API / MCP 访问 token（留空表示不鉴权）
+# 配置后，客户端需携带 X-API-Key / X-Grabby-Token / Authorization: Bearer <token>
+GRABBY_API_TOKEN=
 
 # 是否开启调试模式
 DEBUG=false
@@ -99,7 +92,7 @@ DEFAULT_BROWSER=
 
 配置加载优先级（高到低）：
 1. 系统环境变量
-2. `python-server/.env` 文件
+2. `go-server/.env` 文件
 3. 代码中的默认值
 
 服务启动后，控制台会输出可用的端点地址：
@@ -116,7 +109,8 @@ WebSocket:
   ws://localhost:5040/ws_command  - 命令客户端连接
 
 MCP Server:
-  http://localhost:5040/mcp
+  http://localhost:5040/mcp      - Streamable HTTP（需 GRABBY_API_TOKEN）
+  http://localhost:5040/mcp/sse  - SSE（兼容旧客户端）
 ```
 
 ### 配置浏览器扩展
@@ -310,28 +304,28 @@ wait
 
 ### MCP 工具使用
 
-后端同时提供了 MCP (Model Context Protocol) 工具，可被 AI Agent 调用：
+后端在同一个 HTTP 端口上提供 MCP (Model Context Protocol) 服务，可被 AI Agent 直接连接：
 
-- `screenshot(url, fullPage=False, browser="")` - 捕获网页截图
-- `extract(url, browser="")` - 提取网页内容
-- `add(a, b)` - 计算两数之和
-- `get_server_time()` - 获取服务器时间
+- 浏览器类：`extract`、`screenshot`、`fetch_in_page`、`list_browsers`
+- 平台类：`twitter_*`、`reddit_*`、`xiaohongshu_*`
+- 内容库类：`library_search`、`library_get_item`、`library_list_sources`、`library_daily_report`、`library_stats`
+
+完整参数与连接方式见 [docs/usage.md](docs/usage.md#mcp-工具使用)。
 
 ## 项目架构
 
 ```
 grabby/
-├── python-server/       # Python 后端服务
-│   ├── main.py          # FastAPI 主应用 + HTTP API
-│   ├── websocket_manager.py  # WebSocket 连接管理
-│   ├── config.py        # 配置文件
-│   ├── handlers/        # 指令处理器
-│   └── requirements.txt # Python 依赖
-├── go-server/           # Go 后端服务
-│   ├── main.go          # HTTP 入口 + MCP Server
-│   ├── websocket_manager.go  # WebSocket 连接管理
-│   ├── config.go        # 配置文件
-│   └── types.go         # 类型定义
+├── go-server/           # Go 后端服务（唯一后端）
+│   ├── main.go          # 进程入口
+│   ├── internal/
+│   │   ├── domain/          # 领域模型（capture / item / source / ai / browser）
+│   │   ├── application/     # 业务逻辑（scraping / ai / scheduler / twitter / reddit / xiaohongshu）
+│   │   ├── infrastructure/  # 基础设施（browserws / sqlite / llm / browserregistry）
+│   │   └── interfaces/      # 对外接口（http / websocket / mcp / dto）
+│   └── frontend/        # React 管理界面（编译后嵌入二进制）
+├── go-cli/              # Go 版命令行客户端
+├── python-cli/          # Python 版命令行客户端（免编译）
 ├── chrome-extension/    # Chrome 浏览器扩展
 │   ├── background.js    # 后台服务脚本
 │   ├── lib/
@@ -351,7 +345,7 @@ grabby/
     |
     | POST /api/extract {url}
     v
-FastAPI Server
+Go Server
     |
     | WebSocket 发送 extract 命令
     v
@@ -359,7 +353,7 @@ Chrome Extension
     |
     | 打开 URL → 提取 HTML → 返回结果
     v
-FastAPI Server
+Go Server
     |
     | HTML → Markdown 转换
     v
@@ -412,7 +406,7 @@ JSON 响应 {url, title, markdown}
   - Local image storage path configuration
   - Custom content extraction rules
 
-### 2. Python Backend Service
+### 2. Go Backend Service
 
 **Core Features:**
 - **Communication Protocol**

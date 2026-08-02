@@ -5,13 +5,8 @@
 ### 必需
 
 - **Chrome 浏览器**（或基于 Chromium 的浏览器）
-- **Node.js**（用于构建浏览器扩展）
-- **后端运行环境**（Python 或 Go 二选一）
-
-### 可选
-
-- **[uv](https://docs.astral.sh/uv/)** — Python 包管理器（推荐）
-- **Go 1.23+** — 如果使用 Go 后端
+- **Node.js**（用于构建浏览器扩展和管理界面）
+- **Go 1.23+**（后端运行环境）
 
 ---
 
@@ -63,31 +58,6 @@ npm install
 
 ## 3. 安装后端服务
 
-### 选择一：Python 后端（推荐新手）
-
-#### 使用 uv（推荐）
-
-```bash
-cd python-server
-
-# 复制环境配置
-cp .env.example .env
-
-# uv 会自动处理：读取 pyproject.toml → 创建虚拟环境 → 安装依赖 → 运行
-uv run python main.py
-```
-
-#### 使用 pip
-
-```bash
-cd python-server
-cp .env.example .env
-pip install -r requirements.txt
-python main.py
-```
-
-### 选择二：Go 后端（推荐资源受限环境）
-
 ```bash
 cd go-server
 
@@ -99,6 +69,14 @@ go build -o go-server .
 ./go-server
 ```
 
+也可以在项目根目录用启动脚本或 Makefile：
+
+```bash
+./start.sh        # macOS / Linux
+python start.py   # 跨平台（含 Windows）
+make run-go       # 构建前端 + 二进制后启动
+```
+
 ---
 
 ## 4. 验证安装
@@ -106,11 +84,11 @@ go build -o go-server .
 ### 检查后端服务
 
 ```bash
-# 健康检查（API_KEY 未配置）
-curl http://localhost:5040/api/health
+# 健康检查（GRABBY_API_TOKEN 未配置）
+curl http://localhost:5040/open/api/health
 
-# 健康检查（API_KEY 已配置）
-curl -H "X-API-Key: your_api_key" http://localhost:5040/api/health
+# 健康检查（GRABBY_API_TOKEN 已配置）
+curl -H "X-API-Key: your_token" http://localhost:5040/open/api/health
 
 # 预期响应
 {"status":"ok","browser_connected":false,"timestamp":"..."}
@@ -126,15 +104,15 @@ curl -H "X-API-Key: your_api_key" http://localhost:5040/api/health
 ### 测试提取功能
 
 ```bash
-# API_KEY 未配置时
+# GRABBY_API_TOKEN 未配置时
 curl -X POST http://localhost:5040/api/extract \
   -H "Content-Type: application/json" \
   -d '{"url": "https://example.com"}'
 
-# API_KEY 已配置时
+# GRABBY_API_TOKEN 已配置时
 curl -X POST http://localhost:5040/api/extract \
   -H "Content-Type: application/json" \
-  -H "X-API-Key: your_api_key" \
+  -H "X-API-Key: your_token" \
   -d '{"url": "https://example.com"}'
 ```
 
@@ -146,17 +124,8 @@ curl -X POST http://localhost:5040/api/extract \
 
 1. 确认后端服务已启动
 2. 检查 WebSocket 地址和端口是否正确
-3. 确认 API 密钥与服务器 `.env` 中的 `CONNECT_ID` 一致
+3. 确认扩展里的浏览器名称/连接标识已设置，且 token 与服务器 `.env` 中的 `GRABBY_API_TOKEN` 一致
 4. 检查防火墙是否放行端口
-
-### Python 依赖安装失败
-
-推荐使用 `uv` 替代 `pip`，uv 会自动创建虚拟环境并解析依赖：
-
-```bash
-pip install uv
-uv run python main.py
-```
 
 ### Go 编译失败
 

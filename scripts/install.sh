@@ -20,7 +20,7 @@ if [ -f "${SCRIPT_DIR}/install.py" ] && command -v python3 &>/dev/null; then
 fi
 
 # 2. 如果是 curl|bash 执行，提示用户克隆仓库是更好的选择
-echo "💡 提示：运行 Grabby 服务需要项目源码（python-server/ 或 go-server/）。"
+echo "💡 提示：运行 Grabby 服务需要项目源码（go-server/）。"
 echo "   推荐先克隆项目，然后在项目目录内运行：python3 scripts/install.py"
 echo "   克隆命令：git clone https://github.com/${REPO}.git"
 echo ""

@@ -8,22 +8,13 @@
 # macOS / Linux
 ./start.sh
 
-# 或跨平台 Python 脚本
+# 跨平台（含 Windows）
 python start.py
 ```
 
-> 注意：`start.sh` 和 `start.py` 默认启动 **Python 后端**。如需启动 Go 后端，请直接运行二进制文件。
+两个脚本都只是在 `go-server/` 里执行 `go run .`。
 
 ### 方式二：直接运行
-
-**Python 后端：**
-
-```bash
-cd python-server
-uv run python main.py
-```
-
-**Go 后端：**
 
 ```bash
 cd go-server
@@ -46,7 +37,8 @@ WebSocket:
   ws://localhost:5040/ws_command  - 命令客户端连接
 
 MCP Server:
-  http://localhost:5040/mcp       - MCP SSE 端点
+  http://localhost:5040/mcp       - MCP Streamable HTTP 端点
+  http://localhost:5040/mcp/sse   - MCP SSE 端点（兼容）
 ```
 
 ---
@@ -118,21 +110,53 @@ curl -H "X-API-Key: your_api_key" http://localhost:5040/api/health
 
 ## MCP 工具使用
 
-后端同时提供 MCP (Model Context Protocol) 工具，可被 AI Agent 调用。
+后端在 HTTP 端口上同时提供 MCP (Model Context Protocol) 服务，Agent 可以直接连接。
+
+### 端点
+
+| 端点 | 传输方式 | 说明 |
+|------|----------|------|
+| `http://localhost:5040/mcp` | Streamable HTTP | 推荐，当前标准传输 |
+| `http://localhost:5040/mcp/sse` | SSE（+ `/mcp/message`） | 旧客户端兼容 |
+
+配置了 `GRABBY_API_TOKEN`（或 `GRABBY_ADMIN_KEY`）时，MCP 端点必须带 token，
+支持三种请求头：`Authorization: Bearer <token>`、`X-API-Key`、`X-Grabby-Token`。
+未配置 token 时端点不鉴权（仅建议在本机使用）。
 
 ### 可用工具
 
+浏览器类（需要浏览器扩展在线）：
+
 | 工具名 | 参数 | 说明 |
 |--------|------|------|
-| `screenshot` | `url` (string, 必填), `fullPage` (boolean, 默认 false) | 捕获网页截图，返回 Base64 图片数据 |
-| `extract` | `url` (string, 必填) | 提取网页内容，返回 Markdown 文本 |
-| `add` | `a` (number), `b` (number) | 计算两数之和 |
-| `get_server_time` | 无 | 获取服务器当前时间 |
+| `extract` | `url`(必填), `browser` | 提取网页正文，返回带元信息头的 Markdown |
+| `screenshot` | `url`(必填), `fullPage`, `browser` | 网页截图，返回 Base64 图片数据 |
+| `fetch_in_page` | `url`(必填), `requestUrl`, `method`, `body`, `credentials`, `browser` | 在已登录页面上下文里发请求，复用站点 Cookie |
+| `list_browsers` | 无 | 列出当前在线的浏览器，供其他工具的 `browser` 参数使用 |
 
-### MCP SSE 端点
+平台类（复用已登录会话）：
 
-```
-http://localhost:5040/mcp
+| 工具名 | 参数 | 说明 |
+|--------|------|------|
+| `twitter_search` / `twitter_timeline` / `twitter_likes` | `query`/`kind`/`handle`, `limit`, `browser` | X/Twitter 结构化抓取 |
+| `reddit_thread` / `reddit_subreddit` / `reddit_search` | `url`/`subreddit`/`query`, `sort`, `limit`, `browser` | Reddit 帖子与评论树 |
+| `xiaohongshu_note` / `xiaohongshu_search` / `xiaohongshu_user_notes` | `url`/`query`, `limit`, `browser` | 小红书笔记与评论 |
+
+内容库类（只读本地数据库，浏览器离线也能用）：
+
+| 工具名 | 参数 | 说明 |
+|--------|------|------|
+| `library_search` | `query`, `category`, `source_category`, `origin`, `starred`, `unread_only`, `limit`, `cursor` | 检索已收集的条目（只返回元信息） |
+| `library_get_item` | `id`(必填) | 按 id 取单条完整 Markdown |
+| `library_list_sources` | 无 | 列出已配置的采集源及其状态 |
+| `library_daily_report` | `date`, `report_type` | 取 AI 日报 Markdown，默认最新一期 |
+| `library_stats` | 无 | 条目总数 / 未读 / 收藏 / 分类分布 |
+
+### 使用示例（Claude Code）
+
+```bash
+claude mcp add --transport http grabby http://localhost:5040/mcp \
+  --header "Authorization: Bearer $GRABBY_API_TOKEN"
 ```
 
 ### 使用示例（Claude Desktop 配置）
@@ -143,26 +167,11 @@ http://localhost:5040/mcp
 {
   "mcpServers": {
     "grabby": {
-      "command": "uv",
-      "args": [
-        "run",
-        "--directory",
-        "/path/to/grabby/python-server",
-        "python",
-        "main.py"
-      ]
-    }
-  }
-}
-```
-
-或使用 Go 后端：
-
-```json
-{
-  "mcpServers": {
-    "grabby": {
-      "command": "/path/to/grabby/go-server/go-server"
+      "type": "http",
+      "url": "http://localhost:5040/mcp",
+      "headers": {
+        "Authorization": "Bearer <GRABBY_API_TOKEN>"
+      }
     }
   }
 }

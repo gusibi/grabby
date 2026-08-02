@@ -31,23 +31,17 @@ Grabby 是一个**分布式网页内容采集系统**，由 Chrome 浏览器扩�
 - **全页面截图** — 完整滚动页面
 - **指定区域截图** — 自定义矩形区域
 
-### 3. 双语言后端
+### 3. 后端服务
 
-项目提供两种后端实现，功能完全一致：
-
-| 后端 | 技术栈 | 适用场景 |
-|------|--------|---------|
-| **python-server** | FastAPI + WebSocket | Python 生态、快速原型 |
-| **go-server** | Go + gorilla/websocket | 资源受限环境、高并发 |
+后端为 **go-server**（Go + gorilla/websocket + Echo），单二进制运行，内嵌 React 管理界面。
 
 ### 4. MCP 协议支持
 
 作为 [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) 服务器运行，可被 AI Agent 直接调用：
 
-- `screenshot(url, fullPage)` — 网页截图
-- `extract(url)` — 提取网页 Markdown
-- `add(a, b)` — 计算工具（示例）
-- `get_server_time()` — 获取服务器时间
+- 浏览器类：`extract`、`screenshot`、`fetch_in_page`、`list_browsers`
+- 平台类：`twitter_*`、`reddit_*`、`xiaohongshu_*`
+- 内容库类：`library_search`、`library_get_item`、`library_list_sources`、`library_daily_report`、`library_stats`
 
 ## 架构图
 
@@ -57,9 +51,9 @@ Grabby 是一个**分布式网页内容采集系统**，由 Chrome 浏览器扩�
                     └─────────────────┬───────────────────────┘
                                       │
                     ┌─────────────────▼───────────────────────┐
-                    │         python-server / go-server       │
+                    │                go-server                │
                     │   ┌──────────┐        ┌──────────┐     │
-                    │   │  MCP SSE │        │ HTTP API │     │
+                    │   │   MCP    │        │ HTTP API │     │
                     │   │  /mcp    │        │ /api/... │     │
                     │   └────┬─────┘        └────┬─────┘     │
                     │        └───────────────────┘           │

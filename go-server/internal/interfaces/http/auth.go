@@ -61,6 +61,22 @@ func (a adminAuth) middleware(next echo.HandlerFunc) echo.HandlerFunc {
 	}
 }
 
+// tokenMiddleware protects machine-to-machine endpoints (MCP). Unlike
+// middleware it never accepts the browser session cookie: an agent must present
+// API_TOKEN (or ADMIN_KEY) via X-API-Key / X-Grabby-Token / Authorization Bearer.
+// When no token is configured at all the server is open, matching middleware.
+func (a adminAuth) tokenMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		if !a.enabled() || a.hasValidToken(c.Request()) {
+			return next(c)
+		}
+		return c.JSON(http.StatusUnauthorized, map[string]any{
+			"success": false,
+			"error":   "missing or invalid API token",
+		})
+	}
+}
+
 func (a adminAuth) isAuthRoute(path string) bool {
 	return path == "/api/auth/session" || path == "/api/auth/login" || path == "/api/auth/logout" || path == "/api/browsers/register"
 }

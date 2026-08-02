@@ -75,8 +75,8 @@ function loadSettings() {
         // 设置 API Token
         apiTokenInput.value = result.apiToken || '';
 
-        // 设置自动连接
-        autoConnectCheckbox.checked = result.autoConnect === true;
+        // 设置自动连接（默认开启）
+        autoConnectCheckbox.checked = result.autoConnect !== false;
 
         // 设置图片格式
         if (result.imageFormat) {
@@ -216,7 +216,7 @@ function resetSettings() {
     serverUrlInput.value = '';
     browserNameInput.value = '';
     apiTokenInput.value = '';
-    autoConnectCheckbox.checked = false;
+    autoConnectCheckbox.checked = true;
     imageFormatSelect.value = 'png';
     imageQualityInput.value = 90;
     browserConnectIdInput.value = '';

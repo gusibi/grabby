@@ -2,7 +2,7 @@
 
 ## 背景
 
-项目 `mcp-web-capture`（Grabby）提供 Python 和 Go 两套后端服务，暴露 HTTP API 用于网页内容抓取。当前使用方式需要手动发 HTTP 请求（curl），操作繁琐。目标是将 API 封装为 CLI 工具，简化调用。
+项目 `mcp-web-capture`（Grabby）的 Go 后端服务暴露 HTTP API 用于网页内容抓取。当前使用方式需要手动发 HTTP 请求（curl），操作繁琐。目标是将 API 封装为 CLI 工具，简化调用。
 
 ---
 

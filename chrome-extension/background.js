@@ -9,8 +9,8 @@ importScripts('./lib/websocket.js', './lib/capture.js', './lib/extractor.js', '.
 // 初始化日志记录器
 const logger = new Logger();
 
-// 初始化模块实例
-const websocketManager = new WebSocketManager();
+// 初始化模块实例（websocket.js 中已创建单例，这里复用，避免出现两个连接管理器）
+const websocketManager = self.websocketManager;
 const captureManager = new CaptureManager();
 const contentExtractor = new ContentExtractor();
 
@@ -41,10 +41,58 @@ function init() {
     websocketManager.on('message', handleWebSocketMessage);
 
 
+    // 注册连接看门狗（MV3 Service Worker 随时可能被终止，靠 alarm 唤醒重连）
+    setupConnectionWatchdog();
+
     // 加载设置并自动连接（如果启用）
     loadSettingsAndConnect();
 
 }
+
+// 连接看门狗：MV3 的 Service Worker 空闲 30 秒就会被回收，
+// 一旦被回收，JS 里的重连定时器也随之消失，连接就再也起不来了。
+// chrome.alarms 由浏览器托管，可以唤醒已休眠的 Service Worker。
+const WATCHDOG_ALARM = 'grabby-connection-watchdog';
+
+function setupConnectionWatchdog() {
+    chrome.alarms.create(WATCHDOG_ALARM, {
+        periodInMinutes: 0.5, // 30 秒，MV3 允许的最小周期
+        delayInMinutes: 0.5
+    });
+}
+
+chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== WATCHDOG_ALARM) return;
+
+    const status = websocketManager.getStatus();
+    if (status.status === 'connected' || status.status === 'connecting') {
+        return;
+    }
+
+    // 用户手动断开过，或配置/认证错误导致停止重连，则不自动拉起
+    if (!websocketManager.autoReconnect) {
+        return;
+    }
+
+    chrome.storage.sync.get(['serverUrl', 'autoConnect'], (result) => {
+        if (!result.serverUrl || result.autoConnect === false) return;
+        logger.log('connection', 'info', '看门狗检测到未连接，尝试重连');
+        connectToServer();
+    });
+});
+
+// Service Worker 被唤醒 / 浏览器启动 / 扩展更新后，都要恢复连接
+chrome.runtime.onStartup.addListener(() => {
+    logger.log('connection', 'info', '浏览器启动，尝试自动连接');
+    setupConnectionWatchdog();
+    loadSettingsAndConnect();
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+    logger.log('connection', 'info', '扩展安装/更新，尝试自动连接');
+    setupConnectionWatchdog();
+    loadSettingsAndConnect();
+});
 
 // 加载设置并自动连接
 function loadSettingsAndConnect() {
@@ -55,7 +103,8 @@ function loadSettingsAndConnect() {
 
         }
 
-        if (result.autoConnect && result.serverUrl) {
+        // 未显式关闭时默认自动连接
+        if (result.autoConnect !== false && result.serverUrl) {
             // 自动连接
             connectToServer();
         }

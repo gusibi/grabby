@@ -19,12 +19,7 @@ cd grabby
 
 # 2. 加载浏览器扩展（Chrome → chrome://extensions → 加载已解压的扩展程序 → 选择 chrome-extension/）
 
-# 3. 启动后端（Python 或 Go 二选一）
-
-# Python
-cd python-server && cp .env.example .env && uv run python main.py
-
-# 或 Go
+# 3. 启动后端
 cd go-server && cp .env.example .env && go run .
 
 # 4. 配置扩展：右键 MCP 图标 → 选项 → 填写服务器地址和连接 ID
@@ -46,14 +41,12 @@ grabby/
 │   ├── content/
 │   ├── lib/
 │   └── ...
-├── python-server/           # Python 后端（FastAPI）
-│   ├── main.py
-│   ├── config.py
-│   └── ...
-├── go-server/               # Go 后端
+├── go-server/               # Go 后端（唯一后端）
 │   ├── main.go
-│   ├── config.go
-│   └── ...
+│   ├── internal/            # domain / application / infrastructure / interfaces
+│   └── frontend/            # React 管理界面
+├── go-cli/                  # Go 版命令行客户端
+├── python-cli/              # Python 版命令行客户端
 ├── Makefile
 ├── start.sh                 # 启动脚本
 └── start.py

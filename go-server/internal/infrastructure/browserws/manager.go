@@ -36,6 +36,13 @@ func (w *WSConn) ReadJSON(v any) error {
 	return w.conn.ReadJSON(v)
 }
 
+// SetReadDeadline bounds how long a read may block, so a browser that vanished
+// without a TCP FIN (laptop sleep, network drop) does not keep its conn_id
+// occupied and reject the extension's reconnect with "already connected".
+func (w *WSConn) SetReadDeadline(d time.Duration) error {
+	return w.conn.SetReadDeadline(time.Now().Add(d))
+}
+
 func (w *WSConn) Close() error {
 	return w.conn.Close()
 }
@@ -264,17 +271,33 @@ func (wm *WebSocketManager) HandleResponse(resp *capture.BrowserResponse) {
 	}
 }
 
+// browserReadTimeout must comfortably exceed the extension's 25s heartbeat.
+const browserReadTimeout = 90 * time.Second
+
 // ReadLoop continuously reads messages from a connection and routes them.
 func (wm *WebSocketManager) ReadLoop(connID string, ws *WSConn) {
 	defer wm.Disconnect(connID)
 
 	for {
 		var resp capture.BrowserResponse
+		if err := ws.SetReadDeadline(browserReadTimeout); err != nil {
+			wm.logger.Warn("Failed to set read deadline", zap.String("conn_id", connID), zap.Error(err))
+			return
+		}
 		if err := ws.ReadJSON(&resp); err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseNormalClosure) {
 				wm.logger.Warn("WebSocket read error", zap.String("conn_id", connID), zap.Error(err))
 			}
 			return
+		}
+
+		// Heartbeat: answer the extension's ping so it can detect a dead link.
+		if resp.Type == "ping" {
+			if err := ws.WriteJSON(capture.BrowserResponse{Type: "pong"}); err != nil {
+				wm.logger.Warn("Failed to send pong", zap.String("conn_id", connID), zap.Error(err))
+				return
+			}
+			continue
 		}
 
 		// Messages with a message_id are treated as responses.

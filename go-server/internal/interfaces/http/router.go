@@ -54,8 +54,23 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	RegisterAIHandlers(openAPI, api, deps)
 	e.GET("/ws_browser", wrapHandlerFunc(wsiface.HandleWebSocketBrowser(deps.WSManager, deps.BrowserRegistry, deps.Logger)))
 	e.GET("/ws_command", wrapHandlerFunc(wsiface.HandleWebSocketCommand(deps.WSManager, deps.Settings, deps.Logger)))
-	sseSvr := mcpiface.NewServer(deps.WSManager, deps.Settings, deps.Logger)
-	e.Any("/mcp/*", echo.WrapHandler(sseSvr))
+
+	// MCP endpoints, token-protected so an agent can connect directly:
+	//   POST/GET /mcp        -> streamable HTTP transport (current standard)
+	//   GET      /mcp/sse    -> legacy SSE transport
+	//   POST     /mcp/message-> legacy SSE message channel
+	mcpSvrs := mcpiface.NewServer(mcpiface.Deps{
+		WM:       deps.WSManager,
+		DB:       deps.DB,
+		Settings: deps.Settings,
+		Logger:   deps.Logger,
+	})
+	mcpGroup := e.Group("/mcp", auth.tokenMiddleware)
+	mcpGroup.Any("", echo.WrapHandler(mcpSvrs.Streamable))
+	mcpGroup.Any("/", echo.WrapHandler(mcpSvrs.Streamable))
+	mcpGroup.Any("/sse", echo.WrapHandler(mcpSvrs.SSE))
+	mcpGroup.Any("/message", echo.WrapHandler(mcpSvrs.SSE))
+
 	RegisterStaticHandlers(e, deps.FrontendFS, deps.Logger)
 	return e
 }

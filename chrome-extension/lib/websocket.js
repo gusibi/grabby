@@ -6,8 +6,9 @@ class WebSocketManager {
         this.connId = null;
         this.browserName = '';
         this.reconnectAttempts = 0;
-        this.maxReconnectAttempts = 5;
-        this.reconnectInterval = 3000; // 3秒
+        this.reconnectInterval = 5000; // 固定 5 秒探测一次，服务器恢复后 5 秒内自动接上
+        this.autoReconnect = true; // 只有配置错误 / 认证失败 / 用户主动断开时才置为 false
+        this.connectInFlight = false; // 建连流程进行中标记
         this.listeners = {};
         this.connectionStatus = 'disconnected'; // 'connected', 'connecting', 'disconnected', 'error'
         this.errorMessage = null; // 存储最新的错误消息
@@ -16,6 +17,8 @@ class WebSocketManager {
         this.keepAliveInterval = 25000; // 25秒心跳间隔
         this.keepAliveTimer = null; // 心跳计时器
         this.PING_MESSAGE = JSON.stringify({ type: 'ping' }); // 心跳消息
+        this.lastMessageAt = 0; // 最近一次收到服务器消息的时间
+        this.pongSeen = false; // 服务器是否支持 pong（支持才启用心跳看门狗）
 
         // 从存储中加载配置
         this.loadConfig();
@@ -108,18 +111,40 @@ class WebSocketManager {
             return;
         }
 
+        // 建连过程中有 await（读配置、注册浏览器），需要额外的进行中标记，
+        // 否则 Service Worker 重启和看门狗可能同时发起两次连接。
+        if (this.connectInFlight) {
+            console.log('已有连接流程正在进行，跳过本次连接');
+            return;
+        }
+        this.connectInFlight = true;
+        try {
+            await this._doConnect();
+        } finally {
+            this.connectInFlight = false;
+        }
+    }
+
+    async _doConnect() {
+
+        // 显式发起连接时恢复自动重连
+        this.autoReconnect = true;
+
         await this.loadConfig();
 
-        // 检查配置
+        // 检查配置（配置缺失属于不可自动恢复的错误，不重连）
         if (!this.serverUrl) {
+            this.autoReconnect = false;
             this.updateStatus('error', '未配置服务器地址');
             return;
         }
         if (!this.browserName) {
+            this.autoReconnect = false;
             this.updateStatus('error', '未配置浏览器名称');
             return;
         }
         if (!this.connId) {
+            this.autoReconnect = false;
             this.updateStatus('error', '未设置浏览器连接标识，请在扩展设置页面中点击"随机生成"按钮生成');
             return;
         }
@@ -130,22 +155,20 @@ class WebSocketManager {
             parsedUrl = new URL(this.serverUrl);
             if (!['ws:', 'wss:'].includes(parsedUrl.protocol)) {
                 const errorMsg = `无效的协议: ${parsedUrl.protocol}，请使用 ws:// 或 wss://`;
+                this.autoReconnect = false; // 这是配置错误，不应该重连
                 this.updateStatus('error', errorMsg);
-                // 这是配置错误，不应该重连
-                this.reconnectAttempts = this.maxReconnectAttempts;
                 return;
             }
             if (!parsedUrl.hostname) {
                 const errorMsg = `无效的主机名: ${this.serverUrl}`;
+                this.autoReconnect = false;
                 this.updateStatus('error', errorMsg);
-                this.reconnectAttempts = this.maxReconnectAttempts;
                 return;
             }
         } catch (e) {
             const errorMsg = `无效的 serverUrl 格式: ${this.serverUrl}`;
+            this.autoReconnect = false; // 这是配置错误，不应该重连
             this.updateStatus('error', errorMsg);
-            // 这是配置错误，不应该重连
-            this.reconnectAttempts = this.maxReconnectAttempts;
             return;
         }
 
@@ -179,12 +202,13 @@ class WebSocketManager {
             this.socket.onerror = this.handleError.bind(this); // onerror 通常在 onclose 之前触发
 
         } catch (error) {
-            // WebSocket 构造函数本身抛出的错误 (例如，安全策略阻止)
-            console.error('创建WebSocket实例时发生错误:', error);
-            this.updateStatus('error', `创建连接失败: ${error.message}`);
-            // 这种错误通常也是不可恢复的，停止重连
-            this.reconnectAttempts = this.maxReconnectAttempts;
+            // 注册接口请求失败（服务器未启动/重启中）或 WebSocket 构造函数抛错
+            console.error('建立连接失败:', error);
             this.socket = null; // 确保 socket 实例被清理
+            this.updateStatus('disconnected', `连接失败: ${error.message}`);
+            this.emit('disconnected', { message: error.message });
+            // 服务器可能只是暂时不可用，继续按退避策略重试
+            this.scheduleReconnect();
         }
     }
 
@@ -198,14 +222,28 @@ class WebSocketManager {
             headers['X-Grabby-Token'] = this.apiToken;
         }
 
-        const response = await fetch(registerUrl, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                connect_id: this.connId,
-                name: this.browserName
-            })
-        });
+        // 加超时，避免服务器无响应时 fetch 长时间挂起，卡住后续的 5 秒探测
+        const abort = new AbortController();
+        const abortTimer = setTimeout(() => abort.abort(), this.CONNECT_TIMEOUT_MS);
+        let response;
+        try {
+            response = await fetch(registerUrl, {
+                method: 'POST',
+                headers,
+                signal: abort.signal,
+                body: JSON.stringify({
+                    connect_id: this.connId,
+                    name: this.browserName
+                })
+            });
+        } catch (error) {
+            if (error.name === 'AbortError') {
+                throw new Error('浏览器注册超时，服务器无响应');
+            }
+            throw error;
+        } finally {
+            clearTimeout(abortTimer);
+        }
 
         if (!response.ok) {
             let errorText = await response.text();
@@ -247,6 +285,7 @@ class WebSocketManager {
      */
     handleMessage(event) {
         console.log('[WebSocketManager] 收到WebSocket消息:', event.data); // 调试日志
+        this.lastMessageAt = Date.now(); // 供心跳看门狗判断连接是否存活
         try {
             if (!event || !event.data) {
                 console.warn('收到空的WebSocket消息事件');
@@ -259,6 +298,12 @@ class WebSocketManager {
             } catch (parseError) {
                 console.error('解析WebSocket消息失败:', parseError, '原始数据:', event.data);
                 this.emit('message', { rawData: event.data, parseError: true });
+                return;
+            }
+
+            // 处理心跳响应
+            if (message && typeof message === 'object' && message.type === 'pong') {
+                this.pongSeen = true; // 服务器支持心跳应答，启用看门狗
                 return;
             }
 
@@ -295,7 +340,7 @@ class WebSocketManager {
             this.updateStatus('error', errorMsg);
             this.emit('auth_failure', message.error);
             // 认证失败通常意味着apiKey错误，阻止重连
-            this.reconnectAttempts = this.maxReconnectAttempts;
+            this.autoReconnect = false;
             this.disconnect(false); // 主动断开
         }
     }
@@ -369,16 +414,20 @@ class WebSocketManager {
         let shouldReconnect = true;
         let finalStatus = 'disconnected'; // 默认为断开
 
-        if (event.wasClean && event.code === 1000) {
-            // 正常关闭 (例如调用了 socket.close() 或服务器主动正常关闭)
-            console.log("WebSocket 正常关闭。");
-            shouldReconnect = false; // 通常正常关闭不重连
-            if (this.statusBeforeDisconnect === 'config_update') { // 特殊标记，避免更新状态为error
-                finalStatus = 'disconnected';
-            }
+        if (event.wasClean && event.code === 1000 && this.statusBeforeDisconnect) {
+            // 我们自己发起的正常关闭（手动断开 / 配置更新），不重连
+            console.log("WebSocket 由本地主动正常关闭。");
+            shouldReconnect = false;
+        } else if (event.wasClean && event.code === 1000) {
+            // 服务器主动正常关闭（例如优雅停机），应该重连
+            console.log("服务器主动关闭了连接，将尝试重连。");
+            errorMsg = '服务器关闭了连接。';
+            shouldReconnect = true;
         } else if (possibleHandshakeError) {
             // 推测为握手错误 (可能 403, 404, URL错误, TLS错误, 超时等)
-            finalStatus = 'error';
+            // 注意：服务器停止 / 重启中同样表现为握手失败，因此这里必须继续重试，
+            // 只是把失败原因展示出来，交给指数退避控制频率。
+            finalStatus = 'disconnected';
             if (event.code === 1015) {
                 errorMsg = "连接失败: TLS 握手错误。请检查wss://地址和服务器证书。";
             } else if (event.reason && (event.reason.toLowerCase().includes('forbidden') || event.reason.includes('403'))) {
@@ -389,12 +438,8 @@ class WebSocketManager {
                 // 通用握手错误消息
                 errorMsg = `连接失败 (Code: ${event.code})。请检查服务器地址 (${this.serverUrl}) 是否正确，以及服务器是否正在运行。`;
             }
-            // 对于握手错误，通常不应无限重连
-            this.reconnectAttempts = this.maxReconnectAttempts;
-            shouldReconnect = false; // 阻止自动重连
-            console.error(`握手错误: ${errorMsg}`);
-            this.updateStatus('error', errorMsg);
-            // 继续执行后续的状态更新和事件触发逻辑
+            shouldReconnect = true; // 服务器可能只是暂时不可用，继续退避重试
+            console.warn(`连接建立失败: ${errorMsg}，将按退避策略重试。`);
         } else {
             // 其他异常关闭 (例如网络中断、服务器崩溃后未正常关闭连接)
             finalStatus = 'disconnected'; // 状态是断开，但会尝试重连
@@ -409,9 +454,9 @@ class WebSocketManager {
 
 
         // 根据情况决定是否重连
-        if (shouldReconnect && this.connectionStatus !== 'connected') {
+        if (shouldReconnect && this.autoReconnect && this.connectionStatus !== 'connected') {
             this.scheduleReconnect();
-        } else if (!shouldReconnect) {
+        } else if (!shouldReconnect || !this.autoReconnect) {
             console.log("根据关闭事件分析，不安排自动重连。");
         }
 
@@ -445,27 +490,28 @@ class WebSocketManager {
             return;
         }
 
-        if (this.reconnectAttempts < this.maxReconnectAttempts) {
-            this.reconnectAttempts++;
-            const delay = this.reconnectInterval * Math.pow(2, this.reconnectAttempts - 1); // 指数退避
-            const cappedDelay = Math.min(delay, 30000); // 最长30秒
-            console.log(`${cappedDelay / 1000}秒后尝试重新连接 (${this.reconnectAttempts}/${this.maxReconnectAttempts})`);
-
-            // 清除可能存在的旧计时器
-            clearTimeout(this.reconnectTimer);
-
-            this.reconnectTimer = setTimeout(() => {
-                if (this.connectionStatus !== 'connected' && this.connectionStatus !== 'connecting') {
-                    console.log("执行重连...");
-                    this.connect();
-                } else {
-                    console.log("重连计时器触发，但状态已变为连接或正在连接，取消本次重连。");
-                }
-            }, cappedDelay);
-        } else {
-            console.error('达到最大重连次数，停止重连。');
-            this.updateStatus('error', this.errorMessage || '无法连接到服务器，已达最大重连次数。');
+        if (!this.autoReconnect) {
+            console.log("自动重连已禁用（用户主动断开或配置/认证错误），不安排重连。");
+            return;
         }
+
+        this.reconnectAttempts++;
+        // 固定间隔轮询，不做指数退避、不设最大次数：
+        // 服务器可能长时间不可用，恢复后必须在一个探测周期内自动接上。
+        const delay = this.reconnectInterval;
+        console.log(`${delay / 1000}秒后尝试重新连接 (第 ${this.reconnectAttempts} 次)`);
+
+        // 清除可能存在的旧计时器
+        clearTimeout(this.reconnectTimer);
+
+        this.reconnectTimer = setTimeout(() => {
+            if (this.connectionStatus !== 'connected' && this.connectionStatus !== 'connecting') {
+                console.log("执行重连...");
+                this.connect();
+            } else {
+                console.log("重连计时器触发，但状态已变为连接或正在连接，取消本次重连。");
+            }
+        }, delay);
     }
 
     /**
@@ -497,8 +543,9 @@ class WebSocketManager {
             console.log("没有活跃的 WebSocket 连接可断开。");
         }
 
-        // 如果不是因为配置更新，则更新状态为 disconnected
+        // 如果不是因为配置更新，则更新状态为 disconnected 并停止自动重连
         if (!isConfigUpdate) {
+            this.autoReconnect = false; // 用户主动断开，后台看门狗也不应再拉起连接
             this.updateStatus('disconnected');
         }
         // 清空 connId 可能不是最佳选择，因为重连时还需要它。
@@ -514,10 +561,35 @@ class WebSocketManager {
         if (this.keepAliveTimer) {
             clearInterval(this.keepAliveTimer);
         }
+        this.lastMessageAt = Date.now();
         this.keepAliveTimer = setInterval(() => {
-            if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+            if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+                return;
+            }
+
+            // 看门狗：服务器支持 pong 时，若连续两个心跳周期收不到任何消息，
+            // 说明连接已经"假死"（服务器进程被杀、网络中断但 close 事件未到达），
+            // 主动关闭以触发重连。
+            if (this.pongSeen && Date.now() - this.lastMessageAt > this.keepAliveInterval * 2 + 5000) {
+                console.warn('心跳超时，判定连接已失效，主动重连。');
+                try {
+                    this.socket.close(4000, 'Heartbeat timeout');
+                } catch (_) {}
+                // close 事件不一定可靠触发，这里直接兜底走重连流程
+                this.socket = null;
+                clearInterval(this.keepAliveTimer);
+                this.keepAliveTimer = null;
+                this.updateStatus('disconnected', '心跳超时，连接已断开。');
+                this.emit('disconnected', { code: 4000, reason: 'Heartbeat timeout' });
+                this.scheduleReconnect();
+                return;
+            }
+
+            try {
                 this.socket.send(this.PING_MESSAGE);
                 console.log('发送心跳消息');
+            } catch (error) {
+                console.warn('发送心跳失败，将重连:', error);
             }
         }, this.keepAliveInterval);
     }
@@ -668,16 +740,14 @@ class WebSocketManager {
 }
 
 // --- Service Worker 环境下的实例化和导出 ---
+// 注意：这里只创建唯一实例。以前这里 new 一次、background.js 又 new 一次，
+// 会产生两个互相不知道对方存在的管理器（各自监听 storage 变化、各自建连），
+// 导致重复注册和 conn_id 抢占。
 
-// 确保只创建一个实例 (单例模式)
 if (!self.websocketManagerInstance) {
     self.websocketManagerInstance = new WebSocketManager();
     console.log("WebSocketManager 已在 Service Worker 中实例化。");
 }
 
-// 可以选择性地导出实例，或者让其他脚本通过 self.websocketManagerInstance 访问
-// export default self.websocketManagerInstance; // 如果使用 ES 模块
-
-// 或者保持你原来的方式，如果其他脚本期望全局 self.websocketManager
 self.WebSocketManager = WebSocketManager; // 导出类本身（如果需要）
-self.websocketManager = self.websocketManagerInstance; // 导出实例
+self.websocketManager = self.websocketManagerInstance; // 导出唯一实例

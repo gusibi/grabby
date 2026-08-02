@@ -20,10 +20,7 @@ def setup_config_env(repo_root):
     
     # 1. Copy env.example if .env doesn't exist
     if not os.path.exists(env_file):
-        example_src = os.path.join(repo_root, "python-server", ".env.example")
-        if not os.path.exists(example_src):
-            example_src = os.path.join(repo_root, "go-server", ".env.example")
-            
+        example_src = os.path.join(repo_root, "go-server", ".env.example")
         if os.path.exists(example_src):
             print(f"📝 正在创建配置文件: {env_file}")
             shutil.copy(example_src, env_file)
@@ -179,7 +176,7 @@ def main():
     check_path(args.install_dir)
     
     print("🏁 安装完成！你可以使用以下命令开始使用：")
-    print(f"   1. 启动服务: grabby start python  (或 grabby start go)")
+    print("   1. 启动服务: grabby start")
     print("   2. 抓取页面: grabby extract https://example.com")
 
 if __name__ == "__main__":

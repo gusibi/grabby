@@ -1,7 +1,7 @@
 # Grabby 项目结构
 
 ## 项目概述
-Grabby 是一个分布式网页内容采集系统，由 Chrome 浏览器扩展和 Python 后端服务组成，用于自动化网页内容获取和处理。
+Grabby 是一个分布式网页内容采集系统，由 Chrome 浏览器扩展和 Go 后端服务组成，用于自动化网页内容获取和处理。
 
 ## 目录结构
 
@@ -37,37 +37,23 @@ grabby/
 │       ├── icon16.png           # 16x16 图标
 │       ├── icon48.png           # 48x48 图标
 │       └── icon128.png          # 128x128 图标
-├── python-server/              # Python 后端服务目录
-│   ├── requirements.txt         # 依赖包列表
-│   ├── config.py                # 配置文件
-│   ├── main.py                  # 主服务器入口
-│   ├── mcp_protocol.py          # MCP 协议处理
-│   ├── websocket_manager.py     # WebSocket 管理
-│   ├── logger.py                # 日志模块
-│   ├── decorators.py            # 装饰器
-│   ├── handlers/                # 请求处理器
-│   │   ├── __init__.py         # 初始化文件
-│   │   ├── capture_handler.py   # 截图处理器
-│   │   └── extract_handler.py   # 内容提取处理器
-│   └── pyproject.toml           # 项目配置
-└── go-server/                  # Go 后端服务目录
-    ├── main.go                  # 主服务器入口
-    ├── websocket_manager.go     # WebSocket 管理
-    ├── config.go                # 配置文件
-    ├── logger.go                # 日志模块
-    └── types.go                 # 类型定义
-    ├── requirements.txt         # 依赖包列表
-    ├── config.py                # 配置文件
-    ├── main.py                  # 主服务器入口
-    ├── mcp_protocol.py          # MCP 协议处理
-    ├── websocket_manager.py     # WebSocket 管理
-    ├── logger.py                # 日志模块
-    ├── decorators.py            # 装饰器
-    ├── handlers/                # 请求处理器
-    │   ├── __init__.py         # 初始化文件
-    │   ├── capture_handler.py   # 截图处理器
-    │   └── extract_handler.py   # 内容提取处理器
-    └── pyproject.toml           # 项目配置
+├── go-server/                   # Go 后端服务目录（唯一后端）
+│   ├── main.go                  # 进程入口
+│   ├── internal/
+│   │   ├── bootstrap/           # 依赖装配与启动
+│   │   ├── config/              # 配置加载（.env / 环境变量）
+│   │   ├── domain/              # 领域模型 capture / item / source / ai / browser
+│   │   ├── application/         # 业务逻辑 scraping / ai / scheduler / twitter / reddit / xiaohongshu
+│   │   ├── infrastructure/      # browserws / sqlite / llm / browserregistry
+│   │   ├── interfaces/          # http / websocket / mcp / dto
+│   │   └── logging/             # 日志
+│   └── frontend/                # React 管理界面（编译后嵌入二进制）
+├── go-cli/                      # Go 版命令行客户端
+├── python-cli/                  # Python 版命令行客户端（免编译）
+├── scripts/                     # 安装脚本
+├── docs/                        # 文档
+├── start.sh / start.py          # 启动脚本
+└── Makefile                     # 构建与打包
 ```
 
 ## 技术栈
@@ -78,11 +64,10 @@ grabby/
 - Chrome Extension API
 - WebSocket API
 
-### Python 后端服务
-- Python 3.10+
-- Fastapi (Server 库)
-- Fastapi-MCP (MCP 库)
-- 异步 I/O (asyncio)
-- 图像处理 (Pillow)
-- 内容解析 (BeautifulSoup4, lxml)
-- 安全 (cryptography)
+### Go 后端服务
+- Go 1.23+
+- Echo (HTTP 框架)
+- gorilla/websocket (WebSocket)
+- mark3labs/mcp-go (MCP Server)
+- SQLite (数据存储)
+- 内嵌 React 前端（embed.FS）

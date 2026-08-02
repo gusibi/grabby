@@ -59,19 +59,21 @@ type PageResult struct {
 
 // PageContent is the extracted page content (Markdown from defuddle).
 type PageContent struct {
-	Title      string `json:"title"`
-	Content    string `json:"content"`  // Markdown
-	Markdown   string `json:"markdown"` // Redundant field for clarity
-	Author     string `json:"author"`
-	Published  string `json:"published"`
-	Site       string `json:"site"`
-	Language   string `json:"language"`
-	WordCount  int    `json:"wordCount"`
-	Image      string `json:"image"`
-	Favicon    string `json:"favicon"`
-	Domain     string `json:"domain"`
-	HTML       string `json:"html"`
-	TextLength int    `json:"textLength"`
+	Title       string `json:"title"`
+	Description string `json:"description"`
+	URL         string `json:"url"`
+	Content     string `json:"content"`  // Markdown
+	Markdown    string `json:"markdown"` // Redundant field for clarity
+	Author      string `json:"author"`
+	Published   string `json:"published"`
+	Site        string `json:"site"`
+	Language    string `json:"language"`
+	WordCount   int    `json:"wordCount"`
+	Image       string `json:"image"`
+	Favicon     string `json:"favicon"`
+	Domain      string `json:"domain"`
+	HTML        string `json:"html"`
+	TextLength  int    `json:"textLength"`
 }
 
 // MarkdownContent returns the markdown content, preferring the Content field.

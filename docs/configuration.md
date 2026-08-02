@@ -2,10 +2,9 @@
 
 ## 配置文件位置
 
-| 后端 | 配置文件 |
+| 组件 | 配置文件 |
 |------|---------|
-| Python | `python-server/.env` |
-| Go | `go-server/.env` |
+| 后端服务 | `go-server/.env` |
 | 浏览器扩展 | 扩展选项页面（chrome-extension/options/） |
 
 ---
@@ -15,10 +14,6 @@
 复制 `.env.example` 为 `.env` 后按需修改：
 
 ```bash
-# Python 后端
-cd python-server && cp .env.example .env
-
-# Go 后端
 cd go-server && cp .env.example .env
 ```
 
@@ -87,22 +82,7 @@ ws://localhost:5040/ws_browser?conn_id=browser-tools
 
 ## 高级配置
 
-### Python 后端：使用 pyproject.toml
-
-Python 后端的依赖和项目元数据定义在 `python-server/pyproject.toml`：
-
-```toml
-[project]
-name = "grabby"
-version = "1.0.0"
-dependencies = [
-    "fastapi",
-    "fastapi-mcp",
-    "uvicorn",
-]
-```
-
-### Go 后端：交叉编译
+### 交叉编译
 
 ```bash
 # macOS ARM64
@@ -122,7 +102,4 @@ cd go-server && GOOS=windows GOARCH=amd64 go build -o go-server.exe .
 ```bash
 # 临时修改端口运行
 PORT=9000 ./go-server
-
-# 或
-PORT=9000 uv run python main.py
 ```

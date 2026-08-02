@@ -844,7 +844,15 @@ AI 读取接口挂载在 `/open/api/ai/` 下；生成、设置和评估类操作
 
 ## MCP 工具
 
-MCP Server 挂载在 `http://localhost:5040/mcp`，使用 SSE (Server-Sent Events) 传输。
+MCP Server 挂载在 HTTP 端口上，提供两种传输：
+
+- `http://localhost:5040/mcp` — Streamable HTTP（推荐）
+- `http://localhost:5040/mcp/sse` — SSE（兼容旧客户端，消息通道为 `/mcp/message`）
+
+配置了 `GRABBY_API_TOKEN` / `GRABBY_ADMIN_KEY` 时需要携带 token：
+`Authorization: Bearer <token>`、`X-API-Key` 或 `X-Grabby-Token`。
+
+工具清单见 [usage.md](usage.md#mcp-工具使用)。
 
 ### tool: screenshot
 

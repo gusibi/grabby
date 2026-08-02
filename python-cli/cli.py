@@ -205,7 +205,7 @@ def find_project_dir(env_vars):
     # Search upward from cwd
     cwd = os.getcwd()
     while True:
-        if os.path.isdir(os.path.join(cwd, "python-server")) or os.path.isdir(os.path.join(cwd, "go-server")):
+        if os.path.isdir(os.path.join(cwd, "go-server")):
             return cwd
         parent = os.path.dirname(cwd)
         if parent == cwd:
@@ -216,7 +216,7 @@ def find_project_dir(env_vars):
     script_dir = os.path.dirname(os.path.abspath(__file__))
     cwd = script_dir
     while True:
-        if os.path.isdir(os.path.join(cwd, "python-server")) or os.path.isdir(os.path.join(cwd, "go-server")):
+        if os.path.isdir(os.path.join(cwd, "go-server")):
             return cwd
         parent = os.path.dirname(cwd)
         if parent == cwd:
@@ -224,50 +224,6 @@ def find_project_dir(env_vars):
         cwd = parent
         
     return None
-
-def start_python(project_dir, env_vars):
-    server_dir = os.path.join(project_dir, "python-server")
-    main_py = os.path.join(server_dir, "main.py")
-    if not os.path.exists(main_py):
-        print(json.dumps({"error": f"找不到 Python 服务: {main_py}", "exit_code": 3}))
-        sys.exit(3)
-        
-    config_dir = os.path.expanduser("~/.grabby")
-    port = int(env_vars.get("PORT") or os.environ.get("PORT") or "5040")
-    out = {
-        "message": "正在启动 Python Grabby 服务...",
-        "port": port,
-        "config_dir": config_dir
-    }
-    print(json.dumps(out, ensure_ascii=False))
-    
-    # Locate uv
-    uv_path = None
-    for p in os.environ.get("PATH", "").split(os.pathsep):
-        candidate = os.path.join(p, "uv")
-        if os.path.isfile(candidate) and os.access(candidate, os.X_OK):
-            uv_path = candidate
-            break
-            
-    merged_env = os.environ.copy()
-    for k, v in env_vars.items():
-        merged_env[k] = v
-        
-    if uv_path:
-        cmd = [uv_path, "run", "python", "main.py"]
-    elif os.path.exists(os.path.join(project_dir, ".venv", "bin", "python")):
-        cmd = [os.path.join(project_dir, ".venv", "bin", "python"), "main.py"]
-    else:
-        cmd = ["python3", "main.py"]
-        
-    try:
-        # Run inside server_dir so local module imports and relative paths resolve properly
-        subprocess.run(cmd, cwd=server_dir, env=merged_env)
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        print(f"Python 服务启动失败: {e}", file=sys.stderr)
-        sys.exit(1)
 
 def start_go(project_dir, env_vars):
     go_dir = os.path.join(project_dir, "go-server")
@@ -289,9 +245,10 @@ def start_go(project_dir, env_vars):
     for k, v in env_vars.items():
         merged_env[k] = v
         
-    cmd = ["go", "run", "./go-server/..."]
+    # go-server 是独立的 Go module，必须在它自己的目录里 go run（跟 start.sh 一致）
+    cmd = ["go", "run", "."]
     try:
-        subprocess.run(cmd, cwd=project_dir, env=merged_env)
+        subprocess.run(cmd, cwd=go_dir, env=merged_env)
     except KeyboardInterrupt:
         pass
     except Exception as e:
@@ -374,24 +331,18 @@ def main():
             sys.exit(1)
             
     elif cmd == "start":
-        if not cmd_args:
-            print("错误: 缺少 start 子命令 (可用: python, go)", file=sys.stderr)
-            sys.exit(1)
-        server_type = cmd_args[0]
-        if server_type not in ["python", "go"]:
-            print(f"未知的服务类型: {server_type} (可用: python, go)", file=sys.stderr)
+        # 兼容旧用法 `grabby start go`；Python 后端已移除。
+        if cmd_args and cmd_args[0] != "go":
+            print(f"未知的服务类型: {cmd_args[0]} (Grabby 现在只有 go-server，直接运行 `grabby start` 即可)", file=sys.stderr)
             sys.exit(1)
             
         project_dir = find_project_dir(env_vars)
         if not project_dir:
-            print("错误: 找不到项目目录 (需要包含 python-server/ 或 go-server/)", file=sys.stderr)
+            print("错误: 找不到项目目录 (需要包含 go-server/)", file=sys.stderr)
             print("      请设置 GRABBY_PROJECT_DIR 环境变量指定路径", file=sys.stderr)
             sys.exit(1)
             
-        if server_type == "python":
-            start_python(project_dir, env_vars)
-        elif server_type == "go":
-            start_go(project_dir, env_vars)
+        start_go(project_dir, env_vars)
             
     elif cmd == "install":
         print("错误: Python 版本的 CLI 不支持 install 子命令。请使用 scripts/install.py 进行安装/配置。", file=sys.stderr)
@@ -415,7 +366,7 @@ Available Commands:
   extract     抓取指定 URL 的网页内容为 Markdown
   screenshot  捕获指定 URL 的网页截图
   browsers    管理浏览器连接 (list, register)
-  start       启动 Grabby 服务 (python 或 go)
+  start       启动 Grabby 服务 (go-server)
   version     显示版本号
 
 Flags:

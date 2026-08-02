@@ -227,6 +227,40 @@ type ExtractParams struct {
 	Browser string `json:"browser,omitempty"`
 }
 
+// FetchInPageParams for the "fetch_in_page" MCP tool.
+type FetchInPageParams struct {
+	URL         string            `json:"url"`
+	RequestURL  string            `json:"requestUrl,omitempty"`
+	Method      string            `json:"method,omitempty"`
+	Headers     map[string]string `json:"headers,omitempty"`
+	Body        string            `json:"body,omitempty"`
+	Credentials string            `json:"credentials,omitempty"`
+	Browser     string            `json:"browser,omitempty"`
+}
+
+// LibrarySearchParams for the "library_search" MCP tool.
+type LibrarySearchParams struct {
+	Query          string `json:"query,omitempty"`
+	Category       string `json:"category,omitempty"`
+	SourceCategory string `json:"source_category,omitempty"`
+	Origin         string `json:"origin,omitempty"`
+	Starred        bool   `json:"starred,omitempty"`
+	UnreadOnly     bool   `json:"unread_only,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	Cursor         string `json:"cursor,omitempty"`
+}
+
+// LibraryItemParams for the "library_get_item" MCP tool.
+type LibraryItemParams struct {
+	ID int64 `json:"id"`
+}
+
+// LibraryDailyParams for the "library_daily_report" MCP tool.
+type LibraryDailyParams struct {
+	Date       string `json:"date,omitempty"`
+	ReportType string `json:"report_type,omitempty"`
+}
+
 // BrowserListResponse is the GET /api/browsers response body.
 type BrowserListResponse struct {
 	Browsers []browser.BrowserInfo `json:"browsers"`

@@ -16,7 +16,7 @@
 目标：钉住正在漂移的部分，为后面腾出精力。
 
 - [ ] 提交当前前端与小红书改动，此后 **Web UI 冻结**：维持"能看数据、能调试"，只修 bug 不加功能
-- [ ] 清理 README/docs 过时内容（python-server 双后端叙事、MCP 示例工具 `add(a,b)` 等占位），统一以 go-server 为主线
+- [x] 清理 README/docs 过时内容（python-server 双后端叙事、MCP 示例工具 `add(a,b)` 等占位），统一以 go-server 为主线
 - [ ] 清理仓库杂物：根目录 `grabby-v2-*.html` 原型、`grabby.db*` 数据库文件移出 git（加 .gitignore）
 
 ## 阶段 1：扩展可靠性 + 多浏览器调度（第 2–4 周）

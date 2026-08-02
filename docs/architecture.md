@@ -16,9 +16,9 @@ Grabby 采用三层架构：
           ▼                ▼                    ▼
 ┌─────────────────────────────────────────────────────────────┐
 │                        服务端层                              │
-│              python-server  或  go-server                   │
+│                        go-server                            │
 │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │
-│  │  HTTP API   │  │  MCP SSE    │  │  WebSocket Manager  │ │
+│  │  HTTP API   │  │  MCP HTTP   │  │  WebSocket Manager  │ │
 │  │  /api/*     │  │  /mcp       │  │  /ws_browser        │ │
 │  │             │  │             │  │  /ws_command        │ │
 │  └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │
@@ -58,7 +58,7 @@ Grabby 采用三层架构：
 服务端是**无状态的消息路由层**，不执行任何内容解析：
 
 - **HTTP API** — 接收 HTTP 请求，转换为 WebSocket 消息发给浏览器
-- **MCP SSE** — 接收 MCP 工具调用，转换为 WebSocket 消息
+- **MCP** — 接收 MCP 工具调用（Streamable HTTP / SSE），转换为 WebSocket 消息
 - **WebSocket Manager** — 管理浏览器和命令客户端的连接，维护请求-响应映射
 
 **关键设计：** 服务端只做消息转发，所有解析工作都在浏览器端完成。

@@ -36,17 +36,70 @@
                 // 检查是否有匹配的自定义规则
                 const customRule = this.findMatchingRule(url);
 
-                if (customRule) {
+                const result = customRule
                     // 使用自定义规则提取内容
-                    return await this.extractWithCustomRule(tabId, customRule);
-                } else {
+                    ? await this.extractWithCustomRule(tabId, customRule)
                     // 使用通用算法提取内容
-                    return await this.extractWithGeneralAlgorithm(tabId, options);
-                }
+                    : await this.extractWithGeneralAlgorithm(tabId, options);
+
+                // 在 Markdown 正文前补齐元信息（原文链接 / 标题 / 描述 / 作者）
+                return this.withMetadataHeader(result, tab);
             } catch (error) {
                 console.error('内容提取失败:', error);
                 throw error;
             }
+        }
+
+        /**
+         * 在 Markdown 正文前加上 YAML front matter 元信息
+         * 保证抓下来的内容自带原文链接、标题、描述、作者等溯源信息
+         * @param {Object} result 提取结果
+         * @param {Object} tab 标签页信息
+         * @returns {Object} 补充了元信息的提取结果
+         */
+        withMetadataHeader(result, tab) {
+            if (!result || typeof result !== 'object') return result;
+
+            // 页面真实 URL 优先用标签页地址（defuddle 只给 domain）
+            const url = tab?.url || result.url || '';
+            const title = (result.title || tab?.title || '').trim();
+            const description = (result.description || '').trim();
+            const author = (result.author || '').trim();
+            const published = (result.published || '').trim();
+            const site = (result.site || '').trim();
+
+            const body = result.content || result.markdown || '';
+            // 已经带 front matter 的内容不重复添加
+            const hasFrontMatter = typeof body === 'string' && body.startsWith('---\n');
+            const withHeader = hasFrontMatter
+                ? body
+                : this.buildFrontMatter({ title, url, description, author, published, site }) + body;
+
+            return {
+                ...result,
+                url,
+                title,
+                description,
+                content: withHeader,
+                markdown: withHeader
+            };
+        }
+
+        /**
+         * 构造 YAML front matter
+         */
+        buildFrontMatter(meta) {
+            const esc = (v) => String(v).replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/\r?\n/g, ' ').trim();
+            const lines = ['---'];
+            if (meta.title) lines.push(`title: "${esc(meta.title)}"`);
+            if (meta.url) lines.push(`source: "${esc(meta.url)}"`);
+            if (meta.author) lines.push(`author: "${esc(meta.author)}"`);
+            if (meta.description) lines.push(`description: "${esc(meta.description)}"`);
+            if (meta.published) lines.push(`published: "${esc(meta.published)}"`);
+            if (meta.site) lines.push(`site: "${esc(meta.site)}"`);
+            lines.push(`captured_at: "${new Date().toISOString()}"`);
+            lines.push('---', '');
+            return lines.join('\n') + '\n';
         }
 
         /**
@@ -194,6 +247,21 @@
                             removeSmallImages: true,
                             ...opts
                         });
+
+                        // defuddle 不一定能拿到 description/author，用页面 meta 兜底
+                        const meta = (sel, attr = 'content') => {
+                            const el = document.querySelector(sel);
+                            return (el && el.getAttribute(attr) || '').trim();
+                        };
+                        result.description = result.description
+                            || meta('meta[name="description"]')
+                            || meta('meta[property="og:description"]')
+                            || meta('meta[name="twitter:description"]');
+                        result.author = result.author
+                            || meta('meta[name="author"]')
+                            || meta('meta[property="article:author"]')
+                            || meta('meta[name="twitter:creator"]');
+                        result.pageUrl = window.location.href;
                         return result;
                     },
                     args: [options]
@@ -209,7 +277,7 @@
                         resolve({
                             title: d.title || '',
                             description: d.description || '',
-                            url: d.domain ? ('https://' + d.domain) : '',
+                            url: d.pageUrl || (d.domain ? ('https://' + d.domain) : ''),
                             content: d.content || '',           // Markdown
                             markdown: d.content || '',          // 冗余字段，明确标识为 Markdown
                             author: d.author || '',
