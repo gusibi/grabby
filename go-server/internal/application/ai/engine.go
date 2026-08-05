@@ -48,6 +48,8 @@ type AIEngine struct {
 	selector      *ProfileSelector
 	clients       map[string]*profileClient // keyed by profile ID
 	queue         chan int64
+	queueMu       sync.Mutex
+	queuedItems   map[int64]struct{}
 	wg            sync.WaitGroup
 	ctx           context.Context
 	cancel        context.CancelFunc
@@ -59,13 +61,14 @@ func NewAIEngine(settings domainai.AISettings, db *sqlite.Database, logger *zap.
 	ctx, cancel := context.WithCancel(context.Background())
 
 	engine := &AIEngine{
-		settings: settings,
-		db:       db,
-		logger:   logger,
-		clients:  make(map[string]*profileClient),
-		queue:    make(chan int64, 500),
-		ctx:      ctx,
-		cancel:   cancel,
+		settings:    settings,
+		db:          db,
+		logger:      logger,
+		clients:     make(map[string]*profileClient),
+		queue:       make(chan int64, 500),
+		queuedItems: make(map[int64]struct{}),
+		ctx:         ctx,
+		cancel:      cancel,
 	}
 
 	selector := NewProfileSelector(settings)
@@ -291,11 +294,25 @@ func (e *AIEngine) Enqueue(itemID int64) {
 	if !enabled || itemID <= 0 {
 		return
 	}
+
+	e.queueMu.Lock()
+	defer e.queueMu.Unlock()
+	if _, exists := e.queuedItems[itemID]; exists {
+		return
+	}
+
 	select {
 	case e.queue <- itemID:
+		e.queuedItems[itemID] = struct{}{}
 	default:
 		e.logger.Warn("AI processing queue is full, dropping item", zap.Int64("id", itemID))
 	}
+}
+
+func (e *AIEngine) releaseQueuedItem(itemID int64) {
+	e.queueMu.Lock()
+	delete(e.queuedItems, itemID)
+	e.queueMu.Unlock()
 }
 
 func (e *AIEngine) workerLoop(workerID int) {
@@ -313,6 +330,7 @@ func (e *AIEngine) workerLoop(workerID int) {
 				e.logger.Error("Failed to analyze item", zap.Int64("id", itemID), zap.Error(err))
 				time.Sleep(2 * time.Second) // rate-limiting backoff
 			}
+			e.releaseQueuedItem(itemID)
 		}
 	}
 }
