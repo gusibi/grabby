@@ -104,6 +104,18 @@ export function AISettingsView({
   saveAISettings,
   isAuthenticated
 }: AISettingsViewProps) {
+  const handleProfileRpmChange = (profileId: string, raw: string) => {
+    const digits = raw.replace(/[^0-9]/g, "");
+    const parsed = digits === "" ? 0 : Math.min(100000, parseInt(digits, 10));
+    const nextProfiles = aiProfiles.map((profile) =>
+      profile.id === profileId ? { ...profile, requests_per_minute: parsed } : profile
+    );
+    setAiProfiles(nextProfiles);
+    if (profileId === activeProfileId) {
+      setAiRequestsPerMinute(parsed || 10);
+    }
+  };
+
   return (
     <div className="flex-1 overflow-y-auto bg-body p-8">
       <div className="max-w-4xl mx-auto pb-12">
@@ -234,7 +246,23 @@ export function AISettingsView({
                                   </span>
                                 )}
                                 <span className="text-[10px] text-zinc-400">{profile.provider}</span>
-                                <span className="text-[10px] text-zinc-400">{profile.requests_per_minute || 10}/min</span>
+                                {isAuthenticated ? (
+                                  <div className="flex items-center gap-1 flex-shrink-0">
+                                    <TextInput
+                                      type="text"
+                                      isLabelHidden
+                                      size="sm"
+                                      label="每分钟请求数"
+                                      width={56}
+                                      placeholder="10"
+                                      value={profile.requests_per_minute ? String(profile.requests_per_minute) : ""}
+                                      onChange={(val) => handleProfileRpmChange(profile.id, val)}
+                                    />
+                                    <span className="text-[10px] text-zinc-400">/min</span>
+                                  </div>
+                                ) : (
+                                  <span className="text-[10px] text-zinc-400">{profile.requests_per_minute || 10}/min</span>
+                                )}
                                 {isAuthenticated && (
                                   <Switch
                                     label="启用服务商"

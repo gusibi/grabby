@@ -145,15 +145,15 @@ function updateConnectionUI(status) {
             break;
         case 'connecting':
             statusText.textContent = '连接中...';
-            // 连接中，两个按钮都禁用
+            // 连接中也允许手动停止重连
             connectBtn.disabled = true;
-            disconnectBtn.disabled = true;
+            disconnectBtn.disabled = !status.autoReconnect;
             break;
         case 'disconnected':
             statusText.textContent = '未连接';
             // 断开连接后，更新UI状态
             connectBtn.disabled = false;
-            disconnectBtn.disabled = true;
+            disconnectBtn.disabled = !status.autoReconnect;
             statusDot.className = 'status-dot disconnected';
             // 断开连接后，更新结果预览区域
             updateResultPreviewForConnection(false);
@@ -162,7 +162,7 @@ function updateConnectionUI(status) {
             statusText.textContent = status.lastError || '连接错误';
             // 连接错误时，允许重新连接
             connectBtn.disabled = false;
-            disconnectBtn.disabled = true;
+            disconnectBtn.disabled = !status.autoReconnect;
             // 连接错误时，更新结果预览区域
             updateResultPreviewForConnection(false);
             break;
@@ -170,7 +170,7 @@ function updateConnectionUI(status) {
             statusText.textContent = '未知状态';
             // 未知状态时的默认UI
             connectBtn.disabled = false;
-            disconnectBtn.disabled = true;
+            disconnectBtn.disabled = !status.autoReconnect;
             // 未知状态时，更新结果预览区域
             updateResultPreviewForConnection(false);
     }

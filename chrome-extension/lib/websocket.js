@@ -6,9 +6,23 @@ class WebSocketManager {
         this.connId = null;
         this.browserName = '';
         this.reconnectAttempts = 0;
-        this.reconnectInterval = 5000; // 固定 5 秒探测一次，服务器恢复后 5 秒内自动接上
+        this.reconnectInterval = 10000; // 断线后每 10 秒重试
         this.autoReconnect = true; // 只有配置错误 / 认证失败 / 用户主动断开时才置为 false
         this.connectInFlight = false; // 建连流程进行中标记
+        this.connectionGeneration = 0;
+        this.reconnectStateReady = new Promise(resolve => {
+            chrome.storage.local.get(['autoReconnectEnabled'], result => {
+                if (typeof result.autoReconnectEnabled === 'boolean') {
+                    this.autoReconnect = result.autoReconnectEnabled;
+                    resolve();
+                } else {
+                    chrome.storage.sync.get(['autoConnect'], settings => {
+                        this.autoReconnect = settings.autoConnect !== false;
+                        resolve();
+                    });
+                }
+            });
+        });
         this.listeners = {};
         this.connectionStatus = 'disconnected'; // 'connected', 'connecting', 'disconnected', 'error'
         this.errorMessage = null; // 存储最新的错误消息
@@ -87,9 +101,9 @@ class WebSocketManager {
         const changed = await this.loadConfig();
 
         // 如果配置有效且已更改或之前未连接，则尝试连接
-        if (this.serverUrl && this.browserName) {
+        if (this.autoReconnect && this.serverUrl && this.browserName) {
             console.log('配置有效，尝试连接...');
-            this.connect();
+            this.connect(false);
         } else {
             console.log('配置无效或已清空，保持断开状态。');
             this.updateStatus('disconnected', '配置无效或未设置');
@@ -100,10 +114,13 @@ class WebSocketManager {
      * 建立WebSocket连接
      * 确保只创建一个WebSocket连接实例
      */
-    async connect() {
-        // 清除之前的连接超时计时器
-        clearTimeout(this.connectTimeoutTimer);
-        this.connectTimeoutTimer = null;
+    async connect(manual = true) {
+        await this.reconnectStateReady;
+        if (manual) {
+            this.autoReconnect = true;
+            await chrome.storage.local.set({ autoReconnectEnabled: true });
+        }
+        if (!this.autoReconnect) return;
 
         // 检查是否已有活跃连接或正在连接
         if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
@@ -119,18 +136,19 @@ class WebSocketManager {
         }
         this.connectInFlight = true;
         try {
-            await this._doConnect();
+            await this._doConnect(this.connectionGeneration);
         } finally {
             this.connectInFlight = false;
+            if (this.autoReconnect && !this.socket && this.connectionStatus === 'disconnected') {
+                this.scheduleReconnect();
+            }
         }
     }
 
-    async _doConnect() {
-
-        // 显式发起连接时恢复自动重连
-        this.autoReconnect = true;
+    async _doConnect(generation) {
 
         await this.loadConfig();
+        if (generation !== this.connectionGeneration || !this.autoReconnect) return;
 
         // 检查配置（配置缺失属于不可自动恢复的错误，不重连）
         if (!this.serverUrl) {
@@ -177,6 +195,7 @@ class WebSocketManager {
 
         try {
             await this.registerBrowser();
+            if (generation !== this.connectionGeneration || !this.autoReconnect) return;
 
             // 创建WebSocket连接，将conn_id、name和api_key作为查询参数附加到URL
             const urlWithConnId = new URL(this.serverUrl);
@@ -198,10 +217,14 @@ class WebSocketManager {
             // 设置事件处理器
             this.socket.onopen = this.handleOpen.bind(this);
             this.socket.onmessage = this.handleMessage.bind(this);
-            this.socket.onclose = this.handleClose.bind(this);
+            this.socket.onclose = event => {
+                if (event.target !== this.socket) return;
+                this.handleClose(event);
+            };
             this.socket.onerror = this.handleError.bind(this); // onerror 通常在 onclose 之前触发
 
         } catch (error) {
+            if (generation !== this.connectionGeneration || !this.autoReconnect) return;
             // 注册接口请求失败（服务器未启动/重启中）或 WebSocket 构造函数抛错
             console.error('建立连接失败:', error);
             this.socket = null; // 确保 socket 实例被清理
@@ -222,7 +245,7 @@ class WebSocketManager {
             headers['X-Grabby-Token'] = this.apiToken;
         }
 
-        // 加超时，避免服务器无响应时 fetch 长时间挂起，卡住后续的 5 秒探测
+        // 加超时，避免服务器无响应时 fetch 长时间挂起，卡住后续重连
         const abort = new AbortController();
         const abortTimer = setTimeout(() => abort.abort(), this.CONNECT_TIMEOUT_MS);
         let response;
@@ -414,11 +437,7 @@ class WebSocketManager {
         let shouldReconnect = true;
         let finalStatus = 'disconnected'; // 默认为断开
 
-        if (event.wasClean && event.code === 1000 && this.statusBeforeDisconnect) {
-            // 我们自己发起的正常关闭（手动断开 / 配置更新），不重连
-            console.log("WebSocket 由本地主动正常关闭。");
-            shouldReconnect = false;
-        } else if (event.wasClean && event.code === 1000) {
+        if (event.wasClean && event.code === 1000) {
             // 服务器主动正常关闭（例如优雅停机），应该重连
             console.log("服务器主动关闭了连接，将尝试重连。");
             errorMsg = '服务器关闭了连接。';
@@ -460,8 +479,6 @@ class WebSocketManager {
             console.log("根据关闭事件分析，不安排自动重连。");
         }
 
-        // 清理标记
-        this.statusBeforeDisconnect = null;
     }
 
     /**
@@ -505,9 +522,9 @@ class WebSocketManager {
         clearTimeout(this.reconnectTimer);
 
         this.reconnectTimer = setTimeout(() => {
-            if (this.connectionStatus !== 'connected' && this.connectionStatus !== 'connecting') {
+            if (this.autoReconnect && this.connectionStatus !== 'connected' && this.connectionStatus !== 'connecting') {
                 console.log("执行重连...");
-                this.connect();
+                return this.connect(false);
             } else {
                 console.log("重连计时器触发，但状态已变为连接或正在连接，取消本次重连。");
             }
@@ -519,6 +536,11 @@ class WebSocketManager {
      * @param {boolean} isConfigUpdate - 是否因为配置更新而断开
      */
     disconnect(isConfigUpdate = false) {
+        this.connectionGeneration++;
+        if (!isConfigUpdate) {
+            this.autoReconnect = false;
+            chrome.storage.local.set({ autoReconnectEnabled: false });
+        }
         clearTimeout(this.reconnectTimer); // 清除重连计时器
         clearTimeout(this.connectTimeoutTimer); // 清除连接超时计时器
         clearInterval(this.keepAliveTimer); // 清除心跳计时器
@@ -528,12 +550,9 @@ class WebSocketManager {
 
         if (this.socket) {
             console.log(`主动断开WebSocket连接，连接ID: ${this.connId}`);
-            // 设置一个标记，以便 handleClose 知道是主动断开还是配置更新
-            this.statusBeforeDisconnect = isConfigUpdate ? 'config_update' : 'manual_disconnect';
-
-            // 设置 onclose 为 null，避免在手动关闭时触发重连逻辑 (可选，但更清晰)
-            // this.socket.onclose = null;
-            // this.socket.onerror = null;
+            // 旧连接的事件不能影响后续新连接。
+            this.socket.onclose = null;
+            this.socket.onerror = null;
 
             if (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING) {
                 this.socket.close(1000, isConfigUpdate ? "Configuration updated" : "Manual disconnection"); // 使用 1000 表示正常关闭
@@ -544,10 +563,7 @@ class WebSocketManager {
         }
 
         // 如果不是因为配置更新，则更新状态为 disconnected 并停止自动重连
-        if (!isConfigUpdate) {
-            this.autoReconnect = false; // 用户主动断开，后台看门狗也不应再拉起连接
-            this.updateStatus('disconnected');
-        }
+        this.updateStatus('disconnected');
         // 清空 connId 可能不是最佳选择，因为重连时还需要它。
         // 可以在连接失败或成功获取新 ID 时再更新 connId。
         // this.connId = null;
@@ -642,7 +658,8 @@ class WebSocketManager {
             connected: this.connectionStatus === 'connected',
             serverUrl: this.serverUrl,
             connId: this.connId,
-            browserName: this.browserName
+            browserName: this.browserName,
+            autoReconnect: this.autoReconnect
         };
 
         console.log('WebSocket 状态更新:', statusObj);
@@ -689,7 +706,8 @@ class WebSocketManager {
             serverUrl: this.serverUrl,
             connId: this.connId,
             browserName: this.browserName,
-            errorMessage: this.errorMessage
+            errorMessage: this.errorMessage,
+            autoReconnect: this.autoReconnect
         };
     }
 

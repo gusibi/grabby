@@ -61,24 +61,12 @@ function setupConnectionWatchdog() {
     });
 }
 
-chrome.alarms.onAlarm.addListener((alarm) => {
+chrome.alarms.onAlarm.addListener(async (alarm) => {
     if (alarm.name !== WATCHDOG_ALARM) return;
-
+    await websocketManager.reconnectStateReady;
     const status = websocketManager.getStatus();
-    if (status.status === 'connected' || status.status === 'connecting') {
-        return;
-    }
-
-    // 用户手动断开过，或配置/认证错误导致停止重连，则不自动拉起
-    if (!websocketManager.autoReconnect) {
-        return;
-    }
-
-    chrome.storage.sync.get(['serverUrl', 'autoConnect'], (result) => {
-        if (!result.serverUrl || result.autoConnect === false) return;
-        logger.log('connection', 'info', '看门狗检测到未连接，尝试重连');
-        connectToServer();
-    });
+    if (!websocketManager.autoReconnect || status.status === 'connected' || status.status === 'connecting') return;
+    connectToServer(false);
 });
 
 // Service Worker 被唤醒 / 浏览器启动 / 扩展更新后，都要恢复连接
@@ -95,7 +83,8 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 // 加载设置并自动连接
-function loadSettingsAndConnect() {
+async function loadSettingsAndConnect() {
+    await websocketManager.reconnectStateReady;
     chrome.storage.sync.get(['serverUrl', 'autoConnect'], (result) => {
         // 确保WebSocketManager实例有最新的serverUrl
         if (result.serverUrl) {
@@ -104,9 +93,9 @@ function loadSettingsAndConnect() {
         }
 
         // 未显式关闭时默认自动连接
-        if (result.autoConnect !== false && result.serverUrl) {
+        if (websocketManager.autoReconnect && result.serverUrl) {
             // 自动连接
-            connectToServer();
+            connectToServer(false);
         }
     });
 }
@@ -128,7 +117,7 @@ function handleMessage(message, sender, sendResponse) {
         case 'getStatus':
             const response = {
                 success: true,
-                status: connectionStatus
+                status: { ...connectionStatus, autoReconnect: websocketManager.autoReconnect }
             };
             sendResponse(response);
             return true; // 异步响应
@@ -154,9 +143,9 @@ function handleMessage(message, sender, sendResponse) {
 }
 
 // 连接到服务器
-async function connectToServer() {
+async function connectToServer(manual = true) {
     try {
-        await websocketManager.connect();
+        await websocketManager.connect(manual);
         // 获取实际的连接状态
         const status = websocketManager.getStatus();
         logger.log('connection', 'debug', 'connectToServer状态', { status });
@@ -216,6 +205,7 @@ function handleConnectionStatusChange(status) {
         connected: status.connected || status.status === 'connected',
         serverUrl: status.serverUrl || websocketManager.serverUrl,
         lastConnected: (status.connected || status.status === 'connected') ? new Date().toISOString() : connectionStatus.lastConnected,
+        autoReconnect: websocketManager.autoReconnect,
         lastError: status.error || status.errorMessage || null
     };
 
