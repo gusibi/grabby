@@ -1,11 +1,12 @@
-import { RefreshCw, Trash2, Edit, Database, Calendar } from "lucide-react";
-import { Button } from "@astryxdesign/core/Button";
-import { Switch } from "@astryxdesign/core/Switch";
-import { Card } from "@astryxdesign/core/Card";
-import { Badge } from "@astryxdesign/core/Badge";
-import { VStack, HStack } from "@astryxdesign/core/Layout";
-import { formatTimeAgo } from "@/lib/format";
+import { Calendar, Database, Edit, Play, Trash2 } from "lucide-react";
 import type { Source } from "@/types";
+import { formatTimeAgo } from "@/lib/format";
+import { useTranslation } from "@/lib/i18n";
+import { useCopy } from "@/lib/copy";
+import { sourcesCopy } from "./copy";
+import type { SourcesCopy } from "./copy";
+import { PageFrame } from "@/components/ui/PageFrame";
+import { Toggle } from "@/components/ui/Settings";
 
 interface SourcesViewProps {
   sources: Source[];
@@ -16,137 +17,113 @@ interface SourcesViewProps {
   isAuthenticated: boolean;
 }
 
+const typeLabel = (c: SourcesCopy, type: string) => {
+  switch (type) {
+    case "rss": return c.typeRss;
+    case "api": return c.typeApi;
+    case "web_scrape": return c.typeWeb;
+    case "twitter": return c.typeTwitter;
+    default: return type;
+  }
+};
+
 export function SourcesView({
   sources,
   handleToggleSourceEnabled,
   handleRunSource,
   openEditSourceDialog,
   handleDeleteSource,
-  isAuthenticated
+  isAuthenticated,
 }: SourcesViewProps) {
+  const { language } = useTranslation();
+  const c = useCopy(sourcesCopy);
+  const enabledCount = sources.filter((s) => s.enabled === 1).length;
+
   return (
-    <div className="flex-1 overflow-y-auto bg-body p-8">
-      <div className="max-w-4xl mx-auto space-y-8 pb-12">
-        <Card className="overflow-hidden">
-          <div className="border-b border-border p-6 bg-muted">
-            <h3 className="text-base font-bold text-primary">已订阅订阅源 ({sources.length})</h3>
-            <p className="text-xs text-secondary mt-1">管理你的 RSS Feed、JSON API 和智能网页爬虫规则。</p>
-          </div>
-          
-          <div className="divide-y divide-border">
-            {sources.map(source => (
-              <div 
-                key={source.id} 
-                className={`p-4 flex flex-wrap gap-4 items-center justify-between transition-opacity ${
-                  source.enabled === 0 ? "opacity-50" : ""
-                }`}
-              >
-                <HStack gap={3} vAlign="center" className="flex-1 min-w-0">
-                  <div className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
-                    source.enabled === 0 
-                      ? "bg-zinc-100 dark:bg-zinc-800 text-zinc-400" 
-                      : "bg-blue-subtle text-accent"
-                  }`}>
-                    <Database className="w-5 h-5" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <HStack gap={2} vAlign="center" className="flex-wrap">
-                      <h5 className="font-bold text-sm leading-none">{source.name}</h5>
-                      <Badge 
-                        variant={
-                          source.type === "web_scrape"
-                            ? "purple"
-                            : source.type === "api"
-                              ? "orange"
-                              : "blue"
-                        } 
-                        label={source.type} 
-                      />
-                      {source.enabled === 0 && (
-                        <Badge variant="neutral" label="已禁用" />
-                      )}
-                    </HStack>
-                    <p className="text-[10px] text-zinc-400 mt-1 truncate max-w-xs md:max-w-md font-mono">
-                      {source.url}
-                    </p>
-
-                    <HStack gap={3} vAlign="center" className="mt-1.5 text-[10px] text-zinc-500 font-medium flex-wrap">
-                      <span className="flex items-center gap-0.5">
-                        <Calendar className="w-3 h-3" /> Cron: {source.schedule}
-                      </span>
-                      <span>•</span>
-                      <span>主题分类: {source.category || "General"}</span>
-                      <span>•</span>
-                      <span>默认分类: {source.default_category}</span>
-                      {source.last_fetch_at && (
-                        <>
-                          <span>•</span>
-                          <span className={
-                            source.last_fetch_status === "success"
-                              ? "text-success"
-                              : source.last_fetch_status === "running"
-                                ? "text-accent"
-                                : "text-error"
-                          }>
-                            上次抓取: {source.last_fetch_status === "running" ? "抓取中..." : formatTimeAgo(source.last_fetch_at)}
-                          </span>
-                        </>
-                      )}
-                    </HStack>
-                  </div>
-                </HStack>
-
-                <HStack gap={3} vAlign="center" className="shrink-0">
-                  {isAuthenticated && (
-                    <HStack gap={2} vAlign="center">
-                      <span className="text-xs text-zinc-400 font-medium select-none">
-                        {source.enabled === 1 ? "启用" : "禁用"}
-                      </span>
-                      <Switch
-                        label="启用"
-                        isLabelHidden
-                        value={source.enabled === 1}
-                        onChange={() => handleToggleSourceEnabled(source)}
-                      />
-                    </HStack>
-                  )}
-
-                  {isAuthenticated && (
-                    <HStack gap={1.5} vAlign="center">
-                      <Button
-                        onClick={() => handleRunSource(source)}
-                        size="sm"
-                        variant="secondary"
-                        isDisabled={source.last_fetch_status === "running" || source.enabled === 0}
-                        isLoading={source.last_fetch_status === "running"}
-                        label="立即抓取"
-                        icon={<RefreshCw className="w-3 h-3" />}
-                      />
-
-                      <Button 
-                        onClick={() => openEditSourceDialog(source)} 
-                        size="sm" 
-                        variant="ghost" 
-                        isIconOnly
-                        label="编辑"
-                        icon={<Edit className="w-3.5 h-3.5 text-zinc-500" />}
-                      />
-                      <Button 
-                        onClick={() => handleDeleteSource(source.id)} 
-                        size="sm" 
-                        variant="ghost" 
-                        isIconOnly
-                        label="删除"
-                        icon={<Trash2 className="w-3.5 h-3.5 text-error" />}
-                      />
-                    </HStack>
-                  )}
-                </HStack>
-              </div>
-            ))}
-          </div>
-        </Card>
+    <PageFrame
+      kicker={c.kicker}
+      title={c.title}
+      description={c.description}
+    >
+      <div className="flex items-center gap-8 g-mono text-[10.5px] mb-5" style={{ color: "var(--g-faint)" }}>
+        <span>{c.total} <b style={{ color: "var(--g-ink)" }}>{sources.length}</b></span>
+        <span>{c.enabled} <b style={{ color: "var(--g-signal)" }}>{enabledCount}</b></span>
+        <span>{c.paused} <b style={{ color: "var(--g-ink)" }}>{sources.length - enabledCount}</b></span>
       </div>
-    </div>
+
+      <div className="space-y-2.5">
+        {sources.map((source, i) => {
+          const disabled = source.enabled === 0;
+          const running = source.last_fetch_status === "running";
+          return (
+            <div
+              key={source.id}
+              className="g-rise g-panel-flat px-4 py-3.5 flex flex-wrap items-center gap-4"
+              style={{ animationDelay: `${Math.min(i, 10) * 35}ms`, opacity: disabled ? 0.62 : 1 }}
+            >
+              <span
+                className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
+                style={{ background: "var(--g-panel-2)", color: disabled ? "var(--g-faint)" : "var(--g-signal)" }}
+              >
+                <Database size={16} />
+              </span>
+
+              <div className="min-w-0 flex-1 basis-[240px]">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="text-[13px] font-semibold truncate">{source.name}</span>
+                  <span className="g-chip !h-[19px] !text-[9.5px]">{typeLabel(c, source.type)}</span>
+                  {disabled && <span className="g-chip !h-[19px] !text-[9.5px]">{c.pausedChip}</span>}
+                </div>
+                <div className="g-mono text-[10px] mt-1.5 truncate" style={{ color: "var(--g-faint)" }}>{source.url}</div>
+                <div className="flex items-center gap-2.5 mt-2 text-[10px] flex-wrap" style={{ color: "var(--g-muted)" }}>
+                  <span className="flex items-center gap-1"><Calendar size={10} /> {source.schedule}</span>
+                  <span style={{ color: "var(--g-line-strong)" }}>·</span>
+                  <span>{source.category || c.general}</span>
+                  <span style={{ color: "var(--g-line-strong)" }}>·</span>
+                  <span>{source.default_category}</span>
+                  {source.last_fetch_at && (
+                    <>
+                      <span style={{ color: "var(--g-line-strong)" }}>·</span>
+                      <span style={{ color: running ? "var(--g-signal)" : source.last_fetch_status === "success" ? "var(--g-signal)" : "var(--g-danger)" }}>
+                        {running ? c.running : formatTimeAgo(source.last_fetch_at, language)}
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+
+              {isAuthenticated && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <Toggle
+                    checked={!disabled}
+                    label={c.enableToggle(source.name)}
+                    onChange={() => handleToggleSourceEnabled(source)}
+                  />
+                  <button
+                    className="g-btn g-btn-secondary g-btn-sm"
+                    onClick={() => handleRunSource(source)}
+                    disabled={running || disabled}
+                    title={c.runNow}
+                  >
+                    <Play size={12} /> {c.run}
+                  </button>
+                  <button className="g-icon-btn" title={c.edit} onClick={() => openEditSourceDialog(source)}>
+                    <Edit size={13} />
+                  </button>
+                  <button className="g-icon-btn" title={c.delete} onClick={() => handleDeleteSource(source.id)}>
+                    <Trash2 size={13} style={{ color: "var(--g-danger)" }} />
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        })}
+        {sources.length === 0 && (
+          <div className="g-panel-flat py-16 text-center text-[12.5px]" style={{ color: "var(--g-faint)" }}>
+            {c.empty}
+          </div>
+        )}
+      </div>
+    </PageFrame>
   );
 }

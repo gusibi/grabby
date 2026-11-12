@@ -1,13 +1,16 @@
 import * as React from "react";
-import { RefreshCw, Sparkles, Rss, ChevronLeft, ChevronRight, Calendar } from "lucide-react";
+import { Sparkles, Rss, ChevronLeft, ChevronRight, Calendar, Sun, Moon, CalendarClock, History, Newspaper } from "lucide-react";
 import { Button } from "@astryxdesign/core/Button";
 import { Card } from "@astryxdesign/core/Card";
-import { Badge } from "@astryxdesign/core/Badge";
-import { Spinner } from "@astryxdesign/core/Spinner";
+import { Markdown } from "@astryxdesign/core/Markdown";
 import { VStack, HStack } from "@astryxdesign/core/Layout";
 import { parseDailyReportContent } from "@/lib/daily-report";
 import { JsonDailyReportView } from "./JsonDailyReportView";
 import type { DailyReport, ReportListItem } from "@/types";
+import { useCopy } from "@/lib/copy";
+import { dailyCopy } from "./copy";
+import type { DailyCopy } from "./copy";
+import { useFeedback } from "@/components/ui/feedback-context";
 import { api } from "@/lib/api";
 
 interface DailyReportViewProps {
@@ -24,10 +27,10 @@ interface DailyReportViewProps {
   isAuthenticated: boolean;
 }
 
-const REPORT_TABS = [
-  { key: "all", label: "全部", icon: "📋" },
-  { key: "morning", label: "早报", icon: "🌅" },
-  { key: "evening", label: "晚报", icon: "🌙" },
+const reportTabs = (c: DailyCopy) => [
+  { key: "all", label: c.tabAll, icon: <Newspaper size={13} /> },
+  { key: "morning", label: c.tabMorning, icon: <Sun size={13} /> },
+  { key: "evening", label: c.tabEvening, icon: <Moon size={13} /> },
 ];
 
 function getLocalDateString(d: Date = new Date()): string {
@@ -43,16 +46,14 @@ function getShiftedDate(dateStr: string, days: number): string {
   return getLocalDateString(d);
 }
 
-function formatDisplayDate(dateStr: string): string {
+function formatDisplayDate(c: DailyCopy, dateStr: string): string {
   const today = getLocalDateString();
   const yesterday = getShiftedDate(today, -1);
   const d = new Date(dateStr + "T00:00:00");
-  const m = d.getMonth() + 1;
-  const day = d.getDate();
-  const weekdays = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"];
-  if (dateStr === today) return `今天 ${m}/${day}`;
-  if (dateStr === yesterday) return `昨天 ${m}/${day}`;
-  return `${m}/${day} ${weekdays[d.getDay()]}`;
+  const md = `${d.getMonth() + 1}/${d.getDate()}`;
+  if (dateStr === today) return c.today(md);
+  if (dateStr === yesterday) return c.yesterday(md);
+  return `${md} ${c.weekdayShort[d.getDay()]}`;
 }
 
 export function DailyReportView({
@@ -68,6 +69,8 @@ export function DailyReportView({
   setSelectedReportType,
   isAuthenticated,
 }: DailyReportViewProps) {
+  const { toast } = useFeedback();
+  const c = useCopy(dailyCopy);
   const [isBusy, setIsBusy] = React.useState(false);
   const loading = isGeneratingReport || isBusy;
 
@@ -84,7 +87,7 @@ export function DailyReportView({
       fetchDailyReport(selectedReportDate, selectedReportType === "all" ? "morning" : selectedReportType);
     } catch (err) {
       console.error(err);
-      alert("生成早报和晚报失败");
+      toast(c.toastGenFailed, undefined, "error");
     } finally {
       setIsBusy(false);
     }
@@ -125,10 +128,10 @@ export function DailyReportView({
         }
       }
       fetchDailyReport(selectedReportDate, selectedReportType === "all" ? "morning" : selectedReportType);
-      alert("补齐历史数据完成！");
+      toast(c.toastBackfillDone, undefined, "success");
     } catch (err) {
       console.error(err);
-      alert("补齐历史数据失败");
+      toast(c.toastBackfillFailed, undefined, "error");
     } finally {
       setIsBusy(false);
     }
@@ -167,7 +170,7 @@ export function DailyReportView({
               variant="ghost"
               size="sm"
               isIconOnly
-              label="前一天"
+              label={c.prevDay}
               icon={<ChevronLeft className="w-4 h-4" />}
               onClick={() => goToDate(prevDate)}
             />
@@ -178,17 +181,17 @@ export function DailyReportView({
               }`}
             >
               <span className="text-xs font-bold text-primary">
-                {formatDisplayDate(selectedReportDate)}
+                {formatDisplayDate(c, selectedReportDate)}
               </span>
               {!isAtToday && (
-                <span className="text-[9px] text-indigo-500">← 回到今天</span>
+                <span className="text-[9px] text-indigo-500">{c.backToToday}</span>
               )}
             </VStack>
             <Button
               variant="ghost"
               size="sm"
               isIconOnly
-              label="后一天"
+              label={c.nextDay}
               icon={<ChevronRight className="w-4 h-4" />}
               onClick={() => goToDate(nextDate)}
               isDisabled={isAtToday}
@@ -234,7 +237,7 @@ export function DailyReportView({
 
         {/* Report type tabs */}
         <div className="p-2 border-b border-border grid grid-cols-3 gap-1">
-          {REPORT_TABS.map((tab) => (
+          {reportTabs(c).map((tab) => (
             <button
               key={tab.key}
               onClick={() => handleTypeChange(tab.key)}
@@ -253,16 +256,16 @@ export function DailyReportView({
         {/* Report history list */}
         <div className="px-3 py-1.5 shrink-0">
           <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-            历史日报
+            {c.historyTitle}
           </span>
         </div>
         <div className="flex-1 overflow-y-auto px-2 pb-2 space-y-0.5">
           {filteredReports.length === 0 ? (
-            <div className="text-center py-8 text-xs text-zinc-400">暂无日报记录</div>
+            <div className="text-center py-8 text-xs text-zinc-400">{c.historyEmpty}</div>
           ) : (
             filteredReports.map((r, idx) => {
-              const typeIcon =
-                r.report_type === "morning" ? "🌅" : r.report_type === "evening" ? "🌙" : "📰";
+              const TypeIcon =
+                r.report_type === "morning" ? Sun : r.report_type === "evening" ? Moon : Newspaper;
               const isActive =
                 dailyReport?.report_date === r.report_date &&
                 dailyReport?.report_type === r.report_type;
@@ -280,7 +283,9 @@ export function DailyReportView({
                       : "hover:bg-zinc-50 dark:hover:bg-zinc-900/40"
                   }`}
                 >
-                  <span className="text-sm mt-0.5 shrink-0">{typeIcon}</span>
+                  <span className="mt-0.5 shrink-0 flex items-center justify-center w-5 h-5 rounded-md" style={{ background: "var(--g-panel-2)", color: "var(--g-signal)" }}>
+                    <TypeIcon size={11} />
+                  </span>
                   <div className="min-w-0 flex-1">
                     <div className="text-[11px] font-bold text-zinc-800 dark:text-zinc-200 truncate leading-tight">
                       {r.title}
@@ -288,7 +293,7 @@ export function DailyReportView({
                     <div className="text-[10px] text-zinc-400 mt-0.5 flex items-center gap-1.5">
                       <span>{r.report_date}</span>
                       <span className="text-zinc-300 dark:text-zinc-600">·</span>
-                      <span>{r.quality_items} 优质</span>
+                      <span>{c.qualityItems(r.quality_items)}</span>
                     </div>
                   </div>
                 </button>
@@ -302,31 +307,34 @@ export function DailyReportView({
       <div className="flex-1 overflow-y-auto bg-body min-w-0">
         <VStack gap={5} className="max-w-3xl mx-auto p-6 pb-12">
           <div>
-            <h3 className="text-lg font-black tracking-tight flex items-center gap-2 text-indigo-950 dark:text-white">
-              <Sparkles className="w-5 h-5 text-indigo-500" />
-              AI 智能日报 Daily Report
+            <div className="g-eyebrow">Briefing · {formatDisplayDate(c, selectedReportDate)}</div>
+            <h3 className="g-display mt-2 text-[30px] flex items-center gap-2.5">
+              <Sparkles size={17} style={{ color: "var(--g-signal)" }} />
+              {c.title}
             </h3>
-            <p className="text-xs text-zinc-500 mt-0.5">
-              阅读 AI 汇编整理的深度资讯和数据看板。
+            <p className="text-[11.5px] mt-2" style={{ color: "var(--g-muted)" }}>
+              {c.subtitle}
             </p>
           </div>
 
           {dailyReport ? (
             <Card className="overflow-hidden">
               <div className="border-b border-border p-6 bg-muted">
-                <h4 className="text-lg font-extrabold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
-                  <span>
-                    {dailyReport.report_type === "morning"
-                      ? "🌅"
-                      : dailyReport.report_type === "evening"
-                      ? "🌙"
-                      : "📰"}
+                <h4 className="text-lg font-extrabold flex items-center gap-2">
+                  <span className="flex items-center justify-center w-6 h-6 rounded-lg" style={{ background: "var(--g-signal-soft)", color: "var(--g-signal)" }}>
+                    {dailyReport.report_type === "morning" ? (
+                      <Sun size={13} />
+                    ) : dailyReport.report_type === "evening" ? (
+                      <Moon size={13} />
+                    ) : (
+                      <Newspaper size={13} />
+                    )}
                   </span>
                   {dailyReport.title}
                 </h4>
                 <div className="text-xs text-indigo-600/80 dark:text-indigo-400/80 flex flex-wrap gap-x-4 gap-y-1 mt-1">
-                  <span>生成时间: {new Date(dailyReport.generated_at).toLocaleString()}</span>
-                  <span>使用模型: {dailyReport.model_used}</span>
+                  <span>{c.generatedAt(new Date(dailyReport.generated_at).toLocaleString())}</span>
+                  <span>{c.modelUsed(dailyReport.model_used)}</span>
                 </div>
               </div>
               <div className="p-6 md:p-8">
@@ -335,29 +343,34 @@ export function DailyReportView({
                   if (reportData) {
                     return <JsonDailyReportView reportData={reportData} />;
                   }
+                  if (dailyReportHtml) {
+                    return (
+                      <div
+                        className="g-reader max-w-none"
+                        dangerouslySetInnerHTML={{ __html: dailyReportHtml }}
+                      />
+                    );
+                  }
                   return (
-                    <div
-                      className="prose dark:prose-invert max-w-none text-sm leading-relaxed text-zinc-800 dark:text-zinc-200"
-                      dangerouslySetInnerHTML={{
-                        __html:
-                          dailyReportHtml ||
-                          `<pre class="whitespace-pre-wrap font-sans text-sm">${dailyReport.content}</pre>`,
-                      }}
-                    />
+                    <div className="g-reader max-w-none">
+                      <Markdown headingLevelStart={3} contentWidth="none" autolink="gfm">
+                        {dailyReport.content}
+                      </Markdown>
+                    </div>
                   );
                 })()}
               </div>
             </Card>
           ) : (
-            <VStack gap={3} hAlign="center" vAlign="center" className="py-32 bg-surface rounded-2xl border border-border">
-              <Calendar className="w-12 h-12 stroke-1 text-zinc-300" />
-              <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-                该日期暂无日报内容
+            <div className="g-fade flex flex-col items-center justify-center py-28 rounded-2xl" style={{ background: "var(--g-panel)", border: "1px solid var(--g-line)" }}>
+              <span className="w-14 h-14 rounded-2xl flex items-center justify-center" style={{ background: "var(--g-panel-2)", color: "var(--g-faint)" }}>
+                <Calendar size={24} strokeWidth={1.3} />
+              </span>
+              <p className="g-serif text-[19px] mt-5">{c.emptyTitle}</p>
+              <p className="text-[11.5px] mt-2 text-center px-4" style={{ color: "var(--g-muted)" }}>
+                {c.emptyBody}
               </p>
-              <p className="text-xs text-zinc-500 mt-1 text-center px-4">
-                选择日期后点击右侧"生成日报"按钮生成
-              </p>
-            </VStack>
+            </div>
           )}
         </VStack>
       </div>
@@ -368,23 +381,25 @@ export function DailyReportView({
           {isAuthenticated && (
             <VStack gap={2}>
               <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                生成操作
+                {c.actionsTitle}
               </span>
               <Button
                 onClick={() => handleGenerateDailyReport("morning")}
                 isDisabled={loading}
                 isLoading={loading && selectedReportType === "morning"}
                 size="sm"
-                variant="primary"
-                label="🌅 生成早报"
+                variant={selectedReportType === "morning" ? "primary" : "secondary"}
+                label={c.genMorning}
+                icon={<Sun className="w-3.5 h-3.5" />}
               />
               <Button
                 onClick={() => handleGenerateDailyReport("evening")}
                 isDisabled={loading}
                 isLoading={loading && selectedReportType === "evening"}
                 size="sm"
-                variant="primary"
-                label="🌙 生成晚报"
+                variant={selectedReportType === "evening" ? "primary" : "secondary"}
+                label={c.genEvening}
+                icon={<Moon className="w-3.5 h-3.5" />}
               />
               <Button
                 onClick={handleGenerateBoth}
@@ -392,7 +407,8 @@ export function DailyReportView({
                 isLoading={isBusy}
                 size="sm"
                 variant="secondary"
-                label="📋 生成早+晚报"
+                label={c.genBoth}
+                icon={<CalendarClock className="w-3.5 h-3.5" />}
               />
               <Button
                 onClick={handleBackfill}
@@ -400,7 +416,8 @@ export function DailyReportView({
                 isLoading={isBusy}
                 size="sm"
                 variant="secondary"
-                label="🔄 补齐历史早/晚报"
+                label={c.backfill}
+                icon={<History className="w-3.5 h-3.5" />}
               />
             </VStack>
           )}
@@ -409,23 +426,23 @@ export function DailyReportView({
           {dailyReport && (
             <VStack gap={2}>
               <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-                数据概览
+                {c.statsTitle}
               </span>
               <VStack gap={1.5}>
                 <div className="bg-muted px-3 py-2 rounded-xl">
-                  <div className="text-[10px] text-zinc-400 font-bold uppercase">全天处理</div>
+                  <div className="text-[10px] text-zinc-400 font-bold uppercase">{c.statProcessed}</div>
                   <div className="text-base font-black text-zinc-900 dark:text-zinc-100">
-                    {dailyReport.total_items} 条
+                    {c.statUnit(dailyReport.total_items)}
                   </div>
                 </div>
                 <div className="bg-indigo-50/60 dark:bg-indigo-950/20 px-3 py-2 rounded-xl">
-                  <div className="text-[10px] text-indigo-400 font-bold uppercase">入选优质</div>
+                  <div className="text-[10px] text-indigo-400 font-bold uppercase">{c.statQuality}</div>
                   <div className="text-base font-black text-indigo-600 dark:text-indigo-400">
-                    {dailyReport.quality_items} 条
+                    {c.statUnit(dailyReport.quality_items)}
                   </div>
                 </div>
                 <div className="bg-muted px-3 py-2 rounded-xl">
-                  <div className="text-[10px] text-zinc-400 font-bold uppercase">质量占比</div>
+                  <div className="text-[10px] text-zinc-400 font-bold uppercase">{c.statRatio}</div>
                   <div className="text-base font-black text-zinc-900 dark:text-zinc-100">
                     {qualityPct}%
                   </div>
@@ -433,14 +450,10 @@ export function DailyReportView({
               </VStack>
               <div className="text-[10px] text-zinc-400 space-y-0.5 pt-0.5">
                 <div>
-                  模型:{" "}
-                  <span className="text-zinc-600 dark:text-zinc-300">{dailyReport.model_used}</span>
+                  {c.metaModel(dailyReport.model_used)}
                 </div>
                 <div>
-                  生成:{" "}
-                  <span className="text-zinc-600 dark:text-zinc-300">
-                    {new Date(dailyReport.generated_at).toLocaleTimeString()}
-                  </span>
+                  {c.metaGenerated(new Date(dailyReport.generated_at).toLocaleTimeString())}
                 </div>
               </div>
             </VStack>
@@ -449,7 +462,7 @@ export function DailyReportView({
           {/* RSS */}
           <VStack gap={2}>
             <span className="text-[10px] font-extrabold text-zinc-400 dark:text-zinc-500 uppercase tracking-wider">
-              订阅
+              {c.subscribeTitle}
             </span>
             <Button
               href="/open/api/ai/daily/rss"
@@ -457,7 +470,7 @@ export function DailyReportView({
               rel="noopener noreferrer"
               variant="secondary"
               size="sm"
-              label="RSS 订阅日报"
+              label={c.subscribeRss}
               icon={<Rss className="w-3.5 h-3.5 shrink-0 text-orange-500" />}
             />
           </VStack>

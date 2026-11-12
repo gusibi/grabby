@@ -3,7 +3,13 @@ import type { SourceForm } from "@/types";
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const jsonFetch = async <T = any>(url: string, options?: RequestInit): Promise<T> => {
   const response = await fetch(url, options);
-  return response.json();
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    // Some legacy endpoints return plain-text errors / empty bodies.
+    return { success: false, error: text || `请求失败 (${response.status})` } as T;
+  }
 };
 
 export const api = {
@@ -53,7 +59,11 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(settings),
   }),
-  testAI: () => jsonFetch("/api/ai/test", { method: "POST" }),
+  testAI: (draft?: { profile: unknown; system_prompt: string }) => jsonFetch("/api/ai/test", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(draft ?? {}),
+  }),
   startEvaluation: () => jsonFetch("/api/ai/start_eval", { method: "POST" }),
   getExtractCaptures: (limit = 100, offset = 0) => jsonFetch(`/api/captures/extract?limit=${limit}&offset=${offset}`),
   getTwitterCaptures: (source = "", limit = 100, offset = 0) => jsonFetch(

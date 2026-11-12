@@ -6,6 +6,8 @@ import { Spinner } from "@astryxdesign/core/Spinner";
 import { VStack, HStack } from "@astryxdesign/core/Layout";
 import { getCategoryLabel } from "@/lib/category";
 import { useTranslation } from "@/lib/i18n";
+import { useCopy } from "@/lib/copy";
+import { itemsCopy } from "./copy";
 import type { ScrapedItem } from "@/types";
 
 interface ItemDetailModalProps {
@@ -26,6 +28,7 @@ export function ItemDetailModal({
   toggleStar,
 }: ItemDetailModalProps) {
   const { t, language } = useTranslation();
+  const c = useCopy(itemsCopy);
   if (!item) return null;
 
   return (
@@ -40,7 +43,7 @@ export function ItemDetailModal({
         {/* Header Action Bar */}
         <DialogHeader
           title={item.title}
-          subtitle={item.origin_source ? `${item.origin_source} • ${language === "zh" ? "发布于:" : "Published at:"} ${item.published_at ? new Date(item.published_at).toLocaleString() : (language === "zh" ? "未知时间" : "Unknown Time")}` : ""}
+          subtitle={item.origin_source ? `${item.origin_source} • ${c.publishedAt(item.published_at ? new Date(item.published_at).toLocaleString() : c.unknownTime)}` : ""}
           onOpenChange={onClose}
           hasDivider
           endContent={
@@ -48,7 +51,7 @@ export function ItemDetailModal({
               <Button
                 size="sm"
                 variant={item.starred === 1 ? "primary" : "secondary"}
-                label={item.starred === 1 ? (language === "zh" ? "已收藏" : "Starred") : t("grid.star")}
+                label={item.starred === 1 ? c.starred : t("grid.star")}
                 icon={<Star className={`w-4 h-4 ${item.starred === 1 ? "fill-amber-400 text-amber-400" : ""}`} />}
                 onClick={(e) => toggleStar(item, e)}
               />
@@ -71,7 +74,7 @@ export function ItemDetailModal({
             
             {/* Category Info */}
             <HStack gap={2} vAlign="center">
-              <Badge variant="info" label={getCategoryLabel(item.category)} />
+              <Badge variant="info" label={getCategoryLabel(item.category, language)} />
               {item.source_category && (
                 <Badge variant="neutral" label={item.source_category} />
               )}
@@ -82,15 +85,15 @@ export function ItemDetailModal({
               <div className="bg-muted border-l-4 border-indigo-500 p-4 rounded-r-xl space-y-3">
                 <div className="flex justify-between items-center">
                   <h5 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-widest">
-                    {language === "zh" ? "AI 智能深度分析 AI Insights" : "AI Insights & Deep Analysis"}
+                    {c.aiInsights}
                   </h5>
-                  <Badge variant="success" label={language === "zh" ? `评分: ${item.quality_score} / 10` : `Score: ${item.quality_score} / 10`} />
+                  <Badge variant="success" label={c.scoreOfTen(item.quality_score)} />
                 </div>
                 
                 {item.ai_category && (
                   <div className="flex flex-wrap gap-1.5 items-center">
                     <span className="text-[10px] bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 px-2 py-0.5 rounded-md font-semibold">
-                      {language === "zh" ? "分类:" : "Category:"} {item.ai_category} {item.ai_subcategory ? `(${item.ai_subcategory})` : ""}
+                      {getCategoryLabel(item.category, language)} · {item.ai_category} {item.ai_subcategory ? `(${item.ai_subcategory})` : ""}
                     </span>
                     {item.ai_tags && item.ai_tags.split(',').map((tag: string) => (
                       <span key={tag} className="text-[9px] bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 px-1.5 py-0.5 rounded">
@@ -102,7 +105,7 @@ export function ItemDetailModal({
 
                 {item.ai_summary && (
                   <div className="space-y-1 mt-2">
-                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{language === "zh" ? "核心摘要 Summary" : "Core Summary"}</div>
+                    <div className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider">{c.coreSummary}</div>
                     <p className="text-xs text-zinc-700 dark:text-zinc-300 leading-relaxed font-sans">
                       {item.ai_summary}
                     </p>
@@ -115,11 +118,11 @@ export function ItemDetailModal({
             {isLoadingDetail ? (
               <HStack gap={2} hAlign="center" vAlign="center" className="py-12">
                 <Spinner size="md" />
-                <span className="text-xs text-zinc-400">{language === "zh" ? "详细内容加载中..." : "Loading content..."}</span>
+                <span className="text-xs text-zinc-400">{c.loadingContent}</span>
               </HStack>
             ) : (
               <article 
-                className="prose prose-sm max-w-none dark:prose-invert prose-headings:font-bold prose-a:text-indigo-600 prose-img:rounded-xl leading-relaxed text-zinc-700 dark:text-zinc-300"
+                className="g-reader prose prose-sm max-w-none dark:prose-invert prose-headings:font-bold prose-a:text-indigo-600 prose-img:rounded-xl leading-relaxed text-zinc-700 dark:text-zinc-300"
                 dangerouslySetInnerHTML={{ __html: itemDetailHtml }} 
               />
             )}

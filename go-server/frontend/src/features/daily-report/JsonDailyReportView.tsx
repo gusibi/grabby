@@ -1,5 +1,8 @@
-import { LayoutGrid, FileText, ExternalLink, CheckCircle, Activity, Layers, Database, Sparkles } from "lucide-react";
+import { ArrowUpRight, BarChart3, Layers, Sparkles, Star, Target, TrendingUp } from "lucide-react";
+import type { ReactNode } from "react";
 import type { JsonDailyReportData } from "@/types";
+import { useCopy } from "@/lib/copy";
+import { dailyCopy } from "./copy";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ReportItem = any;
@@ -8,45 +11,63 @@ interface JsonDailyReportViewProps {
   reportData: JsonDailyReportData;
 }
 
+const sectionIcon = (key: string, title: string): ReactNode => {
+  const t = (title || "").toLowerCase();
+  const k = (key || "").toLowerCase();
+  if (k.includes("top") || t.includes("头条") || t.includes("要闻")) return <Star size={13} />;
+  if (k.includes("dashboard") || t.includes("看板") || t.includes("数据") || t.includes("统计")) return <BarChart3 size={13} />;
+  if (k.includes("tech") || k.includes("ai") || t.includes("科技") || t.includes("探索") || t.includes("前沿")) return <TrendingUp size={13} />;
+  if (k.includes("finance") || k.includes("macro") || t.includes("财经") || t.includes("宏观")) return <Target size={13} />;
+  return <Layers size={13} />;
+};
+
+function itemText(item: ReportItem): string {
+  if (typeof item === "string") return item;
+  return [item.title, item.summary].filter(Boolean).join("：");
+}
+
+/**
+ * Report summaries sometimes embed the source URL as a Markdown link
+ * (`... [阅读原文](https://…)`). Pull the URL out so it can be rendered as a
+ * real anchor and keep the prose free of syntax.
+ */
+function tidySummary(summary?: string): { text: string; link?: string } {
+  const raw = summary || "";
+  if (!raw) return { text: "" };
+  let link: string | undefined;
+  const text = raw
+    .replace(/\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g, (_m, _label: string, url: string) => {
+      if (!link) link = url;
+      return "";
+    })
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  return { text, link };
+}
+
+function MetaChip({ children }: { children: ReactNode }) {
+  return (
+    <span className="g-chip !h-[21px] !text-[9.5px] g-mono" style={{ background: "var(--g-panel-2)" }}>
+      {children}
+    </span>
+  );
+}
+
 export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
+  const c = useCopy(dailyCopy);
   const sections = Object.entries(reportData.sections || {});
 
-  const getSectionIcon = (key: string, title: string) => {
-    const t = (title || "").toLowerCase();
-    const k = (key || "").toLowerCase();
-    if (k.includes("top") || t.includes("头条") || t.includes("要闻")) {
-      return <Sparkles className="w-5 h-5 text-indigo-500 animate-pulse" />;
-    }
-    if (k.includes("tech") || k.includes("ai") || t.includes("科技") || t.includes("ai") || t.includes("探索") || t.includes("前沿")) {
-      return <Activity className="w-5 h-5 text-cyan-500" />;
-    }
-    if (k.includes("finance") || k.includes("macro") || t.includes("财经") || t.includes("宏观") || t.includes("金")) {
-      return <Database className="w-5 h-5 text-emerald-500" />;
-    }
-    if (k.includes("international") || k.includes("social") || t.includes("国际") || t.includes("社会") || t.includes("世界")) {
-      return <Layers className="w-5 h-5 text-violet-500" />;
-    }
-    if (k.includes("dashboard") || t.includes("看板") || t.includes("数据") || t.includes("统计")) {
-      return <LayoutGrid className="w-5 h-5 text-amber-500" />;
-    }
-    return <FileText className="w-5 h-5 text-zinc-500" />;
-  };
-
   return (
-    <div className="space-y-8">
+    <div className="space-y-9">
       {(reportData.editor || reportData.date) && (
-        <div className="flex items-center justify-between text-xs text-zinc-500 border-b border-black/5 dark:border-white/5 pb-4">
+        <div className="flex flex-wrap items-center gap-2 pb-4" style={{ borderBottom: "1px solid var(--g-line)" }}>
           {reportData.editor && (
-            <div className="flex items-center gap-1.5 bg-indigo-500/5 dark:bg-indigo-500/10 px-2.5 py-1 rounded-full text-indigo-700 dark:text-indigo-300 font-bold border border-indigo-500/10">
-              <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
-              <span>主编: {reportData.editor}</span>
-            </div>
+            <MetaChip>
+              <span className="w-1.5 h-1.5 rounded-full" style={{ background: "var(--g-signal)" }} />
+              {c.editorByline(reportData.editor)}
+            </MetaChip>
           )}
-          {reportData.date && (
-            <div className="font-mono bg-zinc-100 dark:bg-zinc-800 px-2.5 py-1 rounded-full text-zinc-600 dark:text-zinc-400">
-              📅 {reportData.date}
-            </div>
-          )}
+          {reportData.date && <MetaChip>{reportData.date}</MetaChip>}
         </div>
       )}
 
@@ -57,165 +78,124 @@ export function JsonDailyReportView({ reportData }: JsonDailyReportViewProps) {
         const isDashboard = key.includes("dashboard") || sectionTitle.includes("看板") || sectionTitle.includes("数据");
         const isTopStories = key.includes("top") || sectionTitle.includes("今日头条") || sectionTitle.includes("要闻");
 
-        if (isDashboard) {
-          return (
-            <div key={key} className="bg-gradient-to-br from-indigo-50/40 via-purple-50/20 to-transparent dark:from-indigo-950/10 dark:via-zinc-900/10 dark:to-transparent border border-indigo-500/10 rounded-2xl p-6 space-y-4">
-              <div className="flex items-center gap-2 font-bold text-indigo-950 dark:text-indigo-200">
-                {getSectionIcon(key, sectionTitle)}
-                <h4 className="text-sm font-black tracking-tight">{sectionTitle}</h4>
+        return (
+          <section key={key}>
+            {/* Section head */}
+            <div className="flex items-baseline gap-2.5 pb-2.5" style={{ borderBottom: "1px solid var(--g-line)" }}>
+              <span style={{ color: "var(--g-signal)" }}>{sectionIcon(key, sectionTitle)}</span>
+              <h4 className="g-serif text-[19px] tracking-[-0.015em]">{sectionTitle}</h4>
+              <span className="g-mono text-[9.5px] ml-auto" style={{ color: "var(--g-faint)" }}>
+                {c.itemCount(section.items.length)}
+              </span>
+            </div>
+
+            {/* Dashboard */}
+            {isDashboard ? (
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                {section.items.map((item: ReportItem, idx: number) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-3 px-4 py-3 rounded-xl"
+                    style={{ background: "var(--g-panel-2)", border: "1px solid var(--g-line)" }}
+                  >
+                    <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0" style={{ background: "var(--g-panel)", color: "var(--g-signal)" }}>
+                      <BarChart3 size={14} />
+                    </span>
+                    <span className="text-[12px] leading-relaxed" style={{ color: "var(--g-ink)" }}>{itemText(item)}</span>
+                  </div>
+                ))}
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            ) : (
+              <div className="mt-4 space-y-2.5">
                 {section.items.map((item: ReportItem, idx: number) => {
-                  const text = typeof item === "string" ? item : [item.title, item.summary].filter(Boolean).join("：");
+                  if (typeof item === "string") {
+                    return (
+                      <p key={idx} className="text-[12.5px] leading-relaxed" style={{ color: "var(--g-muted)" }}>
+                        {item}
+                      </p>
+                    );
+                  }
+
+                  const story = item as ReportItem;
+                  const commentary = (story.commentary || story.comment || "").replace(/^【深度解析】\s*/, "");
+                  const summary = tidySummary(story.summary);
+                  const link = story.link || summary.link;
+                  const score = story.score || story.rating || "";
+                  const lead = isTopStories && idx === 0;
+
                   return (
-                    <div key={idx} className="flex items-center gap-3 bg-white dark:bg-zinc-900/60 p-4 rounded-xl shadow-sm border border-black/5 dark:border-white/5">
-                      <div className="p-2 bg-indigo-500/10 rounded-lg text-indigo-600 dark:text-indigo-400">
-                        <CheckCircle className="w-4 h-4" />
+                    <article
+                      key={story.id || idx}
+                      className="group rounded-xl overflow-hidden transition-all duration-300"
+                      style={{
+                        background: lead ? "var(--g-panel-2)" : "var(--g-panel)",
+                        border: `1px solid ${lead ? "var(--g-line-strong)" : "var(--g-line)"}`,
+                        borderLeft: `2px solid ${lead ? "var(--g-signal)" : "var(--g-line)"}`,
+                      }}
+                    >
+                      <div className={lead ? "p-5" : "p-4"}>
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <h5
+                            className={`g-serif leading-snug tracking-[-0.012em] flex-1 min-w-[220px] ${lead ? "text-[18px]" : "text-[14.5px]"}`}
+                            style={{ color: "var(--g-ink)" }}
+                          >
+                            {story.title}
+                          </h5>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            {story.source && (
+                              <span className="g-chip !h-[19px] !text-[9px]">{story.source}</span>
+                            )}
+                            {score && (
+                              <span
+                                className="g-chip !h-[19px] !text-[9px] g-mono"
+                                style={{ background: "var(--g-signal-soft)", color: "var(--g-signal)", borderColor: "transparent" }}
+                              >
+                                {typeof score === "number" ? `${score}/10` : String(score)}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {summary.text && (
+                          <p className={`mt-2.5 leading-relaxed ${lead ? "text-[12.5px]" : "text-[11.5px]"}`} style={{ color: "var(--g-muted)" }}>
+                            {summary.text}
+                          </p>
+                        )}
+
+                        {commentary && (
+                          <div
+                            className="mt-3 rounded-lg px-3 py-2.5"
+                            style={{ background: "var(--g-panel-2)", borderLeft: "2px solid color-mix(in srgb, var(--g-signal) 45%, transparent)" }}
+                          >
+                            <div className="flex items-center gap-1.5 text-[9.5px] g-eyebrow mb-1">
+                              <Sparkles size={10} style={{ color: "var(--g-signal)" }} />
+                              {c.deepDive}
+                            </div>
+                            <p className="text-[11.5px] leading-relaxed" style={{ color: "var(--g-muted)" }}>
+                              {commentary}
+                            </p>
+                          </div>
+                        )}
+
+                        {link && (
+                          <a
+                            href={link}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 mt-3 text-[10.5px] font-medium transition-colors"
+                            style={{ color: "var(--g-signal)" }}
+                          >
+                            {c.readOriginal}
+                            <ArrowUpRight size={12} />
+                          </a>
+                        )}
                       </div>
-                      <span className="text-sm font-semibold text-zinc-700 dark:text-zinc-300">{text}</span>
-                    </div>
+                    </article>
                   );
                 })}
               </div>
-            </div>
-          );
-        }
-
-        return (
-          <div key={key} className="space-y-4">
-            <div className="flex items-center gap-2 border-b border-black/5 dark:border-white/5 pb-2">
-              {getSectionIcon(key, sectionTitle)}
-              <h4 className="text-base font-black text-indigo-950 dark:text-zinc-100">{sectionTitle}</h4>
-            </div>
-
-            <div className="space-y-4">
-              {section.items.map((item: ReportItem, idx: number) => {
-                if (typeof item === "string") {
-                  return (
-                    <div key={idx} className="p-3 bg-zinc-50 dark:bg-zinc-900/40 rounded-lg text-xs text-zinc-600 dark:text-zinc-400">
-                      {item}
-                    </div>
-                  );
-                }
-
-                const story = item as ReportItem;
-
-                const commentaryText = story.commentary || story.comment || "";
-                const scoreText = story.score || story.rating || "";
-
-                if (isTopStories) {
-                  return (
-                    <div
-                      key={story.id || idx}
-                      className="group relative border border-indigo-500/10 hover:border-indigo-500/20 bg-white dark:bg-[#1a1a1c] hover:shadow-lg transition-all duration-300 rounded-2xl overflow-hidden p-6 space-y-4"
-                    >
-                      <div className="absolute top-0 left-0 w-1 h-full bg-gradient-to-b from-indigo-500 via-purple-500 to-pink-500" />
-                      
-                      <div className="flex flex-wrap items-start justify-between gap-3 pl-2">
-                        <h5 className="text-base font-black leading-snug text-zinc-900 dark:text-white group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors flex-1 min-w-[280px]">
-                          {story.title}
-                        </h5>
-                        <div className="flex items-center gap-2 shrink-0">
-                          {story.source && (
-                            <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-300">
-                              {story.source}
-                            </span>
-                          )}
-                          {scoreText && (
-                            <span className="text-[10px] font-extrabold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400">
-                              评分: {scoreText}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-
-                      <p className="text-sm text-zinc-600 dark:text-zinc-300 pl-2 leading-relaxed">
-                        {story.summary}
-                      </p>
-
-                      {commentaryText && (
-                        <div className="pl-2">
-                          <div className="border-l-4 border-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/20 p-4 rounded-r-xl text-xs text-zinc-700 dark:text-zinc-300 space-y-1">
-                            <div className="font-bold text-indigo-600 dark:text-indigo-400 flex items-center gap-1">
-                              <Sparkles className="w-3.5 h-3.5" />
-                              深度解析
-                            </div>
-                            <p className="italic leading-relaxed">
-                              {commentaryText.replace(/^【深度解析】\s*/, "")}
-                            </p>
-                          </div>
-                        </div>
-                      )}
-
-                      {story.link && (
-                        <div className="flex justify-end pl-2">
-                          <a
-                            href={story.link}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex items-center gap-1 text-xs text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-bold transition-colors"
-                          >
-                            阅读原文
-                            <ExternalLink className="w-3.5 h-3.5" />
-                          </a>
-                        </div>
-                      )}
-                    </div>
-                  );
-                }
-
-                // Regular Section Stories (e.g. tech, finance, international)
-                return (
-                  <div
-                    key={story.id || idx}
-                    className="border border-black/5 dark:border-white/5 hover:border-indigo-500/15 bg-white dark:bg-[#1a1a1c] hover:shadow-md transition-all duration-300 rounded-xl p-5 space-y-3"
-                  >
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <h5 className="text-sm font-bold text-zinc-900 dark:text-white leading-snug flex-1 min-w-[240px]">
-                        {story.title}
-                      </h5>
-                      <div className="flex items-center gap-1.5 shrink-0">
-                        {story.source && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded bg-zinc-100 dark:bg-zinc-800 text-zinc-500 dark:text-zinc-400">
-                            {story.source}
-                          </span>
-                        )}
-                        {scoreText && (
-                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/30 text-indigo-600 dark:text-indigo-400">
-                            {scoreText}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-
-                    <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                      {story.summary}
-                    </p>
-
-                    {commentaryText && (
-                      <div className="border-l-2 border-indigo-500/40 bg-zinc-50/50 dark:bg-zinc-900/30 p-2.5 rounded-r text-[11px] text-zinc-500 dark:text-zinc-400 italic">
-                        {commentaryText.replace(/^【深度解析】\s*/, "")}
-                      </div>
-                    )}
-
-                    {story.link && (
-                      <div className="flex justify-end">
-                        <a
-                          href={story.link}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="inline-flex items-center gap-1 text-[11px] text-indigo-600 dark:text-indigo-400 hover:text-indigo-800 dark:hover:text-indigo-300 font-semibold transition-colors"
-                        >
-                          阅读原文
-                          <ExternalLink className="w-3 h-3" />
-                        </a>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
-          </div>
+            )}
+          </section>
         );
       })}
     </div>

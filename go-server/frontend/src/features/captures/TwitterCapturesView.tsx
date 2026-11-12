@@ -1,12 +1,10 @@
+/* eslint-disable react-hooks/set-state-in-effect -- legacy data views load on mount */
 import { useEffect, useState, useCallback } from "react";
-import { RefreshCw, ExternalLink, Heart, Repeat2, MessageCircle } from "lucide-react";
-import { Button } from "@astryxdesign/core/Button";
-import { Card } from "@astryxdesign/core/Card";
-import { Table, proportional, pixel } from "@astryxdesign/core/Table";
-import { VStack, HStack } from "@astryxdesign/core/Layout";
-import { Badge } from "@astryxdesign/core/Badge";
+import { ExternalLink, Heart, MessageCircle, RefreshCw, Repeat2 } from "lucide-react";
 import { api } from "@/lib/api";
-import { useTranslation } from "@/lib/i18n";
+import { useCopy } from "@/lib/copy";
+import { capturesCopy } from "./copy";
+import { PageFrame, DataTable, DataRow, DataCell, EmptyRow } from "@/components/ui/PageFrame";
 import type { TweetCaptureRecord } from "@/types";
 
 export function TwitterCapturesView() {
@@ -14,13 +12,13 @@ export function TwitterCapturesView() {
   const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(false);
   const [source, setSource] = useState("");
-  const { t, language } = useTranslation();
+  const c = useCopy(capturesCopy);
 
-  const SOURCES = [
-    { key: "", label: language === "zh" ? "全部" : "All" },
-    { key: "search", label: language === "zh" ? "搜索" : "Search" },
-    { key: "timeline", label: language === "zh" ? "时间线" : "Timeline" },
-    { key: "likes", label: language === "zh" ? "点赞" : "Likes" },
+  const sources = [
+    { key: "", label: c.all },
+    { key: "search", label: c.srcSearch },
+    { key: "timeline", label: c.srcTimeline },
+    { key: "likes", label: c.srcLikes },
   ];
 
   const load = useCallback(async () => {
@@ -38,113 +36,66 @@ export function TwitterCapturesView() {
 
   useEffect(() => { load(); }, [load]);
 
-  const columns = [
-    {
-      key: "author",
-      header: language === "zh" ? "作者" : "Author",
-      width: pixel(140),
-      renderCell: (t: TweetCaptureRecord) => (
-        <VStack gap={0.5}>
-          <div className="font-semibold truncate max-w-[120px]">{t.author_name || t.author}</div>
-          <div className="text-[10px] text-zinc-400 truncate max-w-[120px]">@{t.author}</div>
-        </VStack>
-      )
-    },
-    {
-      key: "text",
-      header: language === "zh" ? "正文" : "Text",
-      width: proportional(2),
-      renderCell: (t: TweetCaptureRecord) => (
-        <div className="line-clamp-3 max-w-lg text-zinc-700 dark:text-zinc-300">
-          {t.text}
-        </div>
-      )
-    },
-    {
-      key: "interactions",
-      header: language === "zh" ? "互动" : "Interactions",
-      width: pixel(130),
-      renderCell: (t: TweetCaptureRecord) => (
-        <HStack gap={2} vAlign="center" className="font-mono text-[10px] text-zinc-500">
-          <span className="inline-flex items-center gap-0.5"><Heart className="w-3 h-3 text-rose-500" />{t.favorite_count}</span>
-          <span className="inline-flex items-center gap-0.5"><Repeat2 className="w-3 h-3 text-green-500" />{t.retweet_count}</span>
-          <span className="inline-flex items-center gap-0.5"><MessageCircle className="w-3 h-3 text-blue-500" />{t.reply_count}</span>
-        </HStack>
-      )
-    },
-    {
-      key: "source",
-      header: language === "zh" ? "来源" : "Source",
-      width: pixel(80),
-      align: "center" as const,
-      renderCell: (t: TweetCaptureRecord) => <Badge variant="info" label={t.source} />
-    },
-    {
-      key: "url",
-      header: language === "zh" ? "打开" : "Open",
-      width: pixel(60),
-      align: "center" as const,
-      renderCell: (t: TweetCaptureRecord) => t.url ? (
-        <Button
-          href={t.url}
-          target="_blank"
-          rel="noreferrer"
-          variant="ghost"
-          size="sm"
-          isIconOnly
-          label={language === "zh" ? "打开推文" : "Open Tweet"}
-          icon={<ExternalLink className="w-3.5 h-3.5 text-zinc-400 hover:text-blue-500" />}
-        />
-      ) : "-"
-    }
-  ];
-
   return (
-    <div className="flex-1 overflow-y-auto bg-body p-8">
-      <VStack gap={6} className="max-w-5xl mx-auto pb-12">
-        <HStack gap={3} vAlign="center" hAlign="between">
-          <div>
-            <h3 className="text-base font-bold text-primary">{t("title.twitter")}</h3>
-            <p className="text-xs text-secondary mt-1">
-              {language === "zh"
-                ? `search / timeline / likes 抓到的推文按 ID 去重存档（共 ${total} 条）。`
-                : `Deduplicated tweet archive captured via search, timeline, and likes (total ${total}).`}
-            </p>
-          </div>
-          <Button 
-            onClick={load} 
-            size="sm" 
-            variant="secondary" 
-            isDisabled={loading}
-            isLoading={loading}
-            label={t("btn.refresh")}
-            icon={<RefreshCw className="w-3.5 h-3.5" />}
-          />
-        </HStack>
+    <PageFrame
+      kicker={c.tweetKicker}
+      title={c.tweetTitle}
+      description={c.tweetDescription(total)}
+      actions={
+        <button className="g-btn g-btn-secondary g-btn-sm" onClick={load} disabled={loading}>
+          <RefreshCw size={12} className={loading ? "g-spin" : ""} /> {c.refresh}
+        </button>
+      }
+    >
+      <div className="flex items-center gap-1.5 mb-4">
+        {sources.map((s) => (
+          <button
+            key={s.key}
+            onClick={() => setSource(s.key)}
+            className="g-chip !h-[26px] !px-3 !text-[10.5px]"
+            style={{
+              background: source === s.key ? "var(--g-signal)" : "var(--g-panel)",
+              color: source === s.key ? "var(--g-on-signal)" : "var(--g-muted)",
+              borderColor: source === s.key ? "var(--g-signal)" : "var(--g-line)",
+            }}
+          >
+            {s.label}
+          </button>
+        ))}
+      </div>
 
-        <HStack gap={1.5} vAlign="center" className="flex-wrap">
-          {SOURCES.map((s) => (
-            <Button
-              key={s.key}
-              onClick={() => setSource(s.key)}
-              size="sm"
-              variant={source === s.key ? "primary" : "secondary"}
-              label={s.label}
-            />
-          ))}
-        </HStack>
-
-        <Card className="overflow-hidden">
-          <Table<any>
-            data={records}
-            columns={columns}
-            idKey="id"
-            density="compact"
-            dividers="rows"
-            hasHover
-          />
-        </Card>
-      </VStack>
-    </div>
+      <DataTable head={[c.tweetColAuthor, c.tweetColText, c.tweetColEngagement, c.tweetColSource, ""]}>
+        {records.length === 0 ? (
+          <EmptyRow colSpan={5}>{c.tweetEmpty}</EmptyRow>
+        ) : (
+          records.map((r) => (
+            <DataRow key={r.id}>
+              <DataCell>
+                <div className="font-semibold truncate max-w-[130px]">{r.author_name || r.author}</div>
+                <div className="g-mono text-[10px] mt-1 truncate max-w-[130px]" style={{ color: "var(--g-faint)" }}>@{r.author}</div>
+              </DataCell>
+              <DataCell>
+                <div className="line-clamp-3 max-w-[420px] leading-relaxed" style={{ color: "var(--g-muted)" }}>{r.text}</div>
+              </DataCell>
+              <DataCell>
+                <div className="flex items-center gap-2.5 g-mono !text-[10px]" style={{ color: "var(--g-faint)" }}>
+                  <span className="inline-flex items-center gap-1"><Heart size={11} style={{ color: "#e26d78" }} />{r.favorite_count}</span>
+                  <span className="inline-flex items-center gap-1"><Repeat2 size={11} style={{ color: "#6aa87a" }} />{r.retweet_count}</span>
+                  <span className="inline-flex items-center gap-1"><MessageCircle size={11} style={{ color: "#6b8fc4" }} />{r.reply_count}</span>
+                </div>
+              </DataCell>
+              <DataCell><span className="g-chip !h-[19px] !text-[9.5px]">{r.source}</span></DataCell>
+              <DataCell className="!text-right">
+                {r.url ? (
+                  <a className="g-icon-btn inline-flex" href={r.url} target="_blank" rel="noreferrer" title={c.tweetOpen}>
+                    <ExternalLink size={13} />
+                  </a>
+                ) : "—"}
+              </DataCell>
+            </DataRow>
+          ))
+        )}
+      </DataTable>
+    </PageFrame>
   );
 }

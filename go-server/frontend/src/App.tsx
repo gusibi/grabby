@@ -1,10 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect, react-hooks/exhaustive-deps */
 import { useState, useEffect, useRef } from "react";
 import { Theme } from "@astryxdesign/core/theme";
-import { stoneTheme } from "@astryxdesign/theme-stone/built";
-import { neutralTheme } from "@astryxdesign/theme-neutral/built";
-import { matchaTheme } from "@astryxdesign/theme-matcha/built";
-import { gothicTheme } from "@astryxdesign/theme-gothic/built";
+import { grabbyTheme } from "@/theme";
 import { AppShell } from "@astryxdesign/core/AppShell";
 import { Layout } from "@astryxdesign/core/Layout";
 import { Sidebar } from "@/components/layout/Sidebar";
@@ -21,7 +18,10 @@ import { ExtractCapturesView } from "@/features/captures/ExtractCapturesView";
 import { TwitterCapturesView } from "@/features/captures/TwitterCapturesView";
 import { AuthDialog } from "@/features/auth/AuthDialog";
 import { api } from "@/lib/api";
-import type { AICategory, AIProviderProfile, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
+import { useFeedback } from "@/components/ui/feedback-context";
+import { useCopy } from "@/lib/copy";
+import { appCopy } from "@/lib/app-copy";
+import type { AICategory, AIProviderProfile, AITestResult, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
 
 function getLocalDateString(d: Date = new Date()): string {
   const year = d.getFullYear();
@@ -51,7 +51,16 @@ function saveReadItemIds(ids: Set<number>) {
 }
 
 export default function App() {
-  const [currentView, setCurrentView] = useState<AppView>("grid");
+  const { toast, confirm } = useFeedback();
+  const c = useCopy(appCopy);
+  // Read the route synchronously so a deep link is never overwritten by the
+  // state → hash sync effect on the first render.
+  const [currentView, setCurrentView] = useState<AppView>(() => {
+    const raw = window.location.hash.replace(/^#/, "");
+    const parts = raw.split("?")[0].replace(/^\//, "").split("/");
+    const valid: AppView[] = ["grid", "settings", "ai-settings", "logs", "device", "daily", "captures-extract", "captures-twitter"];
+    return valid.includes(parts[0] as AppView) ? (parts[0] as AppView) : "grid";
+  });
   const [items, setItems] = useState<ScrapedItem[]>([]);
   const [cursor, setCursor] = useState<string>("");
   const [pageCursors, setPageCursors] = useState<string[]>([""]);
@@ -77,18 +86,10 @@ export default function App() {
   const [selectedSourceCategory, setSelectedSourceCategory] = useState<string>("all");
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState<boolean>(false);
   const [darkMode, setDarkMode] = useState<boolean>(false);
-  const [themeId, setThemeId] = useState<string>(() => localStorage.getItem("grabby_theme") || "stone");
-
-  const themesMap: Record<string, any> = {
-    stone: stoneTheme,
-    neutral: neutralTheme,
-    matcha: matchaTheme,
-    gothic: gothicTheme,
-  };
-  const activeTheme = themesMap[themeId] || stoneTheme;
   const [browserConnected, setBrowserConnected] = useState<boolean>(false);
   const [authRequired, setAuthRequired] = useState<boolean>(false);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
+  const [authReady, setAuthReady] = useState<boolean>(false);
   const [isAuthDialogOpen, setIsAuthDialogOpen] = useState<boolean>(false);
   const [isScrapingAll, setIsScrapingAll] = useState<boolean>(false);
   const [isShowOnlyAIQuality, setIsShowOnlyAIQuality] = useState<boolean>(false);
@@ -110,10 +111,10 @@ export default function App() {
   const [aiEnabled, setAiEnabled] = useState<boolean>(false);
   const [aiProfiles, setAiProfiles] = useState<AIProviderProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState<string>("");
-  const [aiProfileName, setAiProfileName] = useState<string>("默认服务商");
+  const [aiProfileName, setAiProfileName] = useState<string>("");
   const [aiProvider, setAiProvider] = useState<string>("gemini");
   const [aiApiKey, setAiApiKey] = useState<string>("");
-  const [aiModel, setAiModel] = useState<string>("");
+  const [aiModels, setAiModels] = useState<string[]>([]);
   const [aiBaseUrl, setAiBaseUrl] = useState<string>("");
   const [aiQualityThreshold, setAiQualityThreshold] = useState<number>(7);
   const [aiStrategy, setAiStrategy] = useState<string>("single");
@@ -122,8 +123,7 @@ export default function App() {
   const [isSavingSettings, setIsSavingSettings] = useState<boolean>(false);
   const [isLoadingSettings, setIsLoadingSettings] = useState<boolean>(false);
   const [isTestingAI, setIsTestingAI] = useState<boolean>(false);
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const [aiTestResult, setAiTestResult] = useState<any | null>(null);
+  const [aiTestResult, setAiTestResult] = useState<AITestResult | null>(null);
   const [aiRequestsPerMinute, setAiRequestsPerMinute] = useState<number>(10);
   const [morningReportEnabled, setMorningReportEnabled] = useState<boolean>(false);
   const [eveningReportEnabled, setEveningReportEnabled] = useState<boolean>(false);
@@ -179,6 +179,8 @@ export default function App() {
       console.error("Failed to fetch auth session", err);
       setAuthRequired(true);
       setIsAuthenticated(false);
+    } finally {
+      setAuthReady(true);
     }
   };
 
@@ -236,12 +238,15 @@ export default function App() {
     const rType = reportType || selectedReportType || "morning";
     try {
       const data = await api.getDailyReport(date, rType);
-      if (data.success && data.sections) {
-        const reportData = { ...data };
-        delete reportData.success;
+      if (data.success && (data.sections || data.content)) {
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { success, ...rest } = data;
+        const isMarkdown = data.format === "markdown";
         setDailyReport({
-          ...reportData,
-          content: JSON.stringify(reportData),
+          ...rest,
+          title: rest.title || (data.report_type === "evening" ? c.reportEvening : c.reportMorning),
+          content: isMarkdown ? data.content : JSON.stringify(rest),
+          content_format: isMarkdown ? "markdown" : "json",
         } as DailyReport);
         setDailyReportHtml("");
       } else {
@@ -266,20 +271,21 @@ export default function App() {
 
   const applyProfileToForm = (profile: AIProviderProfile) => {
     setActiveProfileId(profile.id);
-    setAiProfileName(profile.name || "未命名服务商");
+    setAiProfileName(profile.name || c.unnamedProfile);
     setAiProvider(profile.provider || "gemini");
     setAiApiKey(profile.api_key || "");
-    setAiModel(profile.model || "");
+    setAiModels(profile.models?.length ? profile.models : profile.model ? [profile.model] : []);
     setAiBaseUrl(profile.base_url || "");
     setAiRequestsPerMinute(profile.requests_per_minute || 10);
   };
 
   const buildProfileFromSettings = (settings: Partial<AIProviderProfile> & { active_profile_id?: string }): AIProviderProfile => ({
     id: settings.active_profile_id || "default",
-    name: "默认服务商",
+    name: c.defaultProfileName,
     provider: settings.provider || "gemini",
     api_key: settings.api_key || "",
     model: settings.model || "",
+    models: settings.models?.length ? settings.models : settings.model ? [settings.model] : [],
     base_url: settings.base_url || "",
     requests_per_minute: 10,
   });
@@ -288,10 +294,11 @@ export default function App() {
     const currentID = activeProfileId || "default";
     const currentProfile: AIProviderProfile = {
       id: currentID,
-      name: aiProfileName.trim() || "未命名服务商",
+      name: aiProfileName.trim() || c.unnamedProfile,
       provider: aiProvider,
       api_key: aiApiKey,
-      model: aiModel,
+      model: aiModels[0] || "",
+      models: aiModels,
       base_url: aiBaseUrl,
       requests_per_minute: aiRequestsPerMinute,
     };
@@ -326,10 +333,11 @@ export default function App() {
     const maxPriority = nextProfiles.reduce((max, p) => Math.max(max, p.priority || 0), 0);
     const newProfile: AIProviderProfile = {
       id: `profile-${Date.now()}`,
-      name: `服务商 ${nextProfiles.length + 1}`,
+      name: c.newProfileName(nextProfiles.length + 1),
       provider: "custom",
       api_key: "",
       model: "",
+      models: [],
       base_url: "http://localhost:1234/v1",
       disabled: false,
       priority: maxPriority + 1,
@@ -343,7 +351,7 @@ export default function App() {
   const handleDeleteAIProfile = () => {
     const nextProfiles = upsertCurrentProfile();
     if (nextProfiles.length <= 1) {
-      alert("至少需要保留一个服务商档案。");
+      toast(c.errCannotDeleteTitle, c.errCannotDeleteBody, "error");
       return;
     }
 
@@ -394,7 +402,8 @@ export default function App() {
         enabled: aiEnabled,
         provider: aiProvider,
         api_key: aiApiKey,
-        model: aiModel,
+        model: aiModels[0] || "",
+        models: aiModels,
         base_url: aiBaseUrl,
         quality_threshold: Number(aiQualityThreshold),
         strategy: aiStrategy,
@@ -408,41 +417,37 @@ export default function App() {
         evening_report_time: eveningReportTime,
       });
       if (data.success) {
-        alert("AI配置保存成功！");
+        toast(c.savedTitle, c.savedBody, "success");
       } else {
-        alert("AI配置保存失败：" + (data.error || "未知错误"));
+        toast(c.saveFailedTitle, data.error || c.saveFailedBody, "error");
       }
     } catch (err) {
       console.error("Failed to save AI settings", err);
-      alert("保存失败，请检查网络连接");
+      toast(c.saveFailedTitle, c.saveNetworkBody, "error");
     } finally {
       setIsSavingSettings(false);
     }
   };
 
-  const handleTestAI = async () => {
+  const handleTestAI = async (draft?: { profile: AIProviderProfile; system_prompt: string }) => {
     setIsTestingAI(true);
     setAiTestResult(null);
     try {
-      const data = await api.testAI();
+      const data = await api.testAI(draft);
       if (data.success) {
         setAiTestResult({
           success: true,
-          title: data.item_title,
+          item_title: data.item_title,
+          model_used: data.model_used,
+          latency_ms: data.latency_ms,
           analysis: data.analysis,
         });
       } else {
-        setAiTestResult({
-          success: false,
-          error: data.error || "未知接口错误",
-        });
+        setAiTestResult({ success: false, error: data.error || c.testUnknownError });
       }
     } catch (err) {
       console.error("Failed to test AI connection", err);
-      setAiTestResult({
-        success: false,
-        error: "网络连接失败，请检查后端服务是否正常启动。",
-      });
+      setAiTestResult({ success: false, error: c.testNetworkError });
     } finally {
       setIsTestingAI(false);
     }
@@ -452,14 +457,14 @@ export default function App() {
     try {
       const data = await api.startEvaluation();
       if (data.success) {
-        alert(data.message || "增量评估已启动！");
+        toast(c.evalStartedTitle, data.message || c.evalStartedBody, "success");
         fetchStats();
       } else {
-        alert("启动失败：" + (data.error || "未知原因"));
+        toast(c.evalFailedTitle, data.error || c.scrapeFailedBody, "error");
       }
     } catch (err) {
       console.error("Failed to start evaluation", err);
-      alert("网络错误，启动增量评测失败");
+      toast(c.evalNetworkTitle, c.evalNetworkBody, "error");
     }
   };
 
@@ -469,7 +474,7 @@ export default function App() {
     try {
       const data = await api.generateDailyReport(selectedReportDate, rType);
       if (data.success) {
-        alert("早报/晚报生成已在后台启动，生成需要一些时间，完成后将自动加载。");
+        toast(c.reportStartedTitle, c.reportStartedBody, "success");
         // Wait a few seconds to let backend start processing, then fetch updates
         setTimeout(() => {
           fetchStats();
@@ -477,11 +482,11 @@ export default function App() {
           fetchDailyReport(selectedReportDate, rType);
         }, 3000);
       } else {
-        alert("生成失败: " + (data.error || "未知原因"));
+        toast(c.reportFailedTitle, data.error || c.scrapeFailedBody, "error");
       }
     } catch (err) {
       console.error("Failed to generate daily report", err);
-      alert("生成日报出现网络错误");
+      toast(c.evalNetworkTitle, c.reportNetworkBody, "error");
     } finally {
       setIsGeneratingReport(false);
     }
@@ -618,7 +623,7 @@ export default function App() {
         resetItemsPagination();
         fetchStats();
       } else {
-        alert("Scrape failed: " + data.error);
+        toast(c.scrapeFailedTitle, data.error, "error");
       }
     } catch (err) {
       console.error(err);
@@ -647,7 +652,13 @@ export default function App() {
   };
 
   const handleDeleteSource = async (id: string) => {
-    if (!confirm("Are you sure you want to delete this subscription source?")) return;
+    const ok = await confirm({
+      title: c.deleteSourceTitle,
+      description: c.deleteSourceBody,
+      confirmLabel: c.delete,
+      destructive: true,
+    });
+    if (!ok) return;
     try {
       await api.deleteSource(id);
       setSources(prev => prev.filter(s => s.id !== id));
@@ -874,17 +885,21 @@ export default function App() {
   }, [currentView]);
 
   useEffect(() => {
+    // Wait until the session has been resolved: otherwise a deep link to an
+    // admin view is bounced back to the grid while auth is still loading.
+    if (!authReady) return;
     const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device", "captures-extract", "captures-twitter"];
     if (authRequired && !isAuthenticated && adminViews.includes(currentView)) {
       setCurrentView("grid");
     }
-  }, [authRequired, isAuthenticated, currentView]);
+  }, [authReady, authRequired, isAuthenticated, currentView]);
 
 
   return (
-    <Theme theme={activeTheme} mode={darkMode ? "dark" : "light"}>
+    <Theme theme={grabbyTheme} mode={darkMode ? "dark" : "light"}>
       <AppShell
         contentPadding={0}
+        variant="section"
         sideNav={
           <Sidebar
             isSidebarCollapsed={isSidebarCollapsed}
@@ -898,11 +913,6 @@ export default function App() {
             setSelectedSourceCategory={setSelectedSourceCategory}
             toggleDarkMode={toggleDarkMode}
             darkMode={darkMode}
-            themeId={themeId}
-            onChangeTheme={(t) => {
-              setThemeId(t);
-              localStorage.setItem("grabby_theme", t);
-            }}
             setIsSidebarCollapsed={setIsSidebarCollapsed}
             authRequired={authRequired}
             isAuthenticated={isAuthenticated}
@@ -987,8 +997,8 @@ export default function App() {
                     setAiProvider={setAiProvider}
                     aiQualityThreshold={aiQualityThreshold}
                     setAiQualityThreshold={setAiQualityThreshold}
-                    aiModel={aiModel}
-                    setAiModel={setAiModel}
+                    aiModels={aiModels}
+                    setAiModels={setAiModels}
                     aiApiKey={aiApiKey}
                     setAiApiKey={setAiApiKey}
                     aiRequestsPerMinute={aiRequestsPerMinute}
@@ -1012,6 +1022,7 @@ export default function App() {
                     isTestingAI={isTestingAI}
                     isSavingSettings={isSavingSettings}
                     saveAISettings={saveAISettings}
+                    resetAISettings={fetchAISettings}
                     isAuthenticated={isAuthenticated}
                   />
                 )}

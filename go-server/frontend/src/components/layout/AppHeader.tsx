@@ -1,10 +1,12 @@
-import { RefreshCw, Wifi, WifiOff, Plus, Loader2, LogOut } from "lucide-react";
-import { Button } from "@astryxdesign/core/Button";
-import { Heading } from "@astryxdesign/core/Text";
+import { useMemo } from "react";
+import { Loader2, LogOut, Plus, RefreshCw, Wifi, WifiOff } from "lucide-react";
 import { useTranslation } from "@/lib/i18n";
+import { useCopy } from "@/lib/copy";
+import { shellCopy } from "./copy";
+import type { AppView } from "@/types";
 
 interface AppHeaderProps {
-  currentView: import("@/types").AppView;
+  currentView: AppView;
   browserConnected: boolean;
   openAddSourceDialog: () => void;
   handleScrapeAllEnabled: () => void;
@@ -14,6 +16,7 @@ interface AppHeaderProps {
   onLogout: () => void;
 }
 
+
 export function AppHeader({
   currentView,
   browserConnected,
@@ -22,65 +25,75 @@ export function AppHeader({
   isScrapingAll,
   authRequired,
   isAuthenticated,
-  onLogout
+  onLogout,
 }: AppHeaderProps) {
-  const { t, language } = useTranslation();
+  const { language } = useTranslation();
+  const zh = language === "zh";
+  const c = useCopy(shellCopy);
+  const meta = c.titles[currentView] ?? c.titles.grid;
+
+  const dateLabel = useMemo(
+    () =>
+      new Intl.DateTimeFormat(zh ? "zh-CN" : "en-US", {
+        month: "long",
+        day: "numeric",
+        weekday: "long",
+      }).format(new Date()),
+    [zh]
+  );
 
   return (
-    <header className="h-14 flex items-center justify-between px-6 border-b border-border bg-body sticky top-0 z-10 shrink-0">
-      <div className="flex items-center gap-3">
-        <Heading level={2}>
-          {currentView === "grid" && t("title.daily").split(" ")[0]}
-          {currentView === "settings" && t("title.sources")}
-          {currentView === "ai-settings" && t("title.aiSettings")}
-          {currentView === "logs" && t("title.logs")}
-          {currentView === "daily" && t("title.daily")}
-          {currentView === "device" && t("title.device")}
-          {currentView === "captures-extract" && t("title.extract")}
-          {currentView === "captures-twitter" && t("title.twitter")}
-        </Heading>
-        <div className={`flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-medium transition-all ${
-          browserConnected 
-            ? "bg-success/10 text-success" 
-            : "bg-warning/10 text-warning"
-        }`}>
-          {browserConnected ? <Wifi className="w-3 h-3" /> : <WifiOff className="w-3 h-3" />}
-          {browserConnected 
-            ? (language === "zh" ? "插件已连接" : "Plugin Connected") 
-            : (language === "zh" ? "插件未连接" : "Plugin Offline")}
-        </div>
+    <header
+      className="h-[62px] shrink-0 flex items-center justify-between gap-4 px-7 relative"
+      style={{ background: "var(--g-paper)", borderBottom: "1px solid var(--g-line)" }}
+    >
+      <div className="flex items-baseline gap-3.5 min-w-0">
+        <span className="g-eyebrow hidden sm:inline">{meta.kicker}</span>
+        <h1 key={currentView} className="g-rise text-[17px] font-semibold tracking-[-0.025em] truncate">
+          {meta.title}
+        </h1>
+        <span className="hidden md:inline g-rule !w-px !h-3.5 self-center" />
+        <span className="hidden md:inline text-[11px] whitespace-nowrap" style={{ color: "var(--g-faint)" }}>
+          {dateLabel}
+        </span>
       </div>
 
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5 shrink-0">
+        <span
+          className="hidden sm:inline-flex items-center gap-1.5 h-[26px] px-2.5 rounded-full text-[10.5px] font-medium"
+          style={{
+            background: browserConnected ? "var(--g-signal-soft)" : "var(--g-panel-2)",
+            color: browserConnected ? "var(--g-signal)" : "var(--g-faint)",
+            border: `1px solid ${browserConnected ? "color-mix(in srgb, var(--g-signal) 24%, transparent)" : "var(--g-line)"}`,
+          }}
+        >
+          <span className="relative flex h-1.5 w-1.5">
+            {browserConnected && (
+              <span className="absolute inline-flex h-full w-full rounded-full g-pulse" style={{ background: "var(--g-signal)", opacity: 0.45 }} />
+            )}
+            <span className="relative inline-flex rounded-full h-1.5 w-1.5" style={{ background: browserConnected ? "var(--g-signal)" : "var(--g-faint)" }} />
+          </span>
+          {browserConnected ? c.pluginConnected : c.pluginOffline}
+          {browserConnected ? <Wifi size={11} /> : <WifiOff size={11} />}
+        </span>
+
         {currentView === "settings" && isAuthenticated && (
-          <Button 
-            onClick={openAddSourceDialog} 
-            size="sm" 
-            variant="primary"
-            label={t("sources.add")}
-            icon={<Plus className="w-3.5 h-3.5" />}
-          />
+          <button className="g-btn g-btn-primary g-btn-sm" onClick={openAddSourceDialog}>
+            <Plus size={13} /> {c.addSource}
+          </button>
         )}
 
         {currentView === "grid" && isAuthenticated && (
-          <Button 
-            onClick={handleScrapeAllEnabled} 
-            isDisabled={isScrapingAll}
-            size="sm" 
-            variant="primary"
-            label={t("btn.scrape")}
-            icon={isScrapingAll ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
-          />
+          <button className="g-btn g-btn-primary g-btn-sm" onClick={handleScrapeAllEnabled} disabled={isScrapingAll}>
+            {isScrapingAll ? <Loader2 size={13} className="g-spin" /> : <RefreshCw size={13} />}
+            {c.scrapeNow}
+          </button>
         )}
 
         {authRequired && isAuthenticated && (
-          <Button
-            onClick={onLogout}
-            size="sm"
-            variant="secondary"
-            label={t("nav.logout")}
-            icon={<LogOut className="w-3.5 h-3.5" />}
-          />
+          <button className="g-icon-btn" title={c.logOut} onClick={onLogout}>
+            <LogOut size={14} />
+          </button>
         )}
       </div>
     </header>

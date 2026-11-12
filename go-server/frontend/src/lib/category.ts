@@ -8,12 +8,18 @@ export const getCategoryColor = (cat: string) => {
   }
 };
 
-export const getCategoryLabel = (cat: string) => {
-  switch (cat) {
-    case "tweet": return "推特 Tweet";
-    case "project": return "项目 Project";
-    case "paper": return "论文 Paper";
-    case "article": return "文章 Article";
-    default: return cat;
-  }
+export const getCategoryLabel = (cat: string, language: "zh" | "en" = "zh") => {
+  const zh: Record<string, string> = {
+    tweet: "推文",
+    project: "项目",
+    paper: "论文",
+    article: "文章",
+  };
+  const en: Record<string, string> = {
+    tweet: "Tweet",
+    project: "Project",
+    paper: "Paper",
+    article: "Article",
+  };
+  return (language === "zh" ? zh : en)[cat] || cat;
 };
