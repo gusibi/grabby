@@ -138,7 +138,7 @@ curl -H "X-API-Key: your_api_key" http://localhost:5040/api/health
 
 | 工具名 | 参数 | 说明 |
 |--------|------|------|
-| `twitter_search` / `twitter_timeline` / `twitter_likes` | `query`/`kind`/`handle`, `limit`, `browser` | X/Twitter 结构化抓取 |
+| `twitter_search` / `twitter_timeline` / `twitter_likes` | `query`/`kind`, `limit`, `browser` | X/Twitter 结构化抓取 |
 | `reddit_thread` / `reddit_subreddit` / `reddit_search` | `url`/`subreddit`/`query`, `sort`, `limit`, `browser` | Reddit 帖子与评论树 |
 | `xiaohongshu_note` / `xiaohongshu_search` / `xiaohongshu_user_notes` | `url`/`query`, `limit`, `browser` | 小红书笔记与评论 |
 

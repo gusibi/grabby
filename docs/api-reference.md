@@ -224,7 +224,7 @@ Authorization: Bearer your_token
 
 #### POST /api/twitter/likes
 
-读取 `x.com/<handle>/likes` 的点赞推文（读取自己的点赞需已登录）。
+读取当前登录账号的点赞历史（`x.com/i/history/likes`，需已登录）。
 
 ```http
 POST /api/twitter/likes HTTP/1.1
@@ -232,7 +232,6 @@ Content-Type: application/json
 Authorization: Bearer your_token
 
 {
-  "handle": "jack",
   "limit": 60,
   "browser": "chrome-office"
 }
@@ -240,7 +239,6 @@ Authorization: Bearer your_token
 
 | 字段 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `handle` | string | 是 | - | X 用户名（不含 `@`），如 `jack` |
 | `limit` | number | 否 | 60 | 返回推文上限 |
 | `browser` | string | 否 | - | 指定使用的浏览器名称 |
 
@@ -652,6 +650,159 @@ Authorization: Bearer your_token
 
 ---
 
+### POST /api/intercept
+
+拦截页面自己发出的 XHR/fetch 响应（浏览器执行器原语，见 `docs/browser-executor-plan.md` §4.3）。**hook 在 `document_start` 注入，只记录、不构造请求**，因此站点 token、自定义 header、指纹全部保持原样。
+
+`patterns` 是 URL 子串规则，由本次调用动态下发，不需要往扩展里硬编码站点特征。
+
+#### 请求
+
+```http
+POST /api/intercept HTTP/1.1
+Content-Type: application/json
+Authorization: Bearer your_token
+
+{
+  "url": "https://search.google.com/search-console/performance/search-analytics?resource_id=sc-domain%3Aexample.com&num_of_days=28",
+  "patterns": ["batchexecute"],
+  "waitForRequest": true,
+  "timeoutMs": 25000,
+  "maxCaptures": 20,
+  "exactHost": true,
+  "unregisterAfter": true,
+  "dump": true,
+  "dumpName": "gsc-performance",
+  "browser": "chrome-office"
+}
+```
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 要打开的页面 |
+| `patterns` | string[] | 否 | hook 默认标记 | 只保留 URL 含任一子串的响应；空 = 全部交给调用方 |
+| `waitForRequest` | boolean | 否 | false | 命中即返回，不按固定轮次盲等 |
+| `timeoutMs` | number | 否 | 30000 | `waitForRequest` 的超时 |
+| `settleMs` | number | 否 | 1200 | 命中后继续收集的窗口（同一屏的数据通常是一簇 RPC） |
+| `scrollRounds` | number | 否 | 6 | 非 `waitForRequest` 模式的滚动轮数；报表页传 `0` |
+| `maxCaptures` | number | 否 | 200 | 最多返回多少条 |
+| `includeBodies` | boolean | 否 | true | 是否回传响应体 |
+| `maxBodyBytes` | number | 否 | 262144 | 单条响应体截断上限 |
+| `exactHost` | boolean | 否 | false | 只注入该 host，不扩散到整个主域 |
+| `unregisterAfter` | boolean | 否 | false | 结束后反注册捕获脚本 |
+| `visible` | boolean | 否 | false | 是否短暂激活标签页 |
+| `dump` | boolean | 否 | false | 把原始响应写到服务端 `testdata/raw/` |
+| `dumpName` | string | 否 | `intercept` | dump 文件名前缀 |
+| `browser` | string | 否 | - | 指定浏览器 |
+
+#### 成功响应 (200)
+
+```json
+{
+  "success": true,
+  "url": "https://search.google.com/...",
+  "matched": 2,
+  "items": [
+    {
+      "url": "https://search.google.com/search-console/_/PerformanceUi/data/batchexecute",
+      "status": 200,
+      "method": "fetch",
+      "body": ")]}'\n\n...",
+      "bodyBytes": 18234,
+      "bodyTruncated": false,
+      "ts": 1762345678901
+    }
+  ],
+  "dumpPath": "testdata/raw/gsc-performance-20261106-101500.json"
+}
+```
+
+`dumpPath` 是服务端本地路径，仅供本机排查使用。
+
+---
+
+### POST /api/ui_action
+
+在真实页面上执行一个最小 DOM 操作（`click` / `type` / `select` / `scroll`），可选等待该操作触发的请求。仅在深链无法表达某个视图时使用（日期选择器、维度 tab、表格"加载更多"）。
+
+刻意不支持任意 JS 执行。
+
+#### 请求参数
+
+| 字段 | 类型 | 必填 | 默认值 | 说明 |
+|------|------|------|--------|------|
+| `url` | string | 是 | - | 页面地址 |
+| `action` | string | 否 | `click` | `click` / `type` / `select` / `scroll` |
+| `selector` | string | 否 | - | CSS 选择器（与 `text` 至少给一个） |
+| `text` | string | 否 | - | 按可见文字匹配元素 |
+| `value` | string | 否 | - | `type`/`select` 的值；`scroll` 时为像素数 |
+| `waitForRequest` | boolean | 否 | false | 操作后等待请求 |
+| `patterns` / `urlIncludes` | string[]/string | 否 | - | 等待时只认 URL 含这些子串的响应 |
+| `timeoutMs` | number | 否 | 20000 | 等元素 / 等请求超时 |
+| `visible` | boolean | 否 | false | 是否短暂激活标签页 |
+| `dump` / `dumpName` | boolean/string | 否 | false/`ui_action` | 同 `/api/intercept` |
+| `browser` | string | 否 | - | 指定浏览器 |
+
+成功响应与 `/api/intercept` 同构，多一个 `action` 字段。
+
+---
+
+### Google Search Console 接口
+
+**只用浏览器**：每次查询都在用户已登录的真实浏览器里打开 Search Console 页面，读取页面自己请求的数据。不使用 Google 官方 API，不保存任何 Google 凭据。
+
+#### POST /api/gsc/record
+
+阶段一接口：打开一个真实视图并抓取页面自己发出的原始响应，落盘到 `testdata/raw/`，用于校准解析器。
+
+```http
+POST /api/gsc/record
+Content-Type: application/json
+
+{
+  "kind": "performance",
+  "property": "sc-domain:example.com",
+  "days": 28,
+  "browser": "chrome-office"
+}
+```
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `kind` | string | 否 | `sites`（属性列表）或 `performance`（表现报表），默认 `performance` |
+| `property` | string | `performance` 必填 | 必须用 canonical 标识：`sc-domain:example.com` 或 `https://www.example.com/`（URL-prefix 属性保留结尾斜杠） |
+| `days` | number | 否 | 报表窗口，默认 28 |
+| `dump` | boolean | 否 | 默认 `true` |
+| `browser` | string | 否 | 指定浏览器 |
+
+成功响应只返回摘要（不含响应体）：
+
+```json
+{
+  "success": true,
+  "kind": "performance",
+  "property": "sc-domain:example.com",
+  "page_url": "https://search.google.com/search-console/performance/search-analytics?resource_id=sc-domain%3Aexample.com&num_of_days=28",
+  "matched": 2,
+  "captures": [
+    { "url": "https://search.google.com/.../batchexecute", "status": 200, "bodyBytes": 18234, "rpc_ids": ["OLiH4d"] }
+  ],
+  "dumpPath": "testdata/raw/gsc-performance-sc-domain-example.com-20261106-101500.json"
+}
+```
+
+响应体只写 dump 文件，避免 HTTP 响应过大。
+
+| 错误码 | 含义 |
+|--------|------|
+| `503` | 没有已连接的浏览器 |
+| `504` | `REQUEST_NOT_SEEN`：页面没有发出匹配的请求（未登录 / 无该属性权限 / 页面结构变化） |
+| `502` | 其他浏览器侧失败 |
+
+---
+
 ### GET /open/api/health
 
 健康检查端点。
@@ -911,11 +1062,10 @@ MCP Server 挂载在 HTTP 端口上，提供两种传输：
 
 ### tool: twitter_likes
 
-读取 `x.com/<handle>/likes` 中的点赞推文（读取自己的点赞需已登录），用于同步/归档点赞。
+读取当前登录账号在 `x.com/i/history/likes` 中的点赞推文（需已登录），用于同步/归档点赞。
 
 | 参数 | 类型 | 必填 | 默认值 | 说明 |
 |------|------|------|--------|------|
-| `handle` | string | 是 | - | X 用户名（不含 `@`），如 `jack` |
 | `limit` | number | 否 | 60 | 返回推文上限 |
 | `browser` | string | 否 | - | 指定使用的浏览器名称 |
 

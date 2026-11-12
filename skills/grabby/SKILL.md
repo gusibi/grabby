@@ -20,6 +20,7 @@ description: 抓取网页内容（URL转Markdown）、截图，借用已登录�
 | `scripts/twitter.sh` | X/Twitter：`search` `timeline` `likes` |
 | `scripts/reddit.sh` | Reddit：`thread` `subreddit` `search` |
 | `scripts/xiaohongshu.sh` | 小红书：`note` `search` `user-notes` |
+| `scripts/gsc.sh` | 谷歌 Search Console：`record`（阶段一：录制原始响应，尚未解析） |
 
 所有脚本共用 `scripts/_lib.sh`，自动读取环境变量：
 - `GRABBY_SERVER_URL` — 服务地址，默认 `http://localhost:5040`
@@ -32,7 +33,7 @@ description: 抓取网页内容（URL转Markdown）、截图，借用已登录�
 **必传参数缺失时不要猜，停下来让用户提供。** 不要为了凑一次请求而编造 URL、query、subreddit、handle 等关键值——猜错只会浪费一次请求并返回无意义结果。
 
 - 下表标「必传」的参数，如果用户没给、上下文里也拿不到确切值，就**直接向用户提问**（例如"要抓哪个帖子的 URL？""搜索关键词是什么？"），不要用占位符或臆测值发请求。
-- 标「有默认值」的参数（如 `twitter.sh likes` 的 handle 默认 `gusibix`）按默认值走即可——默认值是明确约定，不算猜测。
+- 标「有默认值」的参数（如 `twitter.sh likes` 的 `limit` 默认 `60`）按默认值走即可——默认值是明确约定，不算猜测。
 
 | 命令 | 必传（缺失须询问） | 有默认值 |
 |------|------|------|
@@ -41,7 +42,7 @@ description: 抓取网页内容（URL转Markdown）、截图，借用已登录�
 | `browser.sh fetch` | `page-url`、`request-url` | — |
 | `twitter.sh search` | `query` | `limit=40` |
 | `twitter.sh timeline` | — | `kind=for_you`、`limit=40` |
-| `twitter.sh likes` | — | `handle=$GRABBY_TWITTER_HANDLE` 否则 `gusibix`、`limit=60` |
+| `twitter.sh likes` | — | `limit=60` |
 | `reddit.sh thread` | `url` | — |
 | `reddit.sh subreddit` | `name` | `limit=100` |
 | `reddit.sh search` | `query` | `limit=100`（subreddit/sort 可空） |
@@ -115,8 +116,8 @@ scripts/browser.sh browsers
 ```bash
 scripts/twitter.sh search "golang" 40                 # 搜索
 scripts/twitter.sh timeline for_you 40                # 主页时间线（for_you|following）
-scripts/twitter.sh likes                              # 自己的点赞（handle 默认 $GRABBY_TWITTER_HANDLE，否则 gusibix）
-scripts/twitter.sh likes jack 60                      # 指定 handle（不含 @）和上限
+scripts/twitter.sh likes                              # 自己的点赞（x.com/i/history/likes，需已登录）
+scripts/twitter.sh likes 60                           # 指定上限
 ```
 
 均返回 `{"success": true, "count": N, "tweets": [...]}`。单条推文字段：`id` `text` `author`(@) `author_name` `created_at` `favorite_count` `retweet_count` `reply_count` `quote_count` `url` `media[]`。
@@ -140,6 +141,20 @@ scripts/xiaohongshu.sh user-notes "https://www.xiaohongshu.com/user/profile/xxxx
 ```
 
 `note` 返回 `{success, note}`，note 含 `id` `title` `desc` `author` `liked_count` `collected_count` `comment_count` `images[]` `comments[]`（每条评论含 `content` `author` `ip_location` `like_count` `sub_comments[]`）。`note` URL **必须带 xsec_token**。`search`/`user-notes` 返回 `{success, count, notes}`。
+
+### 谷歌 Search Console（gsc.sh）
+
+```bash
+scripts/gsc.sh record sites                                    # 录制属性列表请求
+scripts/gsc.sh record performance "sc-domain:example.com" 28   # 录制表现报表请求
+```
+
+**只用浏览器**：打开真实的 Search Console 页面，抓取页面自己发出的请求（`batchexecute`），不使用 Google API，也不需要任何 Google 凭据。前提是浏览器已登录该账号且对属性有权限。
+
+- `property` 必须是 canonical 属性标识：`sc-domain:example.com`（Domain 属性）或 `https://www.example.com/`（URL-prefix 属性，**结尾斜杠要保留**）。不要用显示名拼。
+- 当前是**阶段一**：返回各响应的 URL / 大小 / RPC id 摘要，原始 body 写到服务端 `go-server/testdata/raw/`。解析成报表的 `sites` / `performance` 接口随后接入。
+- 返回 `matched: 0` 或 504 `REQUEST_NOT_SEEN`：通常是未登录、无该属性权限，或 Google 改了页面结构（看 dump 里的 RPC id 是否变化）。
+- 后台标签页抓不到时，在命令末尾加 `1` 让标签页可见（如 `... 28 "" 1`）。
 
 ---
 

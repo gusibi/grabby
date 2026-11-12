@@ -174,7 +174,7 @@ MV3 落地手段（按优先级）：
 | Reddit | URL 加 `.json` 后缀直接请求 | `fetchInPage` |
 | Twitter 搜索 | 早注入拦截 `SearchTimeline` GraphQL 响应；DOM 兜底 | `intercept` |
 | Twitter timeline（刷内容） | 早注入拦截 `HomeTimeline`/`HomeLatestTimeline`；滚动分页 + 时间去重 | `intercept` + 滚动分页 |
-| Twitter likes（同步收藏） | 打开 `x.com/<handle>/likes`，拦截 `Likes` GraphQL；增量 `since` 语义 | `intercept` + 滚动分页 |
+| Twitter likes（同步收藏） | 打开 `x.com/i/history/likes`，拦截 `Likes` GraphQL；增量 `since` 语义 | `intercept` + 滚动分页 |
 | 小红书 | 早注入拦截 `/api/sns/web/`；控频 + 随机延迟 + 失败冷却 | `intercept` |
 | B站视频 | 读 `__INITIAL_STATE__` + 调字幕 API（站内 JS 算 WBI 签名） | `runPageScript` + `fetchInPage` |
 | 网页搜索 | 打开 Google/Bing/DuckDuckGo 结果页，解析或拦截结果 | `runPageScript` / DOM |
@@ -257,17 +257,17 @@ twitter_timeline(kind: "for_you" | "following", limit?, since?, browser?)
 ### 7.2 `twitter_likes` —— 同步我的 Like 用于收藏存档
 
 - 用途：把用户（常在手机上）点的 Like 拉取下来，由另一任务存档/收藏。属**增量同步**，不是一次性抓取。
-- 入口：`x.com/<handle>/likes`；拦截 `Likes` GraphQL 响应。
-- 强依赖登录态（自己的 likes 页需登录）。
+- 入口：`x.com/i/history/likes`；拦截 `Likes` GraphQL 响应。
+- 强依赖登录态（点赞历史页需登录）。
 - 滚动分页直到**命中上次同步位置即停**——这是与 timeline 的关键差异：
 
 ```text
-twitter_likes(handle?, since?, max_items?, browser?)
+twitter_likes(since?, max_items?, browser?)
 ```
 
 - `since`：上次同步到的最新 tweet id / 时间戳。适配器滚动到遇到已知项即停，只回传增量，避免每次全量重刷（也降低风控）。
-- `handle` 省略时默认当前登录用户。
-- **验收前置项**：X 的 likes 页可见性与页面行为变动频繁，**不要把 `/<handle>/likes` 稳定可访问写成强假设**。实现时先验证当前 X 页面结构与 `Likes` GraphQL 接口仍可访问，并在适配器里对「页面结构变化 / 接口改名 / likes 不可见」给出明确错误分类，而非静默返回空。
+- 只读取当前登录账号的点赞历史（`x.com/i/history/likes`），不再支持指定 handle。
+- **验收前置项**：X 的 likes 页可见性与页面行为变动频繁，**不要把 `x.com/i/history/likes` 稳定可访问写成强假设**。实现时先验证当前 X 页面结构与 `Likes` GraphQL 接口仍可访问，并在适配器里对「页面结构变化 / 接口改名 / likes 不可见」给出明确错误分类，而非静默返回空。
 
 ### 7.3 三者关系
 
@@ -275,7 +275,7 @@ twitter_likes(handle?, since?, max_items?, browser?)
 |---|---|---|---|---|
 | `twitter_search` | search 页 | `SearchTimeline` | 到 `limit` | 一次性查询 |
 | `twitter_timeline` | `/home` | `HomeTimeline` / `HomeLatestTimeline` | 到 `limit` | 一次性快照 |
-| `twitter_likes` | `/<handle>/likes` | `Likes` | 命中 `since` 或到 `max_items` | 增量同步 |
+| `twitter_likes` | `x.com/i/history/likes` | `Likes` | 命中 `since` 或到 `max_items` | 增量同步 |
 
 三者都需：登录态检测、滚动分页、去重、明确错误分类（未登录 / 页面结构变化 / 请求未捕获 / 超时）、站点级限流与随机延迟。由于都依赖无限流，建议默认 `visible:true` 短暂激活并在结束后恢复用户原 tab（§4.4）。
 

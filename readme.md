@@ -51,6 +51,18 @@ python start.py
 make run-go      # 构建前端 + Go 二进制并启动
 ```
 
+### 桌面 APP（一条命令）
+
+```bash
+make app          # 构建 → 打包 Grabby.app → 启动
+make app-log      # 跟踪日志（~/Library/Logs/Grabby/desktop.log）
+make app-stop     # 停止
+```
+
+APP 进程内自带 HTTP / WebSocket / MCP 服务，**不需要另开终端跑 server**。窗口关掉后它仍驻留在菜单栏，从菜单栏图标「退出 Grabby」才算真的退出。默认不校验 token（loopback 直接放行），需要在 APP 的「设置 → API 与安全」里自行设置。
+
+调试时用 `make run-desktop`，日志会直接打在终端。
+
 ### 环境配置
 
 所有配置集中在 `go-server/.env` 文件中，无需修改代码。
@@ -311,6 +323,113 @@ wait
 - 内容库类：`library_search`、`library_get_item`、`library_list_sources`、`library_daily_report`、`library_stats`
 
 完整参数与连接方式见 [docs/usage.md](docs/usage.md#mcp-工具使用)。
+
+## 桌面 APP（MyGO）
+
+Grabby 另有一个独立的桌面应用，使用 [MyGO](https://github.com/egoist/mygo) v0.8.3。
+**现有 Web 管理页面保持原样**，APP 使用另一套独立界面 `go-server/desktop/dist/`：
+macOS 为 Apple News 风格（沉浸式半透明侧栏、大标题、卡片流），Windows 为 Fluent / Windows 新闻风格，
+两者都跟随系统深浅色。界面是运行在系统 WebView 中的 HTML/CSS/JS（CSS 仿真平台外观，
+不是系统原生控件）；进程、托盘、单实例、数据库和 API 服务则是原生 Go 二进制。
+
+### APP 功能
+
+APP 复用 Web 版同一套后端接口，侧栏分四组：
+
+| 页面 | 功能 | 主要接口 |
+|---|---|---|
+| 今天 | 统计、扩展连接状态、最新内容 | `/open/api/health`、`/open/api/stats`、`/open/api/items` |
+| 内容库 | 服务端搜索、全部 / 已收藏 / AI 优质筛选、分类筛选、详情、收藏、已读 | `/open/api/items`、`/open/api/ai/items`、`/api/items/:id/*` |
+| RSS 源 | 订阅源增删改、启停、单条与批量立即抓取、抓取日志、分组 | `/api/sources`、`/api/sources/:id/toggle|run`、`/api/logs` |
+| 新闻源 | 来源分组跳转、X / Reddit / 小红书 / 网页提取采集、提取归档 | `/api/twitter/*`、`/api/reddit/*`、`/api/xiaohongshu/*`、`/api/extract`、`/api/captures/extract` |
+| AI 分析 | 队列统计、当前分析配置摘要、连通性测试、全量评测、优质内容、单条重分析 | `/open/api/ai/stats`、`/api/ai/test`、`/api/ai/start_eval`、`/open/api/ai/*` |
+| AI 日报 | 按日期 / 类型查看、生成、补生成近 7 天、历史列表、RSS 订阅地址 | `/open/api/ai/daily`、`/open/api/ai/daily/list`、`/api/ai/daily/generate` |
+| 浏览器设备 | 在线状态、断开 / 禁用 / 解禁、扩展连接信息 | `/api/browsers*` |
+| API 接入 | Base URL、MCP、鉴权、中转链路、端点清单与 curl 示例 | — |
+| 设置 | 六个分区：服务状态、AI 模型、提示词、日报定时、API 与安全、数据与文件 | `/api/ai/settings`、`/api/desktop/settings`、`/api/ai/test` |
+
+**设置页（参考 Web 的 AISettings 布局）**用编号分区 + 顶部快速跳转，全部配置集中在一页：
+
+1. **01 服务状态** — 进程、监听地址、本机免密状态、Token 状态、扩展 WebSocket 地址；
+2. **02 AI 模型** — 启用开关、配置档选择 / 新建（对应后端的 provider profiles）、服务商预设
+   （OpenAI / DeepSeek / Gemini / OpenRouter / LM Studio / 自定义）、服务商、模型、Base URL、
+   API Key、每分钟请求上限、优质阈值、多模型策略；
+3. **03 提示词** — 系统提示词与日报提示词，标注可用变量；
+4. **04 日报定时** — 早报 / 晚报开关与时间，可在本页直接测试模型连通性；
+5. **05 API 与安全** — Token 开关 / 生成 / 保存、局域网访问开关、鉴权说明；
+6. **06 数据与文件** — 数据目录、`grabby.db`、`desktop-settings.json`、curl 示例。
+
+模型配置必须写在「配置档（profile）」里：后端会用当前配置档回填 provider / model / base_url，
+所以设置页直接编辑选中的配置档并把它设为当前使用，保存后立即对新分析任务生效。
+切换配置档会重新载入该档的字段；新建配置档从空白表单开始，不会复制已有的 Key。
+
+写操作走 `/api/*`，读操作走 `/open/api/*`。**APP 内不需要任何 token**：服务与本机调用（WebView、CLI、MCP、扩展）
+全部走 loopback，永远免密，也不会弹登录框；Token 只用于保护来自其他设备的请求，默认关闭。
+启动到指定页面可加 `?view=sources`（`today|library|sources|news|ai|daily|devices|apihub|settings`）。
+
+APP 不只是界面：完整的 HTTP / WebSocket / MCP 服务仍然跑在同一个 Go 进程里，
+所以它本身就是一个 **API 中转站**：
+
+```
+外部调用 POST /api/extract ──> APP 内的 Go server ──> ws://localhost:5040/ws_browser ──> Chrome 扩展 ──> 目标网页
+```
+
+### 构建与运行
+
+```bash
+make build-desktop       # 生成 go-server/grabby-desktop
+make run-desktop         # 构建并启动
+make package-macos-app   # 生成 dist/Grabby.app（未签名，本机可用）
+```
+
+打包之后**直接双击 `dist/Grabby.app` 就能用**：服务随 APP 一起启动，不需要终端，也不需要另开进程；
+仓库里打出来的这个 bundle 会自动复用 `go-server/` 的数据库与 `.env`，订阅源和内容库都在。
+
+MyGO 要求 Go 1.27.3+（`go-server/go.mod` 已升级）。若本机设置了 `GOSUMDB=off`，
+Go 自动切换 toolchain 会失败，Makefile 的 desktop target 已临时指定 `GOSUMDB=sum.golang.org`。
+
+### 配置
+
+**打开 APP 即自动启动服务**，不需要终端，也不需要额外的进程：HTTP / WebSocket / MCP 服务就运行在 APP 进程内。
+
+数据目录按以下顺序确定，不需要手动配置：
+
+1. `GRABBY_DESKTOP_DATA_DIR` 环境变量（显式指定，优先级最高）；
+2. 上次启动记住的目录（`~/Library/Application Support/Grabby/data-dir.txt`）；
+3. 可执行文件附近的 `go-server/` 目录 —— 所以仓库里 `make package-macos-app` 产出的
+   `dist/Grabby.app` 双击后会**直接复用项目现有的 `grabby.db` 和 `.env`**，订阅源、内容库都在；
+4. 系统用户数据目录（macOS: `~/Library/Application Support/Grabby/`），用于安装到 `/Applications` 的独立副本。
+
+实际使用的目录会在「设置 → 数据与文件」里显示。
+
+| 环境变量 | 默认 | 说明 |
+|---|---|---|
+| `GRABBY_DESKTOP_DATA_DIR` | 自动识别 | 强制指定数据目录 |
+| `GRABBY_DESKTOP_HOST` | `127.0.0.1` | 设为 `0.0.0.0` 可让其他设备访问 API；无 Token 时自动回退为本机 |
+| `PORT` | `5040` | 被占用时自动顺延，实际地址显示在「设置 → 服务状态」与托盘菜单 |
+
+Token 与对外访问**不读环境变量，也不读 `.env`**，只在 APP 的「设置 → API 与安全」里配置并保存到
+`desktop-settings.json`（与 `grabby.db` 同级，`0600` 权限）。Token 保存后立即生效；
+监听范围改变需要重启 APP。开启对外访问时必须先设置 Token，否则保存会被拒绝。
+
+`.env` 里遗留的 `GRABBY_ADMIN_KEY` / `GRABBY_API_TOKEN` 对 APP 无效（启动时被清空），
+所以不会出现「一打开就要求登录」的情况；Web 版与命令行的鉴权行为完全不变。
+
+### 行为
+
+- 关闭窗口**不会退出**：APP 留在托盘，API 服务继续运行；从托盘选择「退出」才会优雅关闭调度器、任务队列和数据库。
+- 单实例：重复启动会把已运行的窗口带到前台。
+- 浏览器扩展连接到 APP 显示的端口（默认 `ws://localhost:5040/ws_browser`）；端口顺延时需在扩展设置里同步修改。
+- 端口顺延时 APP 仍然提供自己的 UI，不会退回 Web 页面。
+
+### 已知限制
+
+- MyGO 只支持桌面（macOS 12+ / Windows 10+ / Linux），不支持 iOS / Android；依赖系统 WebView，Linux 需 `libwebkit2gtk-4.1-0`，Windows 10 需 WebView2 Runtime。
+- `dist/Grabby.app` 未签名公证，对外分发需走 MyGO 的打包签名流程或自行签名。
+- Chrome 扩展仍需单独安装（登录态在真实浏览器里），APP 不会替你安装。
+- **对外监听时 HTTP 与 WebSocket 都会校验 Token**：远端 HTTP 请求带 `X-API-Key`（或 `Authorization: Bearer`），
+  远端 WS 握手带 `?token=`。本机 loopback 请求始终免密，所以 Chrome 扩展、CLI、MCP 客户端与 APP 自身不受影响，
+  Web 版的鉴权行为也没有变化。`CheckOrigin` 仍为允许，不要把 Token 长期暴露在不可信网络里。
 
 ## 项目架构
 
