@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"net"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -17,29 +19,82 @@ import (
 const adminSessionCookie = "grabby_admin_session"
 
 type adminAuth struct {
+	settings *config.Settings
+	// Fallback for the headless server (and unit tests), where no shared
+	// Credentials object is attached to Settings.
 	adminKey string
 	apiToken string
 }
 
 func newAdminAuth(settings *config.Settings) adminAuth {
-	if settings == nil {
-		return adminAuth{}
+	a := adminAuth{settings: settings}
+	if settings != nil {
+		a.adminKey, a.apiToken = settings.AdminKey, settings.APIToken
 	}
-	return adminAuth{adminKey: settings.AdminKey, apiToken: settings.APIToken}
+	return a
+}
+
+// credentials reads the shared, mutable credential pair when present. This is
+// what lets the desktop settings page turn a token on/off without a restart.
+func (a adminAuth) credentials() (string, string) {
+	if a.settings != nil && a.settings.Credentials != nil {
+		return a.settings.Credentials.Get()
+	}
+	return a.adminKey, a.apiToken
+}
+
+func (a adminAuth) updateCredentials(adminKey, apiToken string) {
+	if a.settings != nil && a.settings.Credentials != nil {
+		a.settings.Credentials.Set(adminKey, apiToken)
+	}
 }
 
 func (a adminAuth) enabled() bool {
-	return a.adminKey != "" || a.apiToken != ""
+	adminKey, apiToken := a.credentials()
+	return adminKey != "" || apiToken != ""
+}
+
+// desktopLocal reports whether this request originates from the machine the
+// desktop app runs on. The app's own WebView, local CLI, MCP clients and the
+// browser extension all connect over loopback, so they must never be asked for
+// a token. Remote callers (only reachable when the app is bound to 0.0.0.0)
+// still go through the normal token check.
+func (a adminAuth) desktopLocal(r *http.Request) bool {
+	if a.settings == nil || !a.settings.DesktopMode {
+		return false
+	}
+	return isLoopbackAddr(r.RemoteAddr)
+}
+
+func isLoopbackAddr(remote string) bool {
+	host, _, err := net.SplitHostPort(remote)
+	if err != nil {
+		host = remote
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+func isLoopbackBind(host string) bool {
+	if host == "" || host == "localhost" {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
 }
 
 func (a adminAuth) isAuthenticated(r *http.Request) bool {
 	if !a.enabled() {
 		return true
 	}
+	if a.desktopLocal(r) {
+		return true
+	}
 	if a.hasValidToken(r) {
 		return true
 	}
-	if a.adminKey == "" {
+	adminKey, _ := a.credentials()
+	if adminKey == "" {
 		return false
 	}
 	cookie, err := r.Cookie(adminSessionCookie)
@@ -67,7 +122,7 @@ func (a adminAuth) middleware(next echo.HandlerFunc) echo.HandlerFunc {
 // When no token is configured at all the server is open, matching middleware.
 func (a adminAuth) tokenMiddleware(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c echo.Context) error {
-		if !a.enabled() || a.hasValidToken(c.Request()) {
+		if !a.enabled() || a.desktopLocal(c.Request()) || a.hasValidToken(c.Request()) {
 			return next(c)
 		}
 		return c.JSON(http.StatusUnauthorized, map[string]any{
@@ -95,17 +150,19 @@ func (a adminAuth) hasValidToken(r *http.Request) bool {
 	if token == "" {
 		return false
 	}
-	if a.apiToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.apiToken)) == 1 {
+	adminKey, apiToken := a.credentials()
+	if apiToken != "" && subtle.ConstantTimeCompare([]byte(token), []byte(apiToken)) == 1 {
 		return true
 	}
-	if a.adminKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(a.adminKey)) == 1 {
+	if adminKey != "" && subtle.ConstantTimeCompare([]byte(token), []byte(adminKey)) == 1 {
 		return true
 	}
 	return false
 }
 
 func (a adminAuth) sessionToken() string {
-	mac := hmac.New(sha256.New, []byte(a.adminKey))
+	adminKey, _ := a.credentials()
+	mac := hmac.New(sha256.New, []byte(adminKey))
 	mac.Write([]byte("grabby-admin-session"))
 	return hex.EncodeToString(mac.Sum(nil))
 }
@@ -144,10 +201,12 @@ func RegisterAuthHandlers(group *echo.Group, deps Dependencies) {
 	})
 
 	group.POST("/auth/login", func(c echo.Context) error {
-		if !auth.enabled() {
+		// On desktop, loopback callers are already trusted; never make the
+		// bundled UI type an admin key.
+		if !auth.enabled() || auth.desktopLocal(c.Request()) {
 			return c.JSON(http.StatusOK, map[string]any{
 				"success":       true,
-				"auth_required": false,
+				"auth_required": auth.enabled(),
 				"authenticated": true,
 			})
 		}
@@ -158,7 +217,8 @@ func RegisterAuthHandlers(group *echo.Group, deps Dependencies) {
 		if err := c.Bind(&req); err != nil {
 			return c.JSON(http.StatusBadRequest, map[string]any{"success": false, "error": "invalid request body"})
 		}
-		if subtle.ConstantTimeCompare([]byte(req.Key), []byte(auth.adminKey)) != 1 {
+		adminKey, _ := auth.credentials()
+		if subtle.ConstantTimeCompare([]byte(req.Key), []byte(adminKey)) != 1 {
 			return c.JSON(http.StatusUnauthorized, map[string]any{"success": false, "error": "invalid admin key"})
 		}
 
@@ -176,5 +236,78 @@ func RegisterAuthHandlers(group *echo.Group, deps Dependencies) {
 			"success":       true,
 			"authenticated": false,
 		})
+	})
+
+	if deps.Settings != nil && deps.Settings.DesktopMode {
+		registerDesktopSettings(group, deps, auth)
+	}
+}
+
+// registerDesktopSettings exposes the preferences owned by the desktop shell.
+// These routes sit behind the normal /api middleware, so a remote caller can
+// only reach them with a valid token; the local WebView is always allowed.
+func registerDesktopSettings(group *echo.Group, deps Dependencies, auth adminAuth) {
+	snapshot := func() map[string]any {
+		cfg := config.LoadDesktopSettings()
+		_, token := auth.credentials()
+		host := deps.Settings.Host
+		envHost := os.Getenv("GRABBY_DESKTOP_HOST")
+		envForcedExternal := envHost != "" && !isLoopbackBind(envHost)
+		activeExternal := !isLoopbackBind(host)
+		return map[string]any{
+			"success":             true,
+			"desktop_mode":        true,
+			"auto_start":          true,
+			"data_dir":            config.DesktopDataDir(),
+			"host":                host,
+			"port":                deps.Settings.Port,
+			"active_external":     activeExternal,
+			"env_forced_external": envForcedExternal,
+			"external_enabled":    cfg.ExternalEnabled || activeExternal,
+			"token_enabled":       token != "",
+			"api_token":           token,
+			"auth_required":       auth.enabled(),
+			"port_shifted":        os.Getenv("GRABBY_DESKTOP_PORT_SHIFTED") == "1",
+			"restart_required":    cfg.ExternalEnabled != activeExternal,
+		}
+	}
+
+	group.GET("/desktop/settings", func(c echo.Context) error {
+		return c.JSON(http.StatusOK, snapshot())
+	})
+
+	group.POST("/desktop/settings", func(c echo.Context) error {
+		var req struct {
+			ExternalEnabled *bool   `json:"external_enabled"`
+			APIToken        *string `json:"api_token"`
+		}
+		if err := c.Bind(&req); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]any{"success": false, "error": "invalid request body"})
+		}
+
+		cfg := config.LoadDesktopSettings()
+		if req.ExternalEnabled != nil {
+			cfg.ExternalEnabled = *req.ExternalEnabled
+		}
+		if req.APIToken != nil {
+			cfg.APIToken = strings.TrimSpace(*req.APIToken)
+		}
+		if cfg.ExternalEnabled && cfg.APIToken == "" {
+			return c.JSON(http.StatusBadRequest, map[string]any{
+				"success": false,
+				"error":   "开放局域网访问时必须设置 API Token",
+			})
+		}
+		if err := config.SaveDesktopSettings(cfg); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]any{
+				"success": false,
+				"error":   "无法保存设置: " + err.Error(),
+			})
+		}
+
+		// Apply the token immediately; the app's own UI keeps working because
+		// loopback requests bypass the token check.
+		auth.updateCredentials("", cfg.APIToken)
+		return c.JSON(http.StatusOK, snapshot())
 	})
 }

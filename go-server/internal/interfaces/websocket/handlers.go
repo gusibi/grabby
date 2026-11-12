@@ -2,7 +2,10 @@ package websocket
 
 import (
 	"context"
+	"crypto/subtle"
+	"net"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -19,8 +22,51 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin: func(r *http.Request) bool { return true },
 }
 
+// requireRemoteToken rejects a network-originated handshake when the desktop
+// app is exposed beyond loopback and an API token is configured. The app's own
+// WebView, the CLI and the Chrome extension all connect over loopback, so they
+// are never challenged; the headless server is unaffected (DesktopMode is only
+// set by the desktop shell).
+func requireRemoteToken(w http.ResponseWriter, r *http.Request, logger *zap.Logger) bool {
+	settings := config.GetSettings()
+	if settings == nil || !settings.DesktopMode {
+		return true
+	}
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		if ip := net.ParseIP(host); ip != nil && ip.IsLoopback() {
+			return true
+		}
+	}
+	_, apiToken := settings.Credentials.Get()
+	if apiToken == "" {
+		return true
+	}
+	presented := r.URL.Query().Get("token")
+	if presented == "" {
+		presented = r.Header.Get("X-API-Key")
+	}
+	if presented == "" {
+		presented = r.Header.Get("X-Grabby-Token")
+	}
+	if presented == "" {
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(strings.ToLower(h), "bearer ") {
+			presented = strings.TrimSpace(h[len("bearer "):])
+		}
+	}
+	if subtle.ConstantTimeCompare([]byte(presented), []byte(apiToken)) == 1 {
+		return true
+	}
+	logger.Warn("WebSocket rejected: missing or invalid API token for remote client",
+		zap.String("path", r.URL.Path), zap.String("remote", r.RemoteAddr))
+	http.Error(w, "Missing or invalid API token", http.StatusUnauthorized)
+	return false
+}
+
 func HandleWebSocketBrowser(wm *browserws.WebSocketManager, registry *browserregistry.BrowserRegistry, logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRemoteToken(w, r, logger) {
+			return
+		}
 		connID := r.URL.Query().Get("conn_id")
 		browserName := r.URL.Query().Get("name")
 		if connID == "" || browserName == "" {
@@ -80,6 +126,9 @@ func HandleWebSocketBrowser(wm *browserws.WebSocketManager, registry *browserreg
 
 func HandleWebSocketCommand(wm *browserws.WebSocketManager, settings *config.Settings, logger *zap.Logger) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !requireRemoteToken(w, r, logger) {
+			return
+		}
 		connID := r.URL.Query().Get("conn_id")
 		if connID == "" {
 			connID = uuid.New().String()

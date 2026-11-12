@@ -5,9 +5,6 @@ import (
 	"embed"
 	"fmt"
 	"net/http"
-	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	aiapp "go-server/internal/application/ai"
@@ -83,16 +80,31 @@ func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) 
 	}, nil
 }
 
+// Run starts the background workers and the HTTP/WebSocket/MCP server and
+// blocks until ctx is cancelled or the server fails. Both the headless server
+// entrypoint and the desktop shell call it, so the caller owns the process
+// lifecycle: Run never installs signal handlers and never calls os.Exit.
 func (a *App) Run(ctx context.Context) error {
 	a.aiEngine.Start()
-	defer a.aiEngine.Stop()
-
 	a.taskQueue.Start(ctx)
-	defer a.taskQueue.Shutdown()
 
 	if err := a.scheduler.Start(ctx); err != nil {
+		a.taskQueue.Shutdown()
+		a.aiEngine.Stop()
 		return fmt.Errorf("failed to start scheduler: %w", err)
 	}
+
+	defer func() {
+		cronCtx := a.scheduler.Stop()
+		<-cronCtx.Done()
+		a.taskQueue.Shutdown()
+		a.aiEngine.Stop()
+		a.wsManager.CloseAll()
+		if err := a.db.Close(); err != nil {
+			a.logger.Error("Database close error", zap.Error(err))
+		}
+		a.logger.Info("Shutdown complete")
+	}()
 
 	router := httpiface.NewRouter(httpiface.Dependencies{
 		Settings:        a.settings,
@@ -109,33 +121,23 @@ func (a *App) Run(ctx context.Context) error {
 	})
 
 	addr := fmt.Sprintf("%s:%d", a.settings.Host, a.settings.Port)
-	// Graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
 
+	// ctx cancellation drives a graceful shutdown instead of a process signal.
+	// The second case keeps the goroutine from lingering if the server stops
+	// on its own (for example when the port is already taken).
+	serverStopped := make(chan struct{})
+	defer close(serverStopped)
 	go func() {
-		<-sigChan
-		a.logger.Info("Graceful shutdown initiated...")
-
-		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer shutdownCancel()
-		if err := router.Shutdown(shutdownCtx); err != nil {
-			a.logger.Error("HTTP server shutdown error", zap.Error(err))
+		select {
+		case <-ctx.Done():
+			a.logger.Info("Graceful shutdown initiated...")
+			shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer shutdownCancel()
+			if err := router.Shutdown(shutdownCtx); err != nil {
+				a.logger.Error("HTTP server shutdown error", zap.Error(err))
+			}
+		case <-serverStopped:
 		}
-
-		cronCtx := a.scheduler.Stop()
-		<-cronCtx.Done()
-
-		a.taskQueue.Shutdown()
-		a.aiEngine.Stop()
-		a.wsManager.CloseAll()
-
-		if err := a.db.Close(); err != nil {
-			a.logger.Error("Database close error", zap.Error(err))
-		}
-
-		a.logger.Info("Shutdown complete")
-		os.Exit(0)
 	}()
 
 	a.logger.Info("Starting server", zap.String("address", addr))

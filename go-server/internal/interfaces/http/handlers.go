@@ -327,8 +327,16 @@ func paramInt64(c echo.Context) (int64, error) {
 
 // RegisterStaticHandlers serves the embedded frontend SPA. It legitimately uses
 // net/http file serving, so it keeps the wrapHandlerFunc bridge.
+//
+// The headless server embeds frontend/dist, while the desktop build embeds its
+// own desktop/dist. Pick whichever is present so the two UIs stay independent
+// and the existing web frontend needs no changes.
 func RegisterStaticHandlers(e *echo.Echo, frontendFS embed.FS, logger *zap.Logger) {
-	fsys, err := fs.Sub(frontendFS, "frontend/dist")
+	root := "frontend/dist"
+	if _, err := fs.Stat(frontendFS, "desktop/dist/index.html"); err == nil {
+		root = "desktop/dist"
+	}
+	fsys, err := fs.Sub(frontendFS, root)
 	if err != nil {
 		logger.Warn("Failed to load embedded frontend files", zap.Error(err))
 		return

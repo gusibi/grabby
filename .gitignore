@@ -30,6 +30,8 @@ node_modules/
 vendor/
 go-server/go-server
 go-server/grabby-server
+go-server/grabby-desktop
+go-server/desktop-settings.json
 go-server/.tmp/
 
 # Astro / Site
@@ -43,6 +45,11 @@ chrome-extension/icons/temp_svgs/
 
 # GoReleaser
 dist/
+
+# The desktop app's UI is hand-written (no build step) and embedded into the
+# binary with //go:embed, so unlike frontend/dist it has to be tracked.
+!go-server/desktop/dist/
+!go-server/desktop/dist/*
 
 # IDE
 .vscode/
@@ -90,3 +97,6 @@ browser_registry.json
 
 # Generated HTML
 grabby-v2-complete-*.html
+
+# Raw browser captures (may contain personal account data)
+go-server/testdata/raw/

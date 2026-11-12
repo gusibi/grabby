@@ -25,6 +25,44 @@ type Settings struct {
 	APIExtractTimeout float64
 	DefaultBrowser    string // default browser name for routing; empty = first active connection
 	AISettings        ai.AISettings
+
+	// DesktopMode enables desktop-only auth behaviour: requests coming from the
+	// local machine are always trusted, while remote callers need an API token.
+	// The headless server never sets this, so its auth rules are unchanged.
+	DesktopMode bool
+	// Credentials is shared by every auth middleware instance so the desktop
+	// settings page can change the token without restarting the server.
+	Credentials *Credentials
+}
+
+// Credentials holds the mutable admin key / API token pair. All access is
+// guarded so the settings endpoint can update it while requests are in flight.
+type Credentials struct {
+	mu       sync.RWMutex
+	adminKey string
+	apiToken string
+}
+
+func NewCredentials(adminKey, apiToken string) *Credentials {
+	return &Credentials{adminKey: adminKey, apiToken: apiToken}
+}
+
+func (c *Credentials) Get() (string, string) {
+	if c == nil {
+		return "", ""
+	}
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.adminKey, c.apiToken
+}
+
+func (c *Credentials) Set(adminKey, apiToken string) {
+	if c == nil {
+		return
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.adminKey, c.apiToken = adminKey, apiToken
 }
 
 var (
@@ -44,12 +82,15 @@ func loadSettings() *Settings {
 	// Load .env file if it exists; ignore errors when missing.
 	_ = loadDotEnv()
 
+	adminKey := GetEnv("GRABBY_ADMIN_KEY", "")
+	apiToken := GetEnv("GRABBY_API_TOKEN", "")
+
 	return &Settings{
 		Host:              GetEnv("HOST", "0.0.0.0"),
 		Port:              getEnvInt("PORT", 5040),
 		ConnectID:         GetEnv("CONNECT_ID", "browser-tools"),
-		AdminKey:          GetEnv("GRABBY_ADMIN_KEY", ""),
-		APIToken:          GetEnv("GRABBY_API_TOKEN", ""),
+		AdminKey:          adminKey,
+		APIToken:          apiToken,
 		Debug:             getEnvBool("DEBUG", false),
 		WebsocketTimeout:  getEnvFloat("WEBSOCKET_TIMEOUT", 60.0),
 		APIExtractTimeout: getEnvFloat("API_EXTRACT_TIMEOUT", 60.0),
@@ -62,6 +103,7 @@ func loadSettings() *Settings {
 			BaseURL:          GetEnv("AI_BASE_URL", ""),
 			QualityThreshold: getEnvInt("AI_QUALITY_THRESHOLD", 7),
 		},
+		Credentials: NewCredentials(adminKey, apiToken),
 	}
 }
 
