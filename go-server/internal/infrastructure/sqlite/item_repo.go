@@ -87,7 +87,7 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	if f.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(f.Cursor)
 		if err == nil {
-			timeStr := cursorTime.UTC().Format("2006-01-02 15:04:05")
+			timeStr := utcTimestamp(cursorTime)
 			query += " AND (COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))"
 			args = append(args, timeStr, timeStr, cursorID)
 		}
@@ -162,7 +162,7 @@ func (d *Database) InsertScrapedItem(item ScrapedItem) (int64, error) {
 	res, err := d.db.Exec(`
 		INSERT OR IGNORE INTO scraped_items (source_id, origin_source, title, url, summary, content, category, published_at, fetched_at, read_status, starred, tags)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0, 0, '')
-	`, item.SourceID, item.OriginSource, item.Title, item.URL, item.Summary, item.Content, item.Category, item.PublishedAt)
+	`, item.SourceID, item.OriginSource, item.Title, item.URL, item.Summary, item.Content, item.Category, utcTimestampArg(item.PublishedAt))
 	if err != nil {
 		return 0, err
 	}
@@ -183,28 +183,57 @@ func (d *Database) ToggleItemStarred(id int64, starred int) error {
 	return err
 }
 
+// CleanupOldData enforces the retention policy for ingested content.
+//
+//   - scraped_items fetched more than 30 days ago are deleted, except items the
+//     user starred.
+//   - the AI analyses of those deleted items are removed alongside them (done
+//     explicitly rather than relying only on ON DELETE CASCADE).
+//   - fetch_logs older than 30 days are deleted.
+//
+// AI daily reports (ai_daily_reports) and webpage extract captures
+// (extract_cache) are derived history, not raw ingested data, so they are
+// deliberately kept.
 func (d *Database) CleanupOldData() error {
-	// Clean up read, unstarred items older than 90 days
-	_, err := d.db.Exec(`
-		DELETE FROM scraped_items
-		WHERE fetched_at < datetime('now', '-90 days')
-		AND read_status = 1
-		AND starred = 0
-	`)
+	const staleItemCond = `
+		fetched_at < datetime('now', '-30 days')
+		AND starred = 0`
+
+	tx, err := d.db.Begin()
 	if err != nil {
 		return err
 	}
+	defer tx.Rollback()
 
-	// Clean up fetch logs older than 30 days
-	_, err = d.db.Exec(`
+	// Clear AI scores first so no orphaned analyses survive even if foreign
+	// key cascades are disabled.
+	if _, err := tx.Exec(`
+		DELETE FROM ai_analyses
+		WHERE item_id IN (SELECT id FROM scraped_items WHERE ` + staleItemCond + `)
+	`); err != nil {
+		return err
+	}
+
+	if _, err := tx.Exec(`
+		DELETE FROM scraped_items
+		WHERE ` + staleItemCond + `
+	`); err != nil {
+		return err
+	}
+
+	// Fetch logs are operational history with no long-term value.
+	if _, err := tx.Exec(`
 		DELETE FROM fetch_logs
 		WHERE started_at < datetime('now', '-30 days')
-	`)
-	if err != nil {
+	`); err != nil {
 		return err
 	}
 
-	// Reclaim space
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	// Reclaim space (VACUUM cannot run inside a transaction).
 	_, err = d.db.Exec("VACUUM")
 	return err
 }

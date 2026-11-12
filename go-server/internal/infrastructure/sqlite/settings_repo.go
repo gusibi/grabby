@@ -199,8 +199,12 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 			if s.Profiles[i].ID == "default" {
 				s.Profiles[i].Provider = s.Provider
 				s.Profiles[i].APIKey = s.APIKey
-				s.Profiles[i].Model = s.Model
 				s.Profiles[i].BaseURL = s.BaseURL
+				// Models is authoritative for multi-model profiles. Only adopt
+				// the legacy single-model setting when the profile has none.
+				if len(s.Profiles[i].Models) == 0 {
+					s.Profiles[i].Model = s.Model
+				}
 				break
 			}
 		}

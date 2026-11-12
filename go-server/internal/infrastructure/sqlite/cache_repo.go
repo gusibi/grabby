@@ -102,7 +102,7 @@ func (d *Database) GetExtractCache(url string) (*ExtractCache, error) {
 
 // SaveExtractCache upserts an extraction result keyed by URL.
 func (d *Database) SaveExtractCache(url, title, markdown string) error {
-	now := time.Now()
+	now := time.Now().UTC()
 	rec := ExtractCache{URL: url, Title: title, Markdown: markdown, CreatedAt: now, UpdatedAt: now}
 	return d.gorm.Clauses(clause.OnConflict{
 		Columns:   []clause.Column{{Name: "url"}},
@@ -149,6 +149,9 @@ func (d *Database) SaveTweets(records []TweetRecord) error {
 	if len(records) == 0 {
 		return nil
 	}
+	for i := range records {
+		records[i].FetchedAt = records[i].FetchedAt.UTC()
+	}
 	return d.gorm.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
@@ -183,6 +186,9 @@ func (d *Database) SaveRedditPosts(records []RedditPost) error {
 	if len(records) == 0 {
 		return nil
 	}
+	for i := range records {
+		records[i].FetchedAt = records[i].FetchedAt.UTC()
+	}
 	return d.gorm.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},
 		DoUpdates: clause.AssignmentColumns([]string{
@@ -212,6 +218,9 @@ func (d *Database) ListXhsNotes(limit, offset int) ([]XhsNote, int64, error) {
 func (d *Database) SaveXhsNotes(records []XhsNote) error {
 	if len(records) == 0 {
 		return nil
+	}
+	for i := range records {
+		records[i].FetchedAt = records[i].FetchedAt.UTC()
 	}
 	return d.gorm.Clauses(clause.OnConflict{
 		Columns: []clause.Column{{Name: "id"}},

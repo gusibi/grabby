@@ -112,7 +112,7 @@ func (d *Database) InsertFetchLog(log FetchLog) (int64, error) {
 	res, err := d.db.Exec(`
 		INSERT INTO fetch_logs (source_id, started_at, finished_at, status, items_found, items_added, error_message)
 		VALUES (?, ?, ?, ?, ?, ?, ?)
-	`, log.SourceID, log.StartedAt, log.FinishedAt, log.Status, log.ItemsFound, log.ItemsAdded, log.ErrorMessage)
+	`, log.SourceID, utcTimestamp(log.StartedAt), utcTimestampArg(log.FinishedAt), log.Status, log.ItemsFound, log.ItemsAdded, log.ErrorMessage)
 	if err != nil {
 		return 0, err
 	}
@@ -124,7 +124,7 @@ func (d *Database) UpdateFetchLog(log FetchLog) error {
 		UPDATE fetch_logs
 		SET finished_at = ?, status = ?, items_found = ?, items_added = ?, error_message = ?
 		WHERE id = ?
-	`, log.FinishedAt, log.Status, log.ItemsFound, log.ItemsAdded, log.ErrorMessage, log.ID)
+	`, utcTimestampArg(log.FinishedAt), log.Status, log.ItemsFound, log.ItemsAdded, log.ErrorMessage, log.ID)
 	return err
 }
 

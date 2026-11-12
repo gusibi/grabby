@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	glebarez "github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -68,7 +69,8 @@ func NewDatabase(dbPath string) (*Database, error) {
 	// Silence GORM's own SQL logger; the app handles returned errors via zap and
 	// does not want per-query / record-not-found noise on stdout.
 	gormDB, err := gorm.Open(glebarez.Dialector{Conn: db}, &gorm.Config{
-		Logger: gormlogger.Default.LogMode(gormlogger.Silent),
+		Logger:  gormlogger.Default.LogMode(gormlogger.Silent),
+		NowFunc: func() time.Time { return time.Now().UTC() },
 	})
 	if err != nil {
 		db.Close()

@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"database/sql"
 	"fmt"
 )
 
@@ -253,5 +254,74 @@ func (d *Database) migrate() error {
 		}
 		version = 5
 	}
+	if version < 6 {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		// Timestamps previously written from Go were bound as offset-bearing
+		// local strings, while CURRENT_TIMESTAMP columns are naive UTC. Rewrite
+		// every Go-written timestamp column as naive UTC so ordering and the
+		// retention window compare consistently.
+		if err := normalizeTimestampsToUTC(tx); err != nil {
+			return err
+		}
+
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+
+		if _, err := d.db.Exec("PRAGMA user_version = 6"); err != nil {
+			return err
+		}
+		version = 6
+	}
 	return nil
+}
+
+// normalizeTimestampsToUTC rewrites every timestamp column that is written from
+// Go (and therefore used to carry a local offset) as naive UTC, matching
+// CURRENT_TIMESTAMP.
+func normalizeTimestampsToUTC(tx *sql.Tx) error {
+	for _, col := range []struct{ table, column string }{
+		{"fetch_logs", "started_at"},
+		{"fetch_logs", "finished_at"},
+		{"scraped_items", "published_at"},
+		{"tweets", "fetched_at"},
+		{"xhs_notes", "fetched_at"},
+		{"reddit_posts", "fetched_at"},
+		{"extract_cache", "created_at"},
+		{"extract_cache", "updated_at"},
+	} {
+		exists, err := tableExists(tx, col.table)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			// GORM-managed tables are created after this migration on fresh
+			// databases and are empty, so there is nothing to normalise yet.
+			continue
+		}
+		expr := fmt.Sprintf("datetime(replace(%s, ' +0000 UTC', ''))", col.column)
+		if _, err := tx.Exec(fmt.Sprintf(
+			"UPDATE %s SET %s = %s WHERE %s IS NOT NULL AND %s IS NOT NULL",
+			col.table, col.column, expr, col.column, expr,
+		)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func tableExists(tx *sql.Tx, name string) (bool, error) {
+	var n int
+	err := tx.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?", name,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
