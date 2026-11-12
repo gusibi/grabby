@@ -51,6 +51,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	RegisterTwitterHandlers(api, deps)
 	RegisterRedditHandlers(api, deps)
 	RegisterXiaohongshuHandlers(api, deps)
+	RegisterGSCHandlers(api, deps)
 	RegisterAIHandlers(openAPI, api, deps)
 	e.GET("/ws_browser", wrapHandlerFunc(wsiface.HandleWebSocketBrowser(deps.WSManager, deps.BrowserRegistry, deps.Logger)))
 	e.GET("/ws_command", wrapHandlerFunc(wsiface.HandleWebSocketCommand(deps.WSManager, deps.Settings, deps.Logger)))
