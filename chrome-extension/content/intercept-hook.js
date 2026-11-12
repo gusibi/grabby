@@ -21,14 +21,28 @@
 
     const MAX_BODY_LEN = 5 * 1024 * 1024; // 单条响应体上限 5MB，超出丢弃
 
+    // 默认捕获标记：覆盖已知的数据通道。具体站点用哪些由 bridge 下发的
+    // 动态 patterns 决定（见 intercept-bridge.js / handleInterceptCommand），
+    // hook 自身不含任何站点业务判断。
+    const DEFAULT_MARKERS = ['/graphql', '/api/', '/i/api/', '/batchexecute', '/webmaster'];
+
+    // 动态规则：由 ISOLATED bridge 在 document_start 后尽早下发。
+    let dynamicPatterns = null;
+
+    window.addEventListener('message', (event) => {
+        if (event.source !== window) return;
+        const data = event.data;
+        if (!data || data.__grabby !== true || data.kind !== 'config') return;
+        if (Array.isArray(data.patterns)) {
+            dynamicPatterns = data.patterns.filter((p) => typeof p === 'string' && p !== '');
+        }
+    });
+
     // 只捕获"像数据接口"的 URL，降低噪音。服务端再按 operation 精确过滤。
     function shouldCapture(url) {
         if (!url) return false;
-        return (
-            url.includes('/graphql') ||
-            url.includes('/api/') ||
-            url.includes('/i/api/')
-        );
+        const rules = dynamicPatterns && dynamicPatterns.length ? dynamicPatterns : DEFAULT_MARKERS;
+        return rules.some((p) => url.includes(p));
     }
 
     function emit(record) {

@@ -20,6 +20,21 @@
     const MAX_BUFFER = 500; // 最多缓冲 500 条，超出丢弃最旧的
     const buffer = [];
 
+    // 把 background 预写入的捕获规则下发给 MAIN world 的 hook。
+    // hook 在 MAIN world 拿不到 chrome.*，只能经 postMessage 传。
+    chrome.storage.local.get('grabby:intercept:configs').then((res) => {
+        const all = (res && res['grabby:intercept:configs']) || {};
+        const host = location.hostname;
+        const cfg = all[host] || all['*'];
+        if (!cfg) return;
+        if (cfg.expiresAt && cfg.expiresAt < Date.now()) return;
+        if (!Array.isArray(cfg.patterns) || cfg.patterns.length === 0) return;
+        window.postMessage(
+            { __grabby: true, kind: 'config', patterns: cfg.patterns },
+            '*'
+        );
+    }).catch(() => {});
+
     window.addEventListener('message', (event) => {
         // 只接受同源、本扩展约定格式的消息
         if (event.source !== window) return;

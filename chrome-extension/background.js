@@ -319,6 +319,11 @@ async function handleWebSocketMessage(message) {
                     await handleInterceptCommand(data);
                     break;
 
+                case 'uiAction':
+                    logger.debug('background', '执行uiAction命令');
+                    await handleUiActionCommand(data);
+                    break;
+
                 case 'runPageScript':
                     logger.debug('background', '执行runPageScript命令');
                     await handleRunPageScriptCommand(data);
@@ -521,21 +526,31 @@ async function handleOpenCommand(data) {
 // background flush 取回 -> 回传服务端，服务端适配器按 operation 名过滤解析。
 
 // 确保 document_start 捕获脚本已为目标 host 注册（幂等）
-async function ensureInterceptScriptsRegistered(targetUrl) {
+async function ensureInterceptScriptsRegistered(targetUrl, opts = {}) {
     let host;
     try {
         host = new URL(targetUrl).hostname;
     } catch (_) {
         throw new Error('intercept: 非法 URL');
     }
-    // 取主域，匹配子域（如 x.com / api.x.com）
-    const parts = host.split('.');
-    const base = parts.length >= 2 ? parts.slice(-2).join('.') : host;
-    const matches = [`*://${base}/*`, `*://*.${base}/*`];
-    const scriptId = `grabby-intercept-${base}`;
+
+    let matches;
+    let scriptId;
+    if (opts.exactHost) {
+        // 精确主机模式：只注入目标 host（如 search.google.com），
+        // 不扩散到整个主域（否则会挂到所有 google.com / bing.com 页面）。
+        matches = [`*://${host}/*`];
+        scriptId = `grabby-intercept-host-${host.replace(/[^a-zA-Z0-9.-]/g, '_')}`;
+    } else {
+        // 取主域，匹配子域（如 x.com / api.x.com）
+        const parts = host.split('.');
+        const base = parts.length >= 2 ? parts.slice(-2).join('.') : host;
+        matches = [`*://${base}/*`, `*://*.${base}/*`];
+        scriptId = `grabby-intercept-${base}`;
+    }
 
     const existing = await chrome.scripting.getRegisteredContentScripts({ ids: [scriptId + '-hook', scriptId + '-bridge'] }).catch(() => []);
-    if (existing && existing.length >= 2) return; // 已注册
+    if (existing && existing.length >= 2) return { scriptId, host, matches }; // 已注册
 
     // 先尝试反注册残留，避免重复注册报错
     try {
@@ -558,7 +573,65 @@ async function ensureInterceptScriptsRegistered(targetUrl) {
             world: 'ISOLATED'
         }
     ]);
-    logger.log('intercept', 'info', '已注册捕获脚本', { base, matches });
+    logger.log('intercept', 'info', '已注册捕获脚本', { host, matches });
+    return { scriptId, host, matches };
+}
+
+// 反注册本次 intercept 注册的捕获脚本，避免长期挂在无关页面上。
+async function unregisterInterceptScripts(scriptId) {
+    if (!scriptId) return;
+    try {
+        await chrome.scripting.unregisterContentScripts({ ids: [scriptId + '-hook', scriptId + '-bridge'] });
+    } catch (_) {}
+}
+
+// 把本次捕获规则预写入 storage.local，供 bridge 在 document_start 下发给 hook。
+// 用 storage.local（content script 可读）；session 存储默认不对 content script 开放。
+const INTERCEPT_CONFIG_KEY = 'grabby:intercept:configs';
+
+async function setInterceptPatterns(host, patterns, ttlMs) {
+    if (!host) return;
+    try {
+        const cur = (await chrome.storage.local.get(INTERCEPT_CONFIG_KEY))[INTERCEPT_CONFIG_KEY] || {};
+        cur[host] = {
+            patterns: Array.isArray(patterns) ? patterns.filter((p) => typeof p === 'string' && p !== '') : [],
+            expiresAt: Date.now() + (ttlMs || 180000)
+        };
+        await chrome.storage.local.set({ [INTERCEPT_CONFIG_KEY]: cur });
+    } catch (_) {}
+}
+
+async function clearInterceptPatterns(host) {
+    if (!host) return;
+    try {
+        const cur = (await chrome.storage.local.get(INTERCEPT_CONFIG_KEY))[INTERCEPT_CONFIG_KEY] || {};
+        delete cur[host];
+        await chrome.storage.local.set({ [INTERCEPT_CONFIG_KEY]: cur });
+    } catch (_) {}
+}
+
+// 捕获记录是否命中调用方给的 URL 子串规则。空规则 = 全部命中。
+// 站点差异放在调用方（服务端适配器），hook 自身保持通用。
+function urlMatchesPatterns(url, patterns) {
+    if (!Array.isArray(patterns) || patterns.length === 0) return true;
+    return patterns.some((p) => typeof p === 'string' && p !== '' && url.includes(p));
+}
+
+// 把一条捕获记录裁成回传格式（可选去掉 body）。
+function shapeCapture(item, includeBodies, maxBodyBytes) {
+    const body = typeof item.body === 'string' ? item.body : '';
+    const out = {
+        url: item.url,
+        status: item.status,
+        method: item.method,
+        ts: item.ts
+    };
+    if (includeBodies) {
+        out.body = body.length > maxBodyBytes ? body.slice(0, maxBodyBytes) : body;
+        out.bodyBytes = body.length;
+        out.bodyTruncated = body.length > maxBodyBytes;
+    }
+    return out;
 }
 
 // 向 bridge 请求当前缓冲的捕获并清空
@@ -581,17 +654,31 @@ function sleep(ms) {
 async function handleInterceptCommand(data) {
     let targetTabId = null;
     let previousActiveTabId = null;
+    let scriptId = null;
+    let interceptHost = null;
     const params = data.params || {};
+    const patterns = Array.isArray(params.patterns)
+        ? params.patterns.filter((p) => typeof p === 'string' && p !== '')
+        : [];
     const scrollRounds = Number.isInteger(params.scrollRounds) ? params.scrollRounds : 6;
     const scrollDelayMs = Number.isInteger(params.scrollDelayMs) ? params.scrollDelayMs : 1500;
     const maxCaptures = Number.isInteger(params.maxCaptures) ? params.maxCaptures : 200;
+    const timeoutMs = Number.isInteger(params.timeoutMs) ? params.timeoutMs : 30000;
+    const waitForRequest = params.waitForRequest === true;
+    const includeBodies = params.includeBodies !== false;
+    const maxBodyBytes = Number.isInteger(params.maxBodyBytes) ? params.maxBodyBytes : 262144;
     const visible = data.visible === true;
 
     try {
         if (!data.url) throw new Error('intercept: URL 不能为空');
-        logger.log('intercept', 'info', '开始 intercept', { url: data.url, visible, scrollRounds });
+        logger.log('intercept', 'info', '开始 intercept', {
+            url: data.url, visible, scrollRounds, waitForRequest, patterns
+        });
 
-        await ensureInterceptScriptsRegistered(data.url);
+        const reg = await ensureInterceptScriptsRegistered(data.url, { exactHost: params.exactHost === true });
+        scriptId = reg.scriptId;
+        interceptHost = reg.host;
+        await setInterceptPatterns(reg.host, patterns, timeoutMs + 60000);
 
         // 记录当前活动 tab，结束后可恢复
         if (visible) {
@@ -599,23 +686,54 @@ async function handleInterceptCommand(data) {
             if (cur) previousActiveTabId = cur.id;
         }
 
-        // 建 tab。可见性依赖滚动懒加载的页面(timeline/likes)用 visible:true
-        const tab = await navigateToUrl(data.url, visible);
+        // waitForRequest 模式不需要"等页面稳定"（那会白等最多 20s）：
+        // bridge 从 document_start 就在缓冲，晚点 flush 也不会漏掉首屏请求。
+        const tab = await navigateToUrl(data.url, visible, { waitForStable: !waitForRequest });
         targetTabId = tab.id;
 
-        // 滚动分页 + 分轮 flush，累积捕获
         const collected = [];
-        // 首屏捕获
-        collected.push(...await flushCaptures(targetTabId));
+        const seen = new Set();
+        const take = (batch) => {
+            for (const item of batch) {
+                if (!item || !urlMatchesPatterns(item.url || '', patterns)) continue;
+                const body = typeof item.body === 'string' ? item.body : '';
+                const key = `${item.url}|${item.ts}|${body.length}`;
+                if (seen.has(key)) continue;
+                seen.add(key);
+                if (collected.length >= maxCaptures) continue;
+                collected.push(item);
+            }
+        };
 
-        for (let i = 0; i < scrollRounds && collected.length < maxCaptures; i++) {
-            await scrollPage(targetTabId, 0.95); // 滚到接近底部触发下一页
-            await sleep(scrollDelayMs);
-            const batch = await flushCaptures(targetTabId);
-            collected.push(...batch);
+        // 首屏捕获
+        take(await flushCaptures(targetTabId));
+
+        if (waitForRequest) {
+            // 等到"命中目标的请求"出现或超时；命中后再多收一小段，
+            // 因为同一屏的数据通常是一簇 RPC 一起发出的（如图表 + 表格）。
+            const deadline = Date.now() + timeoutMs;
+            while (Date.now() < deadline && collected.length === 0) {
+                await sleep(400);
+                take(await flushCaptures(targetTabId));
+            }
+            if (collected.length > 0) {
+                const settleMs = Number.isInteger(params.settleMs) ? params.settleMs : 1200;
+                const settleDeadline = Date.now() + settleMs;
+                while (Date.now() < settleDeadline) {
+                    await sleep(300);
+                    take(await flushCaptures(targetTabId));
+                }
+            }
+        } else {
+            for (let i = 0; i < scrollRounds && collected.length < maxCaptures; i++) {
+                await scrollPage(targetTabId, 0.95); // 滚到接近底部触发下一页
+                await sleep(scrollDelayMs);
+                take(await flushCaptures(targetTabId));
+            }
         }
 
-        logger.log('intercept', 'info', 'intercept 完成', { count: collected.length });
+        const items = collected.map((item) => shapeCapture(item, includeBodies, maxBodyBytes));
+        logger.log('intercept', 'info', 'intercept 完成', { count: items.length, patterns });
 
         websocketManager.sendMessage({
             type: 'response',
@@ -625,7 +743,9 @@ async function handleInterceptCommand(data) {
             result: {
                 url: data.url,
                 timestamp: new Date().toISOString(),
-                items: collected.slice(0, maxCaptures)
+                patterns,
+                matched: items.length,
+                items
             }
         });
     } catch (error) {
@@ -644,6 +764,196 @@ async function handleInterceptCommand(data) {
         if (previousActiveTabId !== null) {
             try { await chrome.tabs.update(previousActiveTabId, { active: true }); } catch (_) {}
         }
+        if (scriptId && params.unregisterAfter === true) {
+            await unregisterInterceptScripts(scriptId);
+        }
+        await clearInterceptPatterns(interceptHost);
+    }
+}
+
+// ===== uiAction 命令：在真实页面里操作一下（点击/输入/选择）=====
+// 用途：搜索引擎后台的报表并非都能用深链表达（日期选择器、维度 tab、
+// 表格"加载更多"）。深链优先，只有深链拿不到时才用这个。
+//
+// params:
+//   action        click | type | select | scroll（默认 click）
+//   selector      CSS 选择器（与 text 二选一或组合）
+//   text          按可见文字匹配元素（click 用）
+//   value         type/select 的值；scroll 时为像素数
+//   waitForRequest 操作后是否等待某个请求出现
+//   urlIncludes   等待时只认 URL 含该子串的响应（可省略 = 任意）
+//   timeoutMs     等元素/等请求的超时（默认 20000）
+// 刻意不做：任意 JS 执行、坐标点击、上传文件。保持最小可审计面。
+async function handleUiActionCommand(data) {
+    let targetTabId = null;
+    let previousActiveTabId = null;
+    let scriptId = null;
+    let interceptHost = null;
+    const params = data.params || {};
+    const action = String(params.action || 'click');
+    const selector = typeof params.selector === 'string' ? params.selector : '';
+    const text = typeof params.text === 'string' ? params.text : '';
+    const value = params.value == null ? '' : String(params.value);
+    const patterns = Array.isArray(params.patterns)
+        ? params.patterns.filter((p) => typeof p === 'string' && p !== '')
+        : (typeof params.urlIncludes === 'string' && params.urlIncludes !== '' ? [params.urlIncludes] : []);
+    const waitForRequest = params.waitForRequest === true;
+    const timeoutMs = Number.isInteger(params.timeoutMs) ? params.timeoutMs : 20000;
+    const maxCaptures = Number.isInteger(params.maxCaptures) ? params.maxCaptures : 20;
+    const includeBodies = params.includeBodies !== false;
+    const maxBodyBytes = Number.isInteger(params.maxBodyBytes) ? params.maxBodyBytes : 262144;
+    const visible = data.visible === true;
+
+    try {
+        if (!data.url) throw new Error('uiAction: URL 不能为空');
+        if (!selector && !text) throw new Error('uiAction: selector 或 text 至少给一个');
+
+        if (waitForRequest) {
+            const reg = await ensureInterceptScriptsRegistered(data.url, { exactHost: params.exactHost !== false });
+            scriptId = reg.scriptId;
+            interceptHost = reg.host;
+            await setInterceptPatterns(reg.host, patterns, timeoutMs + 60000);
+        }
+
+        if (visible) {
+            const [cur] = await chrome.tabs.query({ active: true, currentWindow: true });
+            if (cur) previousActiveTabId = cur.id;
+        }
+
+        const tab = await navigateToUrl(data.url, visible, { waitForStable: false });
+        targetTabId = tab.id;
+
+        // 等目标元素出现（SPA 渲染需要时间），不出现就明确失败，不硬点。
+        const presentDeadline = Date.now() + timeoutMs;
+        let present = false;
+        while (Date.now() < presentDeadline) {
+            try {
+                const [{ result } = {}] = await chrome.scripting.executeScript({
+                    target: { tabId: targetTabId },
+                    func: (sel, txt) => {
+                        if (sel && document.querySelector(sel)) return true;
+                        if (!txt) return false;
+                        const nodes = Array.from(document.querySelectorAll(
+                            'a,button,[role="button"],[role="menuitem"],[role="tab"],[role="option"],input,select'
+                        ));
+                        const target = txt.replace(/\s+/g, ' ').trim().toLowerCase();
+                        return nodes.some((n) =>
+                            (n.innerText || n.value || '').replace(/\s+/g, ' ').trim().toLowerCase().includes(target));
+                    },
+                    args: [selector, text]
+                });
+                if (result) { present = true; break; }
+            } catch (_) {
+                // 页面还在导航/重渲染时 executeScript 会抛错，重试即可。
+            }
+            await sleep(300);
+        }
+        if (!present) {
+            throw new Error(`uiAction: 元素未出现 (selector=${selector || '-'} text=${text || '-'})`);
+        }
+
+        const [{ result: acted } = {}] = await chrome.scripting.executeScript({
+            target: { tabId: targetTabId },
+            func: (spec) => {
+                const norm = (s) => (s || '').replace(/\s+/g, ' ').trim().toLowerCase();
+                let el = spec.selector ? document.querySelector(spec.selector) : null;
+                if (!el && spec.text) {
+                    const nodes = Array.from(document.querySelectorAll(
+                        'a,button,[role="button"],[role="menuitem"],[role="tab"],[role="option"],input,select'
+                    ));
+                    el = nodes.find((n) => norm(n.innerText || n.value || '').includes(norm(spec.text))) || null;
+                }
+                if (!el) return { ok: false, reason: 'not_found' };
+
+                const fire = (node, type) => node.dispatchEvent(new Event(type, { bubbles: true }));
+                if (spec.action === 'click') {
+                    el.scrollIntoView({ block: 'center' });
+                    el.click();
+                } else if (spec.action === 'type') {
+                    el.focus();
+                    const proto = el.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+                    const desc = Object.getOwnPropertyDescriptor(proto, 'value');
+                    if (desc && desc.set) desc.set.call(el, spec.value); else el.value = spec.value;
+                    fire(el, 'input');
+                    fire(el, 'change');
+                } else if (spec.action === 'select') {
+                    el.value = spec.value;
+                    fire(el, 'input');
+                    fire(el, 'change');
+                } else if (spec.action === 'scroll') {
+                    window.scrollBy(0, Number(spec.value) || window.innerHeight);
+                } else {
+                    return { ok: false, reason: 'bad_action' };
+                }
+                return { ok: true, tag: el.tagName, text: norm(el.innerText || el.value).slice(0, 120) };
+            },
+            args: [{ action, selector, text, value }]
+        });
+
+        if (!acted || !acted.ok) {
+            throw new Error(`uiAction 失败: ${(acted && acted.reason) || 'unknown'}`);
+        }
+
+        const items = [];
+        if (waitForRequest) {
+            const waitDeadline = Date.now() + timeoutMs;
+            while (Date.now() < waitDeadline && items.length === 0) {
+                await sleep(400);
+                for (const item of await flushCaptures(targetTabId)) {
+                    if (!item || !urlMatchesPatterns(item.url || '', patterns)) continue;
+                    if (items.length >= maxCaptures) continue;
+                    items.push(shapeCapture(item, includeBodies, maxBodyBytes));
+                }
+            }
+            if (items.length > 0) {
+                const settleMs = Number.isInteger(params.settleMs) ? params.settleMs : 1200;
+                const settleDeadline = Date.now() + settleMs;
+                while (Date.now() < settleDeadline) {
+                    await sleep(300);
+                    for (const item of await flushCaptures(targetTabId)) {
+                        if (!item || !urlMatchesPatterns(item.url || '', patterns)) continue;
+                        if (items.length >= maxCaptures) continue;
+                        items.push(shapeCapture(item, includeBodies, maxBodyBytes));
+                    }
+                }
+            }
+        }
+
+        logger.log('uiAction', 'info', '操作完成', { action, matched: items.length });
+
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'uiAction',
+            success: true,
+            result: {
+                url: data.url,
+                timestamp: new Date().toISOString(),
+                action,
+                matched: items.length,
+                items
+            }
+        });
+    } catch (error) {
+        logger.error('uiAction', 'uiAction 失败', { error: error.message });
+        websocketManager.sendMessage({
+            type: 'response',
+            message_id: data.message_id,
+            command: 'uiAction',
+            success: false,
+            error: error.message
+        });
+    } finally {
+        if (targetTabId !== null && (data.closeTab !== false)) {
+            try { await chrome.tabs.remove(targetTabId); } catch (_) {}
+        }
+        if (previousActiveTabId !== null) {
+            try { await chrome.tabs.update(previousActiveTabId, { active: true }); } catch (_) {}
+        }
+        if (scriptId && params.unregisterAfter !== false) {
+            await unregisterInterceptScripts(scriptId);
+        }
+        await clearInterceptPatterns(interceptHost);
     }
 }
 
