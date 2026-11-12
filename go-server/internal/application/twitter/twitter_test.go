@@ -1,6 +1,45 @@
 package twitter
 
-import "testing"
+import (
+	"context"
+	"testing"
+
+	"go-server/internal/domain/capture"
+)
+
+type fakeSender struct {
+	req *capture.BrowserRequest
+}
+
+func (f *fakeSender) ResolveBrowserConnID(string) (string, error) { return "conn-1", nil }
+
+func (f *fakeSender) SendMessage(_ context.Context, req *capture.BrowserRequest, _ string) (*capture.BrowserResponse, error) {
+	f.req = req
+	return &capture.BrowserResponse{
+		Success: true,
+		Result: capture.PageResult{Items: []any{map[string]any{
+			"url":  "https://x.com/i/api/graphql/abc/Likes?variables=...",
+			"body": sampleBody,
+		}}},
+	}, nil
+}
+
+func TestLikesUsesHistoryURL(t *testing.T) {
+	fs := &fakeSender{}
+	tweets, err := Likes(context.Background(), fs, nil, Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if fs.req == nil {
+		t.Fatal("expected an intercept request")
+	}
+	if got, want := fs.req.URL, "https://x.com/i/history/likes"; got != want {
+		t.Errorf("url: got %q want %q", got, want)
+	}
+	if len(tweets) != 2 {
+		t.Errorf("expected 2 tweets, got %d", len(tweets))
+	}
+}
 
 // A trimmed-down sample mirroring X's GraphQL tweet "result" nesting.
 const sampleBody = `{

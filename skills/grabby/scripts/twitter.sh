@@ -8,17 +8,16 @@ usage() {
 Usage:
   twitter.sh search <query> [limit] [browser]
   twitter.sh timeline [for_you|following] [limit] [browser]
-  twitter.sh likes [handle] [limit] [browser]
+  twitter.sh likes [limit] [browser]
 
 Notes:
   Requires the target browser to be logged into X/Twitter.
   Empty/error result usually means not logged in or page structure changed.
-  likes handle defaults to $GRABBY_TWITTER_HANDLE, else "gusibix".
+  likes reads the current logged-in user's likes history (x.com/i/history/likes).
 
 Environment:
   GRABBY_SERVER_URL     Default: http://localhost:5040
   GRABBY_API_TOKEN      Optional token for /api/* endpoints
-  GRABBY_TWITTER_HANDLE Default X handle for `likes` (default: gusibix)
 EOF
 }
 
@@ -38,10 +37,10 @@ case "$cmd" in
       "$(json_string "$kind")" "$limit" "$(browser_field "$browser")")"
     ;;
   likes)
-    # handle: CLI arg > $GRABBY_TWITTER_HANDLE > default gusibix
-    handle="${1:-${GRABBY_TWITTER_HANDLE:-gusibix}}"; limit="${2:-60}"; browser="${3:-}"
-    gb_post /api/twitter/likes "$(printf '{"handle":%s,"limit":%s%s}' \
-      "$(json_string "$handle")" "$limit" "$(browser_field "$browser")")"
+    # Likes come from x.com/i/history/likes, i.e. the logged-in account.
+    limit="${1:-60}"; browser="${2:-}"
+    gb_post /api/twitter/likes "$(printf '{"limit":%s%s}' \
+      "$limit" "$(browser_field "$browser")")"
     ;;
   ""|help|-h|--help)
     usage

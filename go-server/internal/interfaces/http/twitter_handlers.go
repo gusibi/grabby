@@ -79,7 +79,7 @@ func (h *twitterHandlers) likes(c echo.Context) error {
 	}
 	ctx, cancel := h.withTimeout(c)
 	defer cancel()
-	tweets, err := twitter.Likes(ctx, h.deps.WSManager, h.deps.Logger, req.Handle, twitter.Options{Browser: req.Browser, Limit: req.Limit})
+	tweets, err := twitter.Likes(ctx, h.deps.WSManager, h.deps.Logger, twitter.Options{Browser: req.Browser, Limit: req.Limit})
 	if err != nil {
 		return twitterErr(c, err)
 	}

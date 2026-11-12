@@ -96,19 +96,17 @@ func Timeline(ctx context.Context, wm Sender, logger *zap.Logger, kind string, o
 	return runIntercept(ctx, wm, logger, opts.Browser, pageURL, ops, opts.scrollRounds(6), opts.limit(40))
 }
 
-// Likes reads a user's likes. handle empty => current logged-in user's profile.
+// Likes reads the current logged-in user's likes history.
 //
-// NOTE: X's likes-page visibility and GraphQL shape change frequently; callers
-// must treat an empty result as "verify page/endpoint still accessible", not as
-// "no likes". See docs/browser-executor-plan.md §7.2.
-func Likes(ctx context.Context, wm Sender, logger *zap.Logger, handle string, opts Options) ([]Tweet, error) {
-	handle = strings.TrimPrefix(strings.TrimSpace(handle), "@")
-	if handle == "" {
-		// Without a handle we cannot build the /likes URL; X has no stable
-		// "my likes" alias that avoids resolving the current handle first.
-		return nil, fmt.Errorf("handle is required (e.g. \"jack\") to open <handle>/likes")
-	}
-	pageURL := "https://x.com/" + url.PathEscape(handle) + "/likes"
+// X exposes the likes history at https://x.com/i/history/likes; the old
+// per-handle /<handle>/likes page is no longer used. The browser must be
+// logged in, and the result always belongs to that account.
+//
+// NOTE: X's GraphQL shape changes frequently; callers must treat an empty
+// result as "verify page/endpoint still accessible", not as "no likes".
+// See docs/browser-executor-plan.md §7.2.
+func Likes(ctx context.Context, wm Sender, logger *zap.Logger, opts Options) ([]Tweet, error) {
+	const pageURL = "https://x.com/i/history/likes"
 	return runIntercept(ctx, wm, logger, opts.Browser, pageURL, []string{"Likes"}, opts.scrollRounds(8), opts.limit(60))
 }
 

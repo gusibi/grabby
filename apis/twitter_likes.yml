@@ -17,7 +17,6 @@ http:
     type: json
     data: |-
       {
-        "handle": "gusibix",
         "limit": 60
       }
   auth: inherit

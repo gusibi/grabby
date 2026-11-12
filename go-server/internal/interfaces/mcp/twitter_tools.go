@@ -67,8 +67,7 @@ func registerTwitterTools(mcpSvr *server.MCPServer, wm *browserws.WebSocketManag
 
 	// twitter_likes
 	likesTool := mcp.NewTool("twitter_likes",
-		mcp.WithDescription("Read a user's liked tweets from x.com/<handle>/likes (requires being logged in for your own likes). Useful for syncing/archiving likes."),
-		mcp.WithString("handle", mcp.Required(), mcp.Description("X handle without @, e.g. \"jack\"")),
+		mcp.WithDescription("Read the current logged-in user's liked tweets from x.com/i/history/likes (requires being logged in). Useful for syncing/archiving likes."),
 		mcp.WithNumber("limit", mcp.Description("Max tweets to return (default 60)")),
 		mcp.WithString("browser", mcp.Description("Browser name to use (optional)")),
 	)
@@ -77,7 +76,7 @@ func registerTwitterTools(mcpSvr *server.MCPServer, wm *browserws.WebSocketManag
 		if err != nil {
 			return mcp.NewToolResultError("invalid arguments"), nil
 		}
-		tweets, err := twitter.Likes(ctx, wm, logger, p.Handle, twitter.Options{Browser: p.Browser, Limit: p.Limit})
+		tweets, err := twitter.Likes(ctx, wm, logger, twitter.Options{Browser: p.Browser, Limit: p.Limit})
 		if err != nil {
 			return mcp.NewToolResultError(err.Error()), nil
 		}
