@@ -46,6 +46,8 @@ func RegisterBrowserHandlers(api *echo.Group, deps Dependencies) {
 	api.POST("/screenshot", h.screenshot)
 	api.POST("/run_page_script", h.runPageScript)
 	api.POST("/fetch_in_page", h.fetchInPage)
+	api.POST("/intercept", h.intercept)
+	api.POST("/ui_action", h.uiAction)
 
 	// Capture records (read-only history of stored extractions).
 	api.GET("/captures/extract", h.listExtractCaptures)
@@ -347,4 +349,227 @@ func (h *browserHandlers) fetchInPage(c echo.Context) error {
 		Status:  status,
 		Text:    resp.Result.Text,
 	})
+}
+
+// intercept drives the early-injected capture primitive (plan §4.3). The
+// extension only records what the page itself requested — patterns select which
+// URLs to keep, and the bodies are returned verbatim for server-side parsing.
+func (h *browserHandlers) intercept(c echo.Context) error {
+	var req dto.InterceptAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return detailErr(c, http.StatusBadRequest, "Invalid request body")
+	}
+	if req.URL == "" {
+		return detailErr(c, http.StatusBadRequest, "url is required")
+	}
+
+	params := map[string]any{}
+	if len(req.Patterns) > 0 {
+		params["patterns"] = req.Patterns
+	}
+	if req.WaitForRequest {
+		params["waitForRequest"] = true
+	}
+	if req.TimeoutMs > 0 {
+		params["timeoutMs"] = req.TimeoutMs
+	}
+	if req.SettleMs > 0 {
+		params["settleMs"] = req.SettleMs
+	}
+	if req.ScrollRounds != nil {
+		params["scrollRounds"] = *req.ScrollRounds
+	}
+	if req.ScrollDelayMs > 0 {
+		params["scrollDelayMs"] = req.ScrollDelayMs
+	}
+	if req.MaxCaptures > 0 {
+		params["maxCaptures"] = req.MaxCaptures
+	}
+	if req.IncludeBodies != nil {
+		params["includeBodies"] = *req.IncludeBodies
+	}
+	if req.MaxBodyBytes > 0 {
+		params["maxBodyBytes"] = req.MaxBodyBytes
+	}
+	if req.ExactHost {
+		params["exactHost"] = true
+	}
+	if req.UnregisterAfter {
+		params["unregisterAfter"] = true
+	}
+
+	resp, ok := h.send(c, req.Browser, &capture.BrowserRequest{
+		Source:   "http_api",
+		Action:   "mcp_request",
+		Command:  "intercept",
+		URL:      req.URL,
+		Visible:  req.Visible,
+		CloseTab: true,
+		Params:   params,
+	})
+	if !ok {
+		return nil
+	}
+
+	items := toCapturedRecords(resp.Result.Items)
+	out := dto.InterceptAPIResponse{
+		Success: true,
+		URL:     firstNonEmpty(resp.Result.URL, req.URL),
+		Matched: len(items),
+		Items:   items,
+	}
+
+	if req.Dump {
+		name := req.DumpName
+		if name == "" {
+			name = "intercept"
+		}
+		path, err := writeRawDump(name, map[string]any{
+			"kind":        "intercept",
+			"url":         req.URL,
+			"captured_at": time.Now().UTC().Format(time.RFC3339),
+			"matched":     len(items),
+			"items":       items,
+		})
+		if err != nil {
+			h.deps.Logger.Warn("failed to write raw dump", zap.Error(err))
+		} else {
+			out.DumpPath = path
+		}
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// uiAction performs one minimal DOM action on a real page and optionally waits
+// for the request it triggers. Deep links are preferred; this is the fallback
+// for date pickers / dimension tabs / "load more" that have no URL form.
+func (h *browserHandlers) uiAction(c echo.Context) error {
+	var req dto.UIActionAPIRequest
+	if err := c.Bind(&req); err != nil {
+		return detailErr(c, http.StatusBadRequest, "Invalid request body")
+	}
+	if req.URL == "" {
+		return detailErr(c, http.StatusBadRequest, "url is required")
+	}
+	if req.Action == "" {
+		req.Action = "click"
+	}
+	if req.Selector == "" && req.Text == "" {
+		return detailErr(c, http.StatusBadRequest, "selector or text is required")
+	}
+
+	params := map[string]any{
+		"action":   req.Action,
+		"selector": req.Selector,
+		"text":     req.Text,
+		"value":    req.Value,
+	}
+	if req.WaitForRequest {
+		params["waitForRequest"] = true
+	}
+	if len(req.Patterns) > 0 {
+		params["patterns"] = req.Patterns
+	}
+	if req.URLIncludes != "" {
+		params["urlIncludes"] = req.URLIncludes
+	}
+	if req.TimeoutMs > 0 {
+		params["timeoutMs"] = req.TimeoutMs
+	}
+	if req.SettleMs > 0 {
+		params["settleMs"] = req.SettleMs
+	}
+	if req.MaxCaptures > 0 {
+		params["maxCaptures"] = req.MaxCaptures
+	}
+	if req.IncludeBodies != nil {
+		params["includeBodies"] = *req.IncludeBodies
+	}
+	if req.MaxBodyBytes > 0 {
+		params["maxBodyBytes"] = req.MaxBodyBytes
+	}
+	if req.ExactHost != nil {
+		params["exactHost"] = *req.ExactHost
+	}
+
+	resp, ok := h.send(c, req.Browser, &capture.BrowserRequest{
+		Source:   "http_api",
+		Action:   "mcp_request",
+		Command:  "uiAction",
+		URL:      req.URL,
+		Visible:  req.Visible,
+		CloseTab: true,
+		Params:   params,
+	})
+	if !ok {
+		return nil
+	}
+
+	items := toCapturedRecords(resp.Result.Items)
+	out := dto.UIActionAPIResponse{
+		Success: true,
+		URL:     firstNonEmpty(resp.Result.URL, req.URL),
+		Action:  req.Action,
+		Matched: len(items),
+		Items:   items,
+	}
+
+	if req.Dump {
+		name := req.DumpName
+		if name == "" {
+			name = "ui_action"
+		}
+		path, err := writeRawDump(name, map[string]any{
+			"kind":        "ui_action",
+			"url":         req.URL,
+			"action":      req.Action,
+			"captured_at": time.Now().UTC().Format(time.RFC3339),
+			"matched":     len(items),
+			"items":       items,
+		})
+		if err != nil {
+			h.deps.Logger.Warn("failed to write raw dump", zap.Error(err))
+		} else {
+			out.DumpPath = path
+		}
+	}
+
+	return c.JSON(http.StatusOK, out)
+}
+
+// toCapturedRecords converts the extension's generic []any items into the
+// typed response shape. Unknown/missing fields are tolerated.
+func toCapturedRecords(items []any) []dto.CapturedRecord {
+	out := make([]dto.CapturedRecord, 0, len(items))
+	for _, raw := range items {
+		m, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		rec := dto.CapturedRecord{}
+		if s, ok := m["url"].(string); ok {
+			rec.URL = s
+		}
+		if n, ok := m["status"].(float64); ok {
+			rec.Status = int(n)
+		}
+		if s, ok := m["method"].(string); ok {
+			rec.Method = s
+		}
+		if s, ok := m["body"].(string); ok {
+			rec.Body = s
+		}
+		if n, ok := m["bodyBytes"].(float64); ok {
+			rec.BodyBytes = int(n)
+		}
+		if b, ok := m["bodyTruncated"].(bool); ok {
+			rec.BodyTruncated = b
+		}
+		if n, ok := m["ts"].(float64); ok {
+			rec.TS = n
+		}
+		out = append(out, rec)
+	}
+	return out
 }
