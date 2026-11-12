@@ -90,6 +90,117 @@ type FetchInPageAPIResponse struct {
 	Text    string `json:"text"`
 }
 
+// InterceptAPIRequest is the POST /api/intercept request body. It drives the
+// extension's early-injected capture primitive (docs/browser-executor-plan.md
+// §4.3). patterns is matched as URL substrings; the page's own requests are
+// replayed as-is, so site tokens/headers/fingerprints stay valid.
+type InterceptAPIRequest struct {
+	URL             string   `json:"url"`
+	Patterns        []string `json:"patterns,omitempty"`
+	WaitForRequest  bool     `json:"waitForRequest,omitempty"`
+	TimeoutMs       int      `json:"timeoutMs,omitempty"`
+	SettleMs        int      `json:"settleMs,omitempty"`
+	ScrollRounds    *int     `json:"scrollRounds,omitempty"`
+	ScrollDelayMs   int      `json:"scrollDelayMs,omitempty"`
+	MaxCaptures     int      `json:"maxCaptures,omitempty"`
+	IncludeBodies   *bool    `json:"includeBodies,omitempty"`
+	MaxBodyBytes    int      `json:"maxBodyBytes,omitempty"`
+	ExactHost       bool     `json:"exactHost,omitempty"`
+	UnregisterAfter bool     `json:"unregisterAfter,omitempty"`
+	Visible         bool     `json:"visible,omitempty"`
+	Dump            bool     `json:"dump,omitempty"`
+	DumpName        string   `json:"dumpName,omitempty"`
+	Browser         string   `json:"browser,omitempty"`
+}
+
+// CapturedRecord is one intercepted network response.
+type CapturedRecord struct {
+	URL           string  `json:"url"`
+	Status        int     `json:"status,omitempty"`
+	Method        string  `json:"method,omitempty"`
+	Body          string  `json:"body,omitempty"`
+	BodyBytes     int     `json:"bodyBytes,omitempty"`
+	BodyTruncated bool    `json:"bodyTruncated,omitempty"`
+	TS            float64 `json:"ts,omitempty"`
+}
+
+// InterceptAPIResponse is the POST /api/intercept response body.
+type InterceptAPIResponse struct {
+	Success  bool             `json:"success"`
+	URL      string           `json:"url"`
+	Matched  int              `json:"matched"`
+	Items    []CapturedRecord `json:"items"`
+	DumpPath string           `json:"dumpPath,omitempty"`
+}
+
+// UIActionAPIRequest is the POST /api/ui_action request body. It performs one
+// minimal DOM action (click/type/select/scroll) on a real page and optionally
+// waits for the request the action triggers.
+type UIActionAPIRequest struct {
+	URL            string   `json:"url"`
+	Action         string   `json:"action"`
+	Selector       string   `json:"selector,omitempty"`
+	Text           string   `json:"text,omitempty"`
+	Value          string   `json:"value,omitempty"`
+	WaitForRequest bool     `json:"waitForRequest,omitempty"`
+	Patterns       []string `json:"patterns,omitempty"`
+	URLIncludes    string   `json:"urlIncludes,omitempty"`
+	TimeoutMs      int      `json:"timeoutMs,omitempty"`
+	SettleMs       int      `json:"settleMs,omitempty"`
+	MaxCaptures    int      `json:"maxCaptures,omitempty"`
+	IncludeBodies  *bool    `json:"includeBodies,omitempty"`
+	MaxBodyBytes   int      `json:"maxBodyBytes,omitempty"`
+	ExactHost      *bool    `json:"exactHost,omitempty"`
+	Visible        bool     `json:"visible,omitempty"`
+	Dump           bool     `json:"dump,omitempty"`
+	DumpName       string   `json:"dumpName,omitempty"`
+	Browser        string   `json:"browser,omitempty"`
+}
+
+// UIActionAPIResponse is the POST /api/ui_action response body.
+type UIActionAPIResponse struct {
+	Success  bool             `json:"success"`
+	URL      string           `json:"url"`
+	Action   string           `json:"action"`
+	Matched  int              `json:"matched"`
+	Items    []CapturedRecord `json:"items"`
+	DumpPath string           `json:"dumpPath,omitempty"`
+}
+
+// GSCRecordAPIRequest is the POST /api/gsc/record request body. Stage 0 of the
+// GSC adapter: open one real Search Console view and dump the raw responses the
+// page itself requested, so parsers are written against real payloads.
+type GSCRecordAPIRequest struct {
+	Kind     string `json:"kind"` // sites | performance
+	Property string `json:"property,omitempty"`
+	Days     int    `json:"days,omitempty"`
+	Visible  bool   `json:"visible,omitempty"`
+	Dump     *bool  `json:"dump,omitempty"`
+	Browser  string `json:"browser,omitempty"`
+}
+
+// GSCCaptureSummary describes one captured response without its body (bodies go
+// to the dump file, not the HTTP response).
+type GSCCaptureSummary struct {
+	URL           string   `json:"url"`
+	Status        int      `json:"status,omitempty"`
+	Method        string   `json:"method,omitempty"`
+	BodyBytes     int      `json:"bodyBytes"`
+	BodyTruncated bool     `json:"bodyTruncated,omitempty"`
+	RPCIDs        []string `json:"rpc_ids,omitempty"`
+}
+
+// GSCRecordAPIResponse is the POST /api/gsc/record response body.
+type GSCRecordAPIResponse struct {
+	Success  bool                `json:"success"`
+	Kind     string              `json:"kind"`
+	Property string              `json:"property,omitempty"`
+	PageURL  string              `json:"page_url"`
+	Matched  int                 `json:"matched"`
+	Captures []GSCCaptureSummary `json:"captures"`
+	DumpPath string              `json:"dumpPath,omitempty"`
+}
+
 // TwitterSearchAPIRequest is the POST /api/twitter/search request body.
 type TwitterSearchAPIRequest struct {
 	Query   string `json:"query"`
@@ -104,9 +215,10 @@ type TwitterTimelineAPIRequest struct {
 	Browser string `json:"browser,omitempty"`
 }
 
-// TwitterLikesAPIRequest is the POST /api/twitter/likes request body.
+// TwitterLikesAPIRequest is the POST /api/twitter/likes request body. Likes
+// are read from x.com/i/history/likes, so they always belong to the account
+// the browser is logged into.
 type TwitterLikesAPIRequest struct {
-	Handle  string `json:"handle"`
 	Limit   int    `json:"limit,omitempty"`
 	Browser string `json:"browser,omitempty"`
 }
@@ -121,10 +233,10 @@ type RedditThreadAPIRequest struct {
 
 // RedditThreadAPIResponse is the POST /api/reddit/thread response body.
 type RedditThreadAPIResponse struct {
-	Success bool   `json:"success"`
-	URL     string `json:"url"`
-	Post    any    `json:"post"`
-	Comments []any `json:"comments"`
+	Success  bool   `json:"success"`
+	URL      string `json:"url"`
+	Post     any    `json:"post"`
+	Comments []any  `json:"comments"`
 }
 
 // RedditSubredditAPIRequest is the POST /api/reddit/subreddit request body.
@@ -136,8 +248,8 @@ type RedditSubredditAPIRequest struct {
 
 // RedditSubredditAPIResponse is the POST /api/reddit/subreddit response body.
 type RedditSubredditAPIResponse struct {
-	Success bool `json:"success"`
-	Count   int  `json:"count"`
+	Success bool  `json:"success"`
+	Count   int   `json:"count"`
 	Posts   []any `json:"posts"`
 }
 
@@ -152,8 +264,8 @@ type RedditSearchAPIRequest struct {
 
 // RedditSearchAPIResponse is the POST /api/reddit/search response body.
 type RedditSearchAPIResponse struct {
-	Success bool `json:"success"`
-	Count   int  `json:"count"`
+	Success bool  `json:"success"`
+	Count   int   `json:"count"`
 	Posts   []any `json:"posts"`
 }
 
@@ -178,22 +290,22 @@ type XhsSearchAPIRequest struct {
 
 // XhsSearchAPIResponse is the POST /api/xiaohongshu/search response body.
 type XhsSearchAPIResponse struct {
-	Success bool `json:"success"`
-	Count   int  `json:"count"`
+	Success bool  `json:"success"`
+	Count   int   `json:"count"`
 	Notes   []any `json:"notes"`
 }
 
 // XhsUserNotesAPIRequest is the POST /api/xiaohongshu/user_notes request body.
 type XhsUserNotesAPIRequest struct {
-	URL    string `json:"url"`
-	Limit  int    `json:"limit,omitempty"`
+	URL     string `json:"url"`
+	Limit   int    `json:"limit,omitempty"`
 	Browser string `json:"browser,omitempty"`
 }
 
 // XhsUserNotesAPIResponse is the POST /api/xiaohongshu/user_notes response body.
 type XhsUserNotesAPIResponse struct {
-	Success bool `json:"success"`
-	Count   int  `json:"count"`
+	Success bool  `json:"success"`
+	Count   int   `json:"count"`
 	Notes   []any `json:"notes"`
 }
 
@@ -283,7 +395,6 @@ type TwitterTimelineParams struct {
 
 // TwitterLikesParams for the "twitter_likes" MCP tool.
 type TwitterLikesParams struct {
-	Handle  string `json:"handle"`
 	Limit   int    `json:"limit,omitempty"`
 	Browser string `json:"browser,omitempty"`
 }

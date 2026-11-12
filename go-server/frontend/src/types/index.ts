@@ -95,6 +95,7 @@ export interface AIProviderProfile {
   provider: string;
   api_key: string;
   model: string;
+  models?: string[];
   base_url: string;
   disabled?: boolean;
   priority?: number;
@@ -105,6 +106,24 @@ export interface AICategory {
   name: string;
   count: number;
   avg_score: number;
+}
+
+export interface AITestAnalysis {
+  ai_category?: string;
+  ai_subcategory?: string;
+  quality_score?: number;
+  ai_summary?: string;
+  ai_comment?: string;
+  ai_tags?: string;
+}
+
+export interface AITestResult {
+  success: boolean;
+  error?: string;
+  item_title?: string;
+  model_used?: string;
+  latency_ms?: number;
+  analysis?: AITestAnalysis;
 }
 
 export interface DailyReportSection {
@@ -129,6 +148,7 @@ export interface DailyReport {
   total_items: number;
   quality_items: number;
   content: string;
+  content_format?: "json" | "markdown";
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   [key: string]: any;
 }

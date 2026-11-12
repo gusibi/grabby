@@ -115,10 +115,13 @@ func (e *AIEngine) buildClient(p domainai.AIProviderProfile) (*profileClient, er
 		rateLimiter: llm.NewRateLimiter(rpm),
 	}
 	if strings.ToLower(p.Provider) == "lmstudio" {
-		pc.lmstudio = llm.NewLMStudioClient(p.BaseURL, p.Model, e.logger)
+		// The model is passed per request (a profile can hold several models),
+		// so the client itself stays model-agnostic.
+		pc.lmstudio = llm.NewLMStudioClient(p.BaseURL, "", e.logger)
 		e.logger.Info("Initialized LM Studio client",
 			zap.String("profile", p.Name),
 			zap.String("base_url", p.BaseURL),
+			zap.Int("models", len(p.EffectiveModels())),
 			zap.Int("requests_per_minute", rpm))
 	} else {
 		g, err := e.initGenkit(domainai.AISettings{
@@ -126,6 +129,7 @@ func (e *AIEngine) buildClient(p domainai.AIProviderProfile) (*profileClient, er
 			Provider: p.Provider,
 			APIKey:   p.APIKey,
 			Model:    p.Model,
+			Models:   p.EffectiveModels(),
 			BaseURL:  p.BaseURL,
 		})
 		if err != nil {
@@ -143,6 +147,13 @@ func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, err
 	if settings.Enabled {
 		providerName := strings.ToLower(settings.Provider)
 		e.logger.Info("Initializing Genkit with provider", zap.String("provider", providerName))
+
+		// The official plugins panic during Init when no key is configured.
+		// Return a normal error instead so a malformed profile only gets
+		// skipped, never takes the whole server down.
+		if (providerName == "openai" || providerName == "gemini") && strings.TrimSpace(settings.APIKey) == "" {
+			return nil, fmt.Errorf("%s 官方接口缺少 API 密钥", providerName)
+		}
 
 		switch providerName {
 		case "gemini":
@@ -174,11 +185,19 @@ func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, err
 
 	g := genkit.Init(e.ctx, gOpts...)
 
-	// Dynamically register the custom model if using custom provider
+	// Dynamically register every custom model the profile may use. Genkit's
+	// custom/oai plugin resolves models by name, so all of them must be defined
+	// up front; otherwise only the first model would be callable.
 	if settings.Enabled && strings.ToLower(settings.Provider) == "custom" && customPlugin != nil {
-		modelName := settings.Model
-		if modelName != "" {
-			modelID := modelName
+		models := settings.Models
+		if len(models) == 0 && settings.Model != "" {
+			models = []string{settings.Model}
+		}
+		for _, modelName := range models {
+			modelID := strings.TrimSpace(modelName)
+			if modelID == "" {
+				continue
+			}
 			if strings.HasPrefix(strings.ToLower(modelID), "custom/") {
 				modelID = modelID[7:]
 			}
@@ -397,39 +416,50 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 
 	prompt := e.buildPrompt(settings, scrapedItem)
 
-	// Try up to N profiles (N = number of enabled profiles)
+	// Try up to N slots (N = enabled profiles × their models). A time budget
+	// keeps a provider with many dead/rate-limited free models from pinning the
+	// worker: fast 429s still cycle through many models, while slow timeouts
+	// stop after a couple of attempts.
 	maxAttempts := selector.EnabledCount()
+	deadline := time.Now().Add(5 * time.Minute)
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		prof := selector.Next()
-		if prof == nil {
+		if time.Now().After(deadline) {
+			e.logger.Warn("AI attempt budget exhausted, giving up on item",
+				zap.Int64("item_id", itemID), zap.Int("attempts", attempt))
+			break
+		}
+		sel := selector.Next()
+		if sel == nil {
 			return fmt.Errorf("no AI profile available")
 		}
 
-		pc, ok := clients[prof.ID]
+		pc, ok := clients[sel.Profile.ID]
 		if !ok {
 			e.logger.Warn("Client not found for profile, skipping",
-				zap.String("profile", prof.Name), zap.String("id", prof.ID))
-			selector.MarkUnhealthy(prof.ID)
+				zap.String("profile", sel.Profile.Name), zap.String("id", sel.Profile.ID))
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
 
 		ctx, cancel := context.WithTimeout(e.ctx, 120*time.Second)
-		rawJSON, genErr := e.callProfile(ctx, pc, prompt)
+		rawJSON, genErr := e.callProfile(ctx, pc, sel.Model, prompt)
 		cancel()
 
 		if genErr != nil {
-			e.logger.Warn("Profile failed, trying next",
-				zap.String("profile", prof.Name), zap.Error(genErr))
-			selector.MarkUnhealthy(prof.ID)
+			e.logger.Warn("Model failed, trying next",
+				zap.String("profile", sel.Profile.Name),
+				zap.String("model", sel.Model),
+				zap.Error(genErr))
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
 
 		// Success — mark healthy and parse
-		selector.MarkHealthy(prof.ID)
+		selector.MarkHealthy(sel.Key())
 
 		var result AIAnalysisResult
 		if err := json.Unmarshal([]byte(rawJSON), &result); err != nil {
-			return fmt.Errorf("failed to parse AI response as JSON (profile: %s): %w\nRaw: %s", prof.Name, err, rawJSON)
+			return fmt.Errorf("failed to parse AI response as JSON (profile: %s, model: %s): %w\nRaw: %s", sel.Profile.Name, sel.Model, err, rawJSON)
 		}
 
 		a := domainai.AIAnalysis{
@@ -440,7 +470,7 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 			AISummary:     result.Summary,
 			AIComment:     result.Comment,
 			AITags:        strings.Join(result.Tags, ","),
-			ModelUsed:     prof.Model,
+			ModelUsed:     sel.Model,
 		}
 
 		if err := e.db.InsertAIAnalysis(a); err != nil {
@@ -449,7 +479,8 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 
 		e.logger.Info("Successfully analyzed item",
 			zap.Int64("item_id", scrapedItem.ID),
-			zap.String("profile", prof.Name),
+			zap.String("profile", sel.Profile.Name),
+			zap.String("model", sel.Model),
 			zap.String("category", result.Category),
 			zap.Int("score", result.QualityScore),
 		)
@@ -459,18 +490,18 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 	return fmt.Errorf("all enabled AI profiles failed for item %d", itemID)
 }
 
-// callProfile invokes the appropriate client for a profile.
+// callProfile invokes the appropriate client for a profile + model.
 // Applies per-profile rate limiting before the request.
-func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, prompt string) (string, error) {
+func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, model, prompt string) (string, error) {
 	// Per-profile rate limit: wait for a token before calling
 	pc.rateLimiter.Wait()
 
 	if pc.lmstudio != nil {
 		schema := json.RawMessage(llm.AnalysisResponseSchema)
-		return pc.lmstudio.GenerateWithSchema(ctx, prompt, &schema)
+		return pc.lmstudio.GenerateWithSchemaModel(ctx, model, prompt, &schema)
 	}
 	resp, err := genkit.Generate(ctx, pc.genkit,
-		genai.WithModelName(pc.profile.Model),
+		genai.WithModelName(model),
 		genai.WithPrompt(prompt),
 		genai.WithOutputFormat("json"),
 	)
@@ -482,15 +513,15 @@ func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, prompt st
 
 // callDailyProfile invokes a profile for daily report generation.
 // It uses the daily report schema instead of the per-item analysis schema.
-func (e *AIEngine) callDailyProfile(ctx context.Context, pc *profileClient, prompt string) (string, error) {
+func (e *AIEngine) callDailyProfile(ctx context.Context, pc *profileClient, model, prompt string) (string, error) {
 	pc.rateLimiter.Wait()
 
 	if pc.lmstudio != nil {
 		schema := json.RawMessage(DailyReportResponseSchema)
-		return pc.lmstudio.GenerateWithSchema(ctx, prompt, &schema)
+		return pc.lmstudio.GenerateWithSchemaModel(ctx, model, prompt, &schema)
 	}
 	resp, err := genkit.Generate(ctx, pc.genkit,
-		genai.WithModelName(pc.profile.Model),
+		genai.WithModelName(model),
 		genai.WithPrompt(prompt),
 		genai.WithOutputFormat("json"),
 	)
@@ -498,6 +529,100 @@ func (e *AIEngine) callDailyProfile(ctx context.Context, pc *profileClient, prom
 		return "", err
 	}
 	return llm.StripMarkdownFences(resp.Text()), nil
+}
+
+// TestProfile performs a single, side-effect-free generation against a draft
+// provider profile. It is used by the settings screen to validate a connection
+// before the configuration is saved. No analysis row is written to the DB.
+func (e *AIEngine) TestProfile(ctx context.Context, p domainai.AIProviderProfile, systemPrompt string) (map[string]any, int64, error) {
+	start := time.Now()
+	p = normalizeTestProfile(p)
+	// Keep the whole list namespaced too: the custom plugin must be able to
+	// resolve every model the profile declares, not just the tested one.
+	if len(p.Models) > 0 {
+		p.Models = domainai.NormalizeModelList(p.Provider, p.Models)
+	}
+	if p.Model != "" && !containsModel(p.Models, p.Model) {
+		p.Models = append([]string{p.Model}, p.Models...)
+	}
+
+	pc, err := e.buildClient(p)
+	if err != nil {
+		return nil, time.Since(start).Milliseconds(), fmt.Errorf("无法初始化模型客户端: %w", err)
+	}
+
+	sample := &item.ScrapedItem{
+		Title:        "Grabby 连通性测试：一条用于验证模型输出的样本资讯",
+		OriginSource: "Grabby System",
+		Summary:      "这是一条用于验证 AI 接口连通性、结构化输出与中文评分能力的测试内容。",
+		Content:      "人工智能阅读助手 Grabby 今天完成了模型接入设置的重构。新的设置界面支持从开放模型目录中选择服务商与模型，自动填充接口地址，并在保存前对当前草稿配置执行连通性测试。本次测试不写入数据库，仅用于确认模型能够按照约定的 JSON 结构返回分类、评分与摘要字段。",
+		Category:     "article",
+	}
+
+	e.mu.RLock()
+	settings := e.settings
+	e.mu.RUnlock()
+	settings.SystemPrompt = strings.TrimSpace(systemPrompt)
+
+	raw, err := e.callProfile(ctx, pc, p.Model, e.buildPrompt(settings, sample))
+	if err != nil {
+		return nil, time.Since(start).Milliseconds(), fmt.Errorf("AI 接口连接失败: %w", err)
+	}
+
+	var result AIAnalysisResult
+	if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		return nil, time.Since(start).Milliseconds(), fmt.Errorf("模型未返回有效的结构化 JSON: %w（原始响应: %.200s）", err, raw)
+	}
+
+	return map[string]any{
+		"ai_category":    result.Category,
+		"ai_subcategory": result.Subcategory,
+		"quality_score":  result.QualityScore,
+		"ai_summary":     result.Summary,
+		"ai_comment":     result.Comment,
+		"ai_tags":        strings.Join(result.Tags, ","),
+		"model_used":     p.Model,
+	}, time.Since(start).Milliseconds(), nil
+}
+
+// containsModel reports whether models already includes target
+// (case-insensitive).
+func containsModel(models []string, target string) bool {
+	for _, m := range models {
+		if strings.EqualFold(strings.TrimSpace(m), strings.TrimSpace(target)) {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeTestProfile makes sure a draft model id carries the namespace that
+// Genkit expects for the selected backend driver.
+func normalizeTestProfile(p domainai.AIProviderProfile) domainai.AIProviderProfile {
+	p.Provider = strings.ToLower(strings.TrimSpace(p.Provider))
+	p.Model = strings.TrimSpace(p.Model)
+	p.BaseURL = strings.TrimSpace(p.BaseURL)
+
+	prefix := ""
+	switch p.Provider {
+	case "gemini":
+		prefix = "googleai/"
+	case "openai":
+		prefix = "openai/"
+	case "custom":
+		prefix = "custom/"
+	}
+	if prefix != "" && p.Model != "" && !strings.HasPrefix(strings.ToLower(p.Model), prefix) {
+		// Drop any stale namespace from a previously selected provider.
+		if idx := strings.Index(p.Model, "/"); idx > 0 {
+			head := strings.ToLower(p.Model[:idx])
+			if head == "googleai" || head == "openai" || head == "custom" {
+				p.Model = p.Model[idx+1:]
+			}
+		}
+		p.Model = prefix + p.Model
+	}
+	return p
 }
 
 // buildPrompt constructs the analysis prompt from settings and item.

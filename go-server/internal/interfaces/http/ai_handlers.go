@@ -175,10 +175,17 @@ func (h *AIHandlers) HandleDaily(c echo.Context) error {
 		})
 	}
 
+	// Older reports are stored as Markdown prose, newer ones as a JSON document
+	// with per-section items. Support both instead of rejecting the Markdown
+	// ones with a 500.
 	var content map[string]any
 	if err := json.Unmarshal([]byte(report.Content), &content); err != nil {
-		h.logger.Error("Failed to parse daily report content", zap.String("date", dateStr), zap.String("type", reportType), zap.Error(err))
-		return c.String(http.StatusInternalServerError, "Invalid daily report content")
+		content = map[string]any{
+			"format":  "markdown",
+			"content": report.Content,
+		}
+	} else {
+		content["format"] = "json"
 	}
 
 	content["success"] = true
@@ -476,8 +483,48 @@ func (h *AIHandlers) HandleSaveSettings(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"success": true})
 }
 
-// HandleTestConnection tests the AI connection using the latest available scraped item.
+// HandleTestConnection tests the AI connection. When the request carries a
+// draft `profile`, the test runs against that unsaved configuration without
+// touching the database — this lets the settings UI verify a connection before
+// the user commits it. Without a profile it falls back to the legacy behaviour
+// of analysing a real scraped item with the saved engine settings.
 func (h *AIHandlers) HandleTestConnection(c echo.Context) error {
+	var testReq struct {
+		Profile      *ai.AIProviderProfile `json:"profile"`
+		Model        string                `json:"model"`
+		SystemPrompt string                `json:"system_prompt"`
+	}
+	_ = c.Bind(&testReq)
+
+	if testReq.Profile != nil {
+		profile := *testReq.Profile
+		// A profile may hold several models; the UI tests one concrete model.
+		// Explicit `model` wins, otherwise the primary (first) model is used.
+		if strings.TrimSpace(testReq.Model) != "" {
+			profile.Model = testReq.Model
+		}
+		if strings.TrimSpace(profile.Model) == "" {
+			if models := profile.EffectiveModels(); len(models) > 0 {
+				profile.Model = models[0]
+			}
+		}
+		if strings.TrimSpace(profile.Model) == "" {
+			return aiErr(c, http.StatusBadRequest, "请先选择或填写模型 ID。")
+		}
+		analysis, latency, err := h.aiEngine.TestProfile(c.Request().Context(), profile, testReq.SystemPrompt)
+		if err != nil {
+			h.logger.Warn("Draft AI profile connection test failed", zap.Error(err))
+			return aiErr(c, http.StatusBadGateway, err.Error())
+		}
+		return c.JSON(http.StatusOK, map[string]any{
+			"success":    true,
+			"item_title": "Grabby 连通性样本",
+			"analysis":   analysis,
+			"latency_ms": latency,
+			"model_used": profile.Model,
+		})
+	}
+
 	if !h.aiEngine.IsEnabled() {
 		return aiErr(c, http.StatusBadRequest, "AI 引擎未启用，请先开启 '启用 AI 语义分析与评分' 开关并保存配置。")
 	}

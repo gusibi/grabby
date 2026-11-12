@@ -77,3 +77,56 @@ func TestHandleDailyReturnsStructuredContentWithoutReportWrapper(t *testing.T) {
 		t.Fatalf("expected headline section, got %+v", sections["headline"])
 	}
 }
+
+// Regression test: reports written as Markdown prose used to be rejected with
+// a 500 ("Invalid daily report content") because the handler assumed JSON.
+// They must come back as a markdown payload the UI can render.
+func TestHandleDailyReturnsMarkdownReports(t *testing.T) {
+	db, err := sqlite.NewDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("NewDatabase returned error: %v", err)
+	}
+	defer db.Close()
+
+	const markdown = "# Grabby AI 早报 · 2026-11-04\n\n本次时间范围内共抓取 271 条资讯。"
+	if err := db.InsertAIDailyReport(sqlite.AIDailyReport{
+		ReportDate: "2026-11-04",
+		ReportType: "morning",
+		Title:      "Grabby AI 早报 · 2026-11-04",
+		Content:    markdown,
+		TotalItems: 271,
+		ModelUsed:  "system",
+		GeneratedAt: time.Date(2026, 11, 4, 7, 20, 0, 0, time.UTC),
+	}); err != nil {
+		t.Fatalf("InsertAIDailyReport returned error: %v", err)
+	}
+
+	handler := NewAIHandlers(db, nil, nil, zap.NewNop())
+	req := httptest.NewRequest(http.MethodGet, "/open/api/ai/daily?date=2026-11-04&type=morning", nil)
+	rec := httptest.NewRecorder()
+	c := echo.New().NewContext(req, rec)
+
+	if err := handler.HandleDaily(c); err != nil {
+		t.Fatalf("HandleDaily returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var payload map[string]any
+	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
+		t.Fatalf("response is not JSON: %v", err)
+	}
+	if payload["format"] != "markdown" {
+		t.Errorf("expected format=markdown, got %v", payload["format"])
+	}
+	if payload["content"] != markdown {
+		t.Errorf("content mismatch: got %v", payload["content"])
+	}
+	if payload["success"] != true {
+		t.Errorf("expected success=true, got %v", payload["success"])
+	}
+	if payload["total_items"] != float64(271) {
+		t.Errorf("expected total_items=271, got %v", payload["total_items"])
+	}
+}

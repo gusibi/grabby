@@ -182,7 +182,9 @@ func TestDatabase_AI_Operations(t *testing.T) {
 	}
 
 	// 6. Test Daily Report functions
-	dateStr := now.UTC().Format("2006-01-02")
+	// Report dates are local calendar days — that is what the scheduler and
+	// the generate handler pass in — so ask for the local date, not the UTC one.
+	dateStr := now.Format("2006-01-02")
 
 	// Test GetTotalItemsCountForDate
 	totalCount, err := db.GetTotalItemsCountForDate(dateStr)
@@ -228,7 +230,7 @@ func TestDatabase_AI_Operations(t *testing.T) {
 		t.Errorf("GetAIDailyReport returned unexpected report: %+v", retrievedReport)
 	}
 
-	legacyDateStr := now.AddDate(0, 0, 1).UTC().Format("2006-01-02")
+	legacyDateStr := now.AddDate(0, 0, 1).Format("2006-01-02")
 	_, err = db.db.Exec(`
 		INSERT INTO ai_daily_reports (report_date, report_type, title, content, total_items, quality_items, categories_summary, model_used)
 		VALUES (?, '', ?, ?, ?, ?, ?, ?)
@@ -295,7 +297,12 @@ func TestDatabase_AI_Operations(t *testing.T) {
 		t.Errorf("LoadAISettings loaded incorrect values first time: %+v", loaded)
 	}
 
-	// Verify it saved them to DB by updating DB and reloading
+	// Legacy profiles (saved before multi-model support, no `models` field)
+	// still honour the top-level ai_model setting.
+	legacyProfiles := `[{"id":"default","name":"默认服务商","provider":"openai","api_key":"env_key","model":"gpt-4o","base_url":"https://api.openai.com"}]`
+	if err := db.SaveSetting("ai_provider_profiles", legacyProfiles); err != nil {
+		t.Fatalf("Failed to reset provider profiles: %v", err)
+	}
 	err = db.SaveSetting("ai_model", "claude-3-opus")
 	if err != nil {
 		t.Fatalf("Failed to update ai_model setting: %v", err)
@@ -308,5 +315,195 @@ func TestDatabase_AI_Operations(t *testing.T) {
 
 	if reloaded.Model != "claude-3-opus" {
 		t.Errorf("Expected loaded model 'claude-3-opus' from DB, got '%s'", reloaded.Model)
+	}
+	if len(reloaded.Models) != 1 || reloaded.Models[0] != "claude-3-opus" {
+		t.Errorf("Expected legacy model to migrate into Models, got %v", reloaded.Models)
+	}
+
+	// Multi-model profiles are authoritative: a stale top-level ai_model must
+	// not clobber the configured list.
+	multiProfiles := `[{"id":"default","name":"默认服务商","provider":"openai","api_key":"env_key","model":"gpt-4o","models":["gpt-4o","gpt-4o-mini"],"base_url":"https://api.openai.com"}]`
+	if err := db.SaveSetting("ai_provider_profiles", multiProfiles); err != nil {
+		t.Fatalf("Failed to save multi-model profiles: %v", err)
+	}
+	if err := db.SaveSetting("ai_model", "claude-3-opus"); err != nil {
+		t.Fatalf("Failed to update ai_model setting: %v", err)
+	}
+
+	reloaded, err = db.LoadAISettings(envSettings)
+	if err != nil {
+		t.Fatalf("Failed to reload multi-model settings: %v", err)
+	}
+	if reloaded.Model != "gpt-4o" {
+		t.Errorf("Expected profile models to win, got Model '%s'", reloaded.Model)
+	}
+	if len(reloaded.Models) != 2 || reloaded.Models[1] != "gpt-4o-mini" {
+		t.Errorf("Expected both models to survive reload, got %v", reloaded.Models)
+	}
+}
+
+// Regression test: time-range lookups used to compare CURRENT_TIMESTAMP's
+// naive UTC text against the offset-bearing ISO string the driver binds for
+// time.Time. Text comparison never matched, so every ranged daily report came
+// back empty. The queries must normalise both sides before comparing.
+func TestGetQualityItemsForTimeRange_NormalisesTimestampFormats(t *testing.T) {
+	db, err := NewDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.InsertSource(Source{
+		ID: "range-src", Name: "Range Source", Type: "rss",
+		URL: "https://example.com/range", Schedule: "0 * * * *",
+		Enabled: 1, DefaultCategory: "auto", Config: "{}",
+	}); err != nil {
+		t.Fatalf("Failed to insert source: %v", err)
+	}
+
+	now := time.Now()
+	itemID, err := db.InsertScrapedItem(ScrapedItem{
+		SourceID:     "range-src",
+		OriginSource: "Range Origin",
+		Title:        "Range Item",
+		URL:          "https://example.com/range-item",
+		Summary:      "Range summary",
+		Content:      "Range content",
+		Category:     "article",
+		FetchedAt:    now,
+	})
+	if err != nil {
+		t.Fatalf("Failed to insert item: %v", err)
+	}
+
+	if err := db.InsertAIAnalysis(AIAnalysis{
+		ItemID:       itemID,
+		AICategory:   "科技",
+		QualityScore: 9,
+		AISummary:    "Range summary",
+		AIComment:    "Range comment",
+	}); err != nil {
+		t.Fatalf("Failed to insert analysis: %v", err)
+	}
+
+	// Use a non-UTC zone so the bound parameters carry an offset, matching how
+	// production code builds its morning/evening windows in time.Local.
+	local := time.FixedZone("UTC+8", 8*60*60)
+	start := now.In(local).Add(-1 * time.Hour)
+	end := now.In(local).Add(1 * time.Hour)
+
+	items, err := db.GetQualityItemsForTimeRange(start, end, 7)
+	if err != nil {
+		t.Fatalf("GetQualityItemsForTimeRange failed: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item inside the window, got %d", len(items))
+	}
+
+	total, err := db.GetTotalItemsCountForTimeRange(start, end)
+	if err != nil {
+		t.Fatalf("GetTotalItemsCountForTimeRange failed: %v", err)
+	}
+	if total != 1 {
+		t.Errorf("expected 1 scraped item inside the window, got %d", total)
+	}
+
+	// A window that ends before the row was written must not match.
+	earlyEnd := now.In(local).Add(-1 * time.Hour)
+	earlyStart := earlyEnd.Add(-24 * time.Hour)
+	if items, err := db.GetQualityItemsForTimeRange(earlyStart, earlyEnd, 7); err != nil {
+		t.Fatalf("GetQualityItemsForTimeRange failed: %v", err)
+	} else if len(items) != 0 {
+		t.Errorf("expected 0 items before the window, got %d", len(items))
+	}
+}
+
+// Regression test: date-based lookups compared strftime() of the UTC-stored
+// timestamp against a local calendar date, so rows written near midnight sat in
+// the wrong day. Both date lookups must use the same local-day window as the
+// range-based queries.
+func TestGetQualityItemsForDate_UsesLocalDayWindow(t *testing.T) {
+	origLoc := time.Local
+	time.Local = time.FixedZone("UTC+8", 8*60*60)
+	t.Cleanup(func() { time.Local = origLoc })
+
+	db, err := NewDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("Failed to initialize database: %v", err)
+	}
+	defer db.Close()
+
+	if err := db.InsertSource(Source{
+		ID: "day-src", Name: "Day Source", Type: "rss",
+		URL: "https://example.com/day", Schedule: "0 * * * *",
+		Enabled: 1, DefaultCategory: "auto", Config: "{}",
+	}); err != nil {
+		t.Fatalf("Failed to insert source: %v", err)
+	}
+
+	itemID, err := db.InsertScrapedItem(ScrapedItem{
+		SourceID:     "day-src",
+		OriginSource: "Day Origin",
+		Title:        "Day Item",
+		URL:          "https://example.com/day-item",
+		Summary:      "Day summary",
+		Content:      "Day content",
+		Category:     "article",
+		FetchedAt:    time.Now(),
+	})
+	if err != nil {
+		t.Fatalf("Failed to insert item: %v", err)
+	}
+
+	if err := db.InsertAIAnalysis(AIAnalysis{
+		ItemID:       itemID,
+		AICategory:   "科技",
+		QualityScore: 9,
+		AISummary:    "Day summary",
+		AIComment:    "Day comment",
+	}); err != nil {
+		t.Fatalf("Failed to insert analysis: %v", err)
+	}
+
+	// 2026-06-13 16:30 UTC is 2026-06-14 00:30 in UTC+8: the row belongs to
+	// local day 2026-06-14 even though its UTC date is 2026-06-13.
+	const boundaryUTC = "2026-06-13 16:30:00"
+	for _, table := range []string{"ai_analyses", "scraped_items"} {
+		if _, err := db.db.Exec("UPDATE "+table+" SET "+map[string]string{
+			"ai_analyses":   "processed_at",
+			"scraped_items": "fetched_at",
+		}[table]+" = ?", boundaryUTC); err != nil {
+			t.Fatalf("Failed to pin %s timestamp: %v", table, err)
+		}
+	}
+
+	items, err := db.GetQualityItemsForDate("2026-06-14", 7)
+	if err != nil {
+		t.Fatalf("GetQualityItemsForDate returned error: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("expected 1 item on local day 2026-06-14, got %d", len(items))
+	}
+
+	if items, err := db.GetQualityItemsForDate("2026-06-13", 7); err != nil {
+		t.Fatalf("GetQualityItemsForDate returned error: %v", err)
+	} else if len(items) != 0 {
+		t.Errorf("expected 0 items on local day 2026-06-13, got %d", len(items))
+	}
+
+	if total, err := db.GetTotalItemsCountForDate("2026-06-14"); err != nil {
+		t.Fatalf("GetTotalItemsCountForDate returned error: %v", err)
+	} else if total != 1 {
+		t.Errorf("expected 1 fetched item on local day 2026-06-14, got %d", total)
+	}
+
+	if total, err := db.GetTotalItemsCountForDate("2026-06-13"); err != nil {
+		t.Fatalf("GetTotalItemsCountForDate returned error: %v", err)
+	} else if total != 0 {
+		t.Errorf("expected 0 fetched items on local day 2026-06-13, got %d", total)
+	}
+
+	if _, err := db.GetQualityItemsForDate("not-a-date", 7); err == nil {
+		t.Error("expected an error for an unparseable date, got nil")
 	}
 }

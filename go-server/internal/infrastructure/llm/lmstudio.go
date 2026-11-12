@@ -154,10 +154,21 @@ var AnalysisResponseSchema = json.RawMessage(`{
 // If schema is non-nil, uses response_format json_schema to force valid JSON.
 // Automatically retries on 429 errors with exponential backoff.
 func (c *LMStudioClient) GenerateWithSchema(ctx context.Context, prompt string, schema *json.RawMessage) (string, error) {
+	return c.GenerateWithSchemaModel(ctx, c.model, prompt, schema)
+}
+
+// GenerateWithSchemaModel is the multi-model entry point: a profile may hold
+// several models, so the model is chosen per request rather than fixed when the
+// client is constructed.
+func (c *LMStudioClient) GenerateWithSchemaModel(ctx context.Context, model, prompt string, schema *json.RawMessage) (string, error) {
 	const maxRetries = 5
 
+	if strings.TrimSpace(model) == "" {
+		model = c.model
+	}
+
 	reqBody := chatRequest{
-		Model: c.model,
+		Model: model,
 		Messages: []chatMessage{
 			{Role: "user", Content: prompt},
 		},
@@ -186,7 +197,7 @@ func (c *LMStudioClient) GenerateWithSchema(ctx context.Context, prompt string, 
 
 		c.logger.Debug("Calling LM Studio API",
 			zap.String("url", url),
-			zap.String("model", c.model),
+			zap.String("model", model),
 			zap.Int("attempt", attempt+1))
 
 		resp, err := c.httpClient.Do(req)

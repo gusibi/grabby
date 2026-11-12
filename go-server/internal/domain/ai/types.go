@@ -47,6 +47,7 @@ type AISettings struct {
 	Provider             string              `json:"provider"` // "openai", "gemini", "custom", etc.
 	APIKey               string              `json:"api_key"`
 	Model                string              `json:"model"`
+	Models               []string            `json:"models"`
 	BaseURL              string              `json:"base_url"`
 	QualityThreshold     int                 `json:"quality_threshold"`
 	SystemPrompt         string              `json:"system_prompt"`
@@ -61,16 +62,65 @@ type AISettings struct {
 }
 
 // AIProviderProfile stores one selectable AI provider connection profile.
+//
+// A profile may carry several models. The rotation unit is the (profile, model)
+// pair, so a provider with several free models is used model-by-model before
+// moving on. Model is kept as the primary/first entry for backward
+// compatibility with older clients and stored analysis rows.
 type AIProviderProfile struct {
-	ID                string `json:"id"`
-	Name              string `json:"name"`
-	Provider          string `json:"provider"`
-	APIKey            string `json:"api_key"`
-	Model             string `json:"model"`
-	BaseURL           string `json:"base_url"`
-	Disabled          bool   `json:"disabled"`            // skip this profile in multi-profile strategies
-	Priority          int    `json:"priority"`            // lower = higher priority (for failover ordering)
-	RequestsPerMinute int    `json:"requests_per_minute"` // per-profile rate limit; 0 = default (10/min)
+	ID                string   `json:"id"`
+	Name              string   `json:"name"`
+	Provider          string   `json:"provider"`
+	APIKey            string   `json:"api_key"`
+	Model             string   `json:"model"`
+	Models            []string `json:"models"`
+	BaseURL           string   `json:"base_url"`
+	Disabled          bool     `json:"disabled"`            // skip this profile in multi-profile strategies
+	Priority          int      `json:"priority"`            // lower = higher priority (for failover ordering)
+	RequestsPerMinute int      `json:"requests_per_minute"` // per-profile rate limit; 0 = default (10/min)
+}
+
+// EffectiveModels returns the profile's model list, tolerating legacy profiles
+// that only set the single Model field.
+func (p AIProviderProfile) EffectiveModels() []string {
+	if len(p.Models) > 0 {
+		return p.Models
+	}
+	if p.Model != "" {
+		return []string{p.Model}
+	}
+	return nil
+}
+
+// NormalizeModelList trims, drops empties, de-dupes (case-insensitive) and
+// applies the backend namespace Genkit expects for the provider.
+func NormalizeModelList(provider string, models []string) []string {
+	out := make([]string, 0, len(models))
+	seen := make(map[string]struct{}, len(models))
+	for _, raw := range models {
+		model := normalizeModelRef(provider, raw)
+		if model == "" {
+			continue
+		}
+		key := strings.ToLower(model)
+		if _, dup := seen[key]; dup {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, model)
+	}
+	return out
+}
+
+func normalizeModelRef(provider, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" || !strings.EqualFold(provider, "custom") {
+		return model
+	}
+	if !strings.HasPrefix(strings.ToLower(model), "custom/") {
+		return "custom/" + model
+	}
+	return model
 }
 
 // NormalizeAISettings cleans up user inputs (trimming whitespace) and handles
@@ -115,10 +165,19 @@ func NormalizeAISettings(settings AISettings) AISettings {
 		if settings.Profiles[i].RequestsPerMinute <= 0 {
 			settings.Profiles[i].RequestsPerMinute = 10
 		}
-		if strings.ToLower(settings.Profiles[i].Provider) == "custom" && settings.Profiles[i].Model != "" {
-			if !strings.HasPrefix(strings.ToLower(settings.Profiles[i].Model), "custom/") {
-				settings.Profiles[i].Model = "custom/" + settings.Profiles[i].Model
-			}
+
+		// Migration + canonical form: profiles saved before multi-model support
+		// only carry Model. Keep Models as the source of truth and mirror the
+		// first entry back into Model for older clients / stored rows.
+		models := settings.Profiles[i].Models
+		if len(models) == 0 && settings.Profiles[i].Model != "" {
+			models = []string{settings.Profiles[i].Model}
+		}
+		settings.Profiles[i].Models = NormalizeModelList(settings.Profiles[i].Provider, models)
+		if len(settings.Profiles[i].Models) > 0 {
+			settings.Profiles[i].Model = settings.Profiles[i].Models[0]
+		} else {
+			settings.Profiles[i].Model = ""
 		}
 	}
 
@@ -130,6 +189,7 @@ func NormalizeAISettings(settings AISettings) AISettings {
 			if profile.ID == settings.ActiveProfileID {
 				settings.Provider = profile.Provider
 				settings.Model = profile.Model
+				settings.Models = append([]string(nil), profile.EffectiveModels()...)
 				settings.BaseURL = profile.BaseURL
 				settings.APIKey = profile.APIKey
 				break
@@ -137,10 +197,16 @@ func NormalizeAISettings(settings AISettings) AISettings {
 		}
 	}
 
-	if strings.ToLower(settings.Provider) == "custom" && settings.Model != "" {
-		if !strings.HasPrefix(strings.ToLower(settings.Model), "custom/") {
-			settings.Model = "custom/" + settings.Model
-		}
+	settings.Model = normalizeModelRef(settings.Provider, settings.Model)
+
+	// Top-level Models mirrors the active profile for callers that only pass
+	// AISettings around (e.g. initGenkit). Keep it consistent with Model.
+	settings.Models = NormalizeModelList(settings.Provider, settings.Models)
+	if len(settings.Models) == 0 && settings.Model != "" {
+		settings.Models = []string{settings.Model}
+	}
+	if len(settings.Models) > 0 {
+		settings.Model = settings.Models[0]
 	}
 	return settings
 }

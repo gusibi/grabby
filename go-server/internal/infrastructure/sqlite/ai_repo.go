@@ -299,52 +299,46 @@ func (d *Database) GetAIDailyReports(limit int, reportType string) ([]AIDailyRep
 	return list, nil
 }
 
+// localDayWindow converts a YYYY-MM-DD string into the half-open [start, end)
+// interval covering that calendar day in the server's local timezone.
+func localDayWindow(date string) (time.Time, time.Time, error) {
+	day, err := time.ParseInLocation("2006-01-02", date, time.Local)
+	if err != nil {
+		return time.Time{}, time.Time{}, fmt.Errorf("invalid date %q: %w", date, err)
+	}
+	return day, day.AddDate(0, 0, 1), nil
+}
+
+// GetQualityItemsForDate returns AI-analysed items scoring at least scoreMin
+// whose analysis ran during the local calendar day named by date (YYYY-MM-DD).
+//
+// The day is interpreted in the server's local timezone and delegated to the
+// windowed query so date-based and range-based reports share one 口径.
 func (d *Database) GetQualityItemsForDate(date string, scoreMin int) ([]ScrapedItemWithAI, error) {
-	rows, err := d.db.Query(`
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
-		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
-		FROM scraped_items i
-		JOIN sources s ON i.source_id = s.id
-		JOIN ai_analyses a ON i.id = a.item_id
-		WHERE strftime('%Y-%m-%d', a.processed_at) = ? AND a.quality_score >= ?
-		ORDER BY a.quality_score DESC, i.id DESC
-	`, date, scoreMin)
+	start, end, err := localDayWindow(date)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var list []ScrapedItemWithAI
-	for rows.Next() {
-		var item ScrapedItemWithAI
-		var pubAt sql.NullTime
-		var processedAt time.Time
-		err := rows.Scan(
-			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
-			&item.AICategory, &item.AISubcategory, &item.QualityScore, &item.AISummary, &item.AIComment, &item.AITags, &item.AIModelUsed, &processedAt,
-		)
-		if err != nil {
-			return nil, err
-		}
-		if pubAt.Valid {
-			item.PublishedAt = &pubAt.Time
-		}
-		item.AIProcessedAt = &processedAt
-		list = append(list, item)
-	}
-	return list, nil
+	return d.GetQualityItemsForTimeRange(start, end, scoreMin)
 }
 
+// GetTotalItemsCountForDate counts items fetched during the local calendar day
+// named by date (YYYY-MM-DD).
 func (d *Database) GetTotalItemsCountForDate(date string) (int, error) {
-	var count int
-	err := d.db.QueryRow(`
-		SELECT COUNT(*) FROM scraped_items
-		WHERE strftime('%Y-%m-%d', fetched_at) = ?
-	`, date).Scan(&count)
-	return count, err
+	start, end, err := localDayWindow(date)
+	if err != nil {
+		return 0, err
+	}
+	return d.GetTotalItemsCountForTimeRange(start, end)
 }
 
+// GetQualityItemsForTimeRange returns AI-analysed items whose score meets the
+// threshold and whose analysis ran inside [start, end).
+//
+// Timestamps written through CURRENT_TIMESTAMP are naive UTC strings while the
+// driver binds time.Time as an offset-bearing ISO string. Comparing those
+// directly as text never matches, so both sides are normalised through
+// SQLite's datetime() before comparing.
 func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin int) ([]ScrapedItemWithAI, error) {
 	rows, err := d.db.Query(`
 		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
@@ -352,7 +346,7 @@ func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin in
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
 		JOIN ai_analyses a ON i.id = a.item_id
-		WHERE a.processed_at >= ? AND a.processed_at < ? AND a.quality_score >= ?
+		WHERE datetime(a.processed_at) >= datetime(?) AND datetime(a.processed_at) < datetime(?) AND a.quality_score >= ?
 		ORDER BY a.quality_score DESC, i.id DESC
 	`, start, end, scoreMin)
 	if err != nil {
@@ -382,11 +376,13 @@ func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin in
 	return list, nil
 }
 
+// GetTotalItemsCountForTimeRange counts scraped items fetched inside
+// [start, end). See GetQualityItemsForTimeRange for the datetime() rationale.
 func (d *Database) GetTotalItemsCountForTimeRange(start, end time.Time) (int, error) {
 	var count int
 	err := d.db.QueryRow(`
 		SELECT COUNT(*) FROM scraped_items
-		WHERE fetched_at >= ? AND fetched_at < ?
+		WHERE datetime(fetched_at) >= datetime(?) AND datetime(fetched_at) < datetime(?)
 	`, start, end).Scan(&count)
 	return count, err
 }

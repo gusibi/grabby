@@ -112,32 +112,42 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 	prompt = strings.ReplaceAll(prompt, "{{.QualityItems}}", fmt.Sprintf("%d", len(items)))
 	prompt = strings.ReplaceAll(prompt, "{{.Date}}", dateStr)
 
-	// Generate structured JSON via selector (with failover)
+	// Generate structured JSON via selector (with failover across profile+model slots)
 	var content string
+	usedModel := ""
 	maxAttempts := selector.EnabledCount()
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
+	// A model list can be long; bound the total retry time so one bad provider
+	// cannot stall report generation indefinitely.
+	retryDeadline := time.Now().Add(20 * time.Minute)
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		profile := selector.Next()
-		if profile == nil {
+		if time.Now().After(retryDeadline) {
+			break
+		}
+		sel := selector.Next()
+		if sel == nil {
 			return nil, fmt.Errorf("no AI profile available for daily report")
 		}
-		pc, ok := clients[profile.ID]
+		pc, ok := clients[sel.Profile.ID]
 		if !ok {
-			selector.MarkUnhealthy(profile.ID)
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
 		reportCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		content, err = adm.generateValidatedDailyContent(reportCtx, pc, prompt, dateStr)
+		content, err = adm.generateValidatedDailyContent(reportCtx, pc, sel.Model, prompt, dateStr)
 		cancel()
 		if err != nil {
-			adm.logger.Warn("Profile failed for daily report, trying next",
-				zap.String("profile", profile.Name), zap.Error(err))
-			selector.MarkUnhealthy(profile.ID)
+			adm.logger.Warn("Model failed for daily report, trying next",
+				zap.String("profile", sel.Profile.Name),
+				zap.String("model", sel.Model),
+				zap.Error(err))
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
-		selector.MarkHealthy(profile.ID)
+		selector.MarkHealthy(sel.Key())
+		usedModel = sel.Model
 		break
 	}
 	if content == "" {
@@ -152,7 +162,7 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 		TotalItems:        totalItems,
 		QualityItems:      len(items),
 		CategoriesSummary: string(catJSON),
-		ModelUsed:         engineSettings.Model,
+		ModelUsed:         usedModel,
 		GeneratedAt:       time.Now(),
 	}
 
@@ -260,30 +270,38 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 	prompt = strings.ReplaceAll(prompt, "{{.Date}}", dateStr)
 
 	var content string
+	usedModel := ""
 	maxAttempts := selector.EnabledCount()
 	if maxAttempts < 1 {
 		maxAttempts = 1
 	}
+	retryDeadline := time.Now().Add(20 * time.Minute)
 	for attempt := 0; attempt < maxAttempts; attempt++ {
-		profile := selector.Next()
-		if profile == nil {
+		if time.Now().After(retryDeadline) {
+			break
+		}
+		sel := selector.Next()
+		if sel == nil {
 			return nil, fmt.Errorf("no AI profile available for ranged report")
 		}
-		pc, ok := clients[profile.ID]
+		pc, ok := clients[sel.Profile.ID]
 		if !ok {
-			selector.MarkUnhealthy(profile.ID)
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
 		reportCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-		content, err = adm.generateValidatedDailyContent(reportCtx, pc, prompt, dateStr)
+		content, err = adm.generateValidatedDailyContent(reportCtx, pc, sel.Model, prompt, dateStr)
 		cancel()
 		if err != nil {
-			adm.logger.Warn("Profile failed for ranged report, trying next",
-				zap.String("profile", profile.Name), zap.Error(err))
-			selector.MarkUnhealthy(profile.ID)
+			adm.logger.Warn("Model failed for ranged report, trying next",
+				zap.String("profile", sel.Profile.Name),
+				zap.String("model", sel.Model),
+				zap.Error(err))
+			selector.MarkUnhealthy(sel.Key())
 			continue
 		}
-		selector.MarkHealthy(profile.ID)
+		selector.MarkHealthy(sel.Key())
+		usedModel = sel.Model
 		break
 	}
 	if content == "" {
@@ -298,7 +316,7 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 		TotalItems:        totalItems,
 		QualityItems:      len(items),
 		CategoriesSummary: string(catJSON),
-		ModelUsed:         engineSettings.Model,
+		ModelUsed:         usedModel,
 		GeneratedAt:       time.Now(),
 	}
 
@@ -314,13 +332,13 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 	return &report, nil
 }
 
-func (adm *AIDailyManager) generateValidatedDailyContent(ctx context.Context, pc *profileClient, prompt string, dateStr string) (string, error) {
+func (adm *AIDailyManager) generateValidatedDailyContent(ctx context.Context, pc *profileClient, model, prompt string, dateStr string) (string, error) {
 	const maxValidationAttempts = 3
 
 	currentPrompt := prompt
 	var lastErr error
 	for attempt := 1; attempt <= maxValidationAttempts; attempt++ {
-		rawContent, err := adm.aiEngine.callDailyProfile(ctx, pc, currentPrompt)
+		rawContent, err := adm.aiEngine.callDailyProfile(ctx, pc, model, currentPrompt)
 		if err != nil {
 			return "", err
 		}
