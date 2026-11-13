@@ -13,13 +13,16 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/yuin/goldmark"
 	"go.uber.org/zap"
 
 	appai "go-server/internal/application/ai"
+	"go-server/internal/application/render"
 	"go-server/internal/domain/ai"
 	"go-server/internal/domain/item"
 	"go-server/internal/domain/source"
+	"go-server/internal/infrastructure/catalog"
+	"go-server/internal/infrastructure/configimport"
+	"go-server/internal/infrastructure/modeldiscovery"
 	"go-server/internal/infrastructure/sqlite"
 )
 
@@ -28,15 +31,17 @@ type AIHandlers struct {
 	db           *sqlite.Database
 	aiEngine     *appai.AIEngine
 	dailyManager *appai.AIDailyManager
+	catalog      *catalog.Service
 	logger       *zap.Logger
 }
 
 // NewAIHandlers creates a new AIHandlers instance.
-func NewAIHandlers(db *sqlite.Database, aiEngine *appai.AIEngine, dailyManager *appai.AIDailyManager, logger *zap.Logger) *AIHandlers {
+func NewAIHandlers(db *sqlite.Database, aiEngine *appai.AIEngine, dailyManager *appai.AIDailyManager, catalogSvc *catalog.Service, logger *zap.Logger) *AIHandlers {
 	return &AIHandlers{
 		db:           db,
 		aiEngine:     aiEngine,
 		dailyManager: dailyManager,
+		catalog:      catalogSvc,
 		logger:       logger,
 	}
 }
@@ -188,6 +193,15 @@ func (h *AIHandlers) HandleDaily(c echo.Context) error {
 		content["format"] = "json"
 	}
 
+	// Markdown reports get a server-rendered, sanitized HTML body so the
+	// desktop reader (and a future native client) does not need its own
+	// Markdown/HTML renderer.
+	if format, _ := content["format"].(string); format == "markdown" {
+		if text, ok := content["content"].(string); ok {
+			content["html_content"] = render.Render(text)
+		}
+	}
+
 	content["success"] = true
 	content["id"] = report.ID
 	content["report_date"] = report.ReportDate
@@ -330,11 +344,7 @@ func (h *AIHandlers) HandleDailyRSS(c echo.Context) error {
 	buf.WriteString("\n")
 
 	for _, rpt := range reports {
-		var htmlBuf bytes.Buffer
-		htmlContent := rpt.Content
-		if err := goldmark.Convert([]byte(rpt.Content), &htmlBuf); err == nil {
-			htmlContent = htmlBuf.String()
-		}
+		htmlContent := render.Render(rpt.Content)
 
 		typeLabel := "日报"
 		switch rpt.ReportType {
@@ -440,6 +450,16 @@ func (h *AIHandlers) HandleSaveSettings(c echo.Context) error {
 		return c.JSON(http.StatusBadRequest, map[string]any{"error": "Invalid request body"})
 	}
 
+	if err := h.persistSettings(req); err != nil {
+		h.logger.Error("Failed to save AI settings", zap.Error(err))
+		return aiErr(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{"success": true})
+}
+
+// persistSettings normalizes, stores and reloads one AI settings document. It is
+// shared by the settings endpoint and the config importer.
+func (h *AIHandlers) persistSettings(req ai.AISettings) error {
 	// Normalize settings
 	req = ai.NormalizeAISettings(req)
 
@@ -474,13 +494,20 @@ func (h *AIHandlers) HandleSaveSettings(c echo.Context) error {
 	_ = h.db.SaveSetting("ai_morning_report_time", req.MorningReportTime)
 	_ = h.db.SaveSetting("ai_evening_report_time", req.EveningReportTime)
 
-	// 2. Reload settings in the AI Engine
-	if err := h.aiEngine.ReloadSettings(req); err != nil {
-		h.logger.Error("Failed to reload AI engine settings", zap.Error(err))
-		return aiErr(c, http.StatusInternalServerError, err.Error())
+	// 1b. Normalized tables (connections / models / route) are authoritative
+	// for the engine and the usage dashboard.
+	if err := h.db.ReplaceAIConnections(req.Profiles); err != nil {
+		return fmt.Errorf("save AI connections: %w", err)
+	}
+	if err := h.db.SaveAIRoute(req.Strategy, req.Profiles); err != nil {
+		return fmt.Errorf("save AI route: %w", err)
 	}
 
-	return c.JSON(http.StatusOK, map[string]any{"success": true})
+	// 2. Reload settings in the AI Engine
+	if err := h.aiEngine.ReloadSettings(req); err != nil {
+		return fmt.Errorf("reload AI engine settings: %w", err)
+	}
+	return nil
 }
 
 // HandleTestConnection tests the AI connection. When the request carries a
@@ -614,9 +641,243 @@ func (h *AIHandlers) HandleStartEvaluation(c echo.Context) error {
 	})
 }
 
+// HandleCatalog returns the normalized models.dev provider/model catalog. The
+// settings UI uses it to replace the hand-maintained preset table; `refresh=1`
+// forces a network refresh before responding.
+func (h *AIHandlers) HandleCatalog(c echo.Context) error {
+	if h.catalog == nil {
+		return aiErr(c, http.StatusServiceUnavailable, "模型目录服务未初始化")
+	}
+	refresh := c.QueryParam("refresh") == "1" || strings.EqualFold(c.QueryParam("refresh"), "true")
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 60*time.Second)
+	defer cancel()
+
+	snapshot, err := h.catalog.Get(ctx, refresh)
+	if err != nil {
+		h.logger.Warn("AI catalog request failed", zap.Error(err))
+		return aiErr(c, http.StatusBadGateway, "模型目录暂时不可用："+err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success":    true,
+		"source":     snapshot.Source,
+		"fetched_at": snapshot.FetchedAt,
+		"count":      len(snapshot.Providers),
+		"providers":  snapshot.Providers,
+	})
+}
+
+// HandleDiscoverModels lists the models exposed by a provider endpoint. The
+// request may carry a draft provider/base_url/api_key (for an unsaved form) or
+// a profile_id, in which case the saved key is reused so the user never has to
+// paste it again.
+func (h *AIHandlers) HandleDiscoverModels(c echo.Context) error {
+	var req struct {
+		Provider  string `json:"provider"`
+		BaseURL   string `json:"base_url"`
+		APIKey    string `json:"api_key"`
+		ProfileID string `json:"profile_id"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return aiErr(c, http.StatusBadRequest, "无效的请求体")
+	}
+
+	provider := strings.TrimSpace(req.Provider)
+	baseURL := strings.TrimSpace(req.BaseURL)
+	apiKey := strings.TrimSpace(req.APIKey)
+
+	if provider == "" || baseURL == "" || apiKey == "" {
+		settings := h.aiEngine.Settings()
+		profileID := strings.TrimSpace(req.ProfileID)
+		if profileID == "" {
+			profileID = settings.ActiveProfileID
+		}
+		for _, profile := range settings.Profiles {
+			if profile.ID != profileID {
+				continue
+			}
+			if provider == "" {
+				provider = profile.Provider
+			}
+			if baseURL == "" {
+				baseURL = profile.BaseURL
+			}
+			if apiKey == "" {
+				apiKey = profile.APIKey
+			}
+			break
+		}
+	}
+
+	if provider == "" {
+		return aiErr(c, http.StatusBadRequest, "请先选择服务商")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 40*time.Second)
+	defer cancel()
+	models, err := modeldiscovery.Discover(ctx, provider, baseURL, apiKey)
+	if err != nil {
+		h.logger.Warn("Model discovery failed",
+			zap.String("provider", provider),
+			zap.String("base_url", baseURL),
+			zap.Error(err))
+		return aiErr(c, http.StatusBadGateway, "获取模型列表失败："+err.Error())
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"success":  true,
+		"provider": provider,
+		"base_url": baseURL,
+		"count":    len(models),
+		"models":   models,
+	})
+}
+
+// HandleUsage returns the token/latency aggregation for recent model calls.
+func (h *AIHandlers) HandleUsage(c echo.Context) error {
+	days := 7
+	if value, err := strconv.Atoi(c.QueryParam("days")); err == nil && value > 0 {
+		days = value
+	}
+	summary, err := h.db.GetAIUsageSummary(days)
+	if err != nil {
+		h.logger.Error("Failed to query AI usage", zap.Error(err))
+		return aiErr(c, http.StatusInternalServerError, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"summary": summary,
+	})
+}
+
+// HandleImportConfig previews or applies provider configurations discovered in
+// Claude Code, Codex, OpenCode and cc-switch. Source files are only read.
+func (h *AIHandlers) HandleImportConfig(c echo.Context) error {
+	var req struct {
+		Source string `json:"source"`
+		Apply  bool   `json:"apply"`
+	}
+	_ = c.Bind(&req)
+
+	result := configimport.Import(req.Source)
+	imported := 0
+
+	if req.Apply && len(result.Connections) > 0 {
+		settings := h.aiEngine.Settings()
+		existing := make(map[string]struct{}, len(settings.Profiles))
+		for _, profile := range settings.Profiles {
+			existing[profileKey(profile)] = struct{}{}
+		}
+
+		firstImportedID := ""
+		for i, connection := range result.Connections {
+			profile := profileFromConnection(connection, len(settings.Profiles)+i+1)
+			key := profileKey(profile)
+			if _, ok := existing[key]; ok {
+				continue
+			}
+			existing[key] = struct{}{}
+			settings.Profiles = append(settings.Profiles, profile)
+			if firstImportedID == "" {
+				firstImportedID = profile.ID
+			}
+			imported++
+		}
+
+		if imported > 0 {
+			// If the app is still on the generated placeholder profile, make
+			// the first imported connection immediately usable.
+			if settings.ActiveProfileID == "" || settings.ActiveProfileID == "default" || !profileExists(settings.Profiles, settings.ActiveProfileID) {
+				settings.ActiveProfileID = firstImportedID
+			}
+			if err := h.persistSettings(settings); err != nil {
+				h.logger.Error("Failed to apply imported AI config", zap.Error(err))
+				return aiErr(c, http.StatusInternalServerError, err.Error())
+			}
+		}
+	}
+
+	// Never echo keys back to the client; the imported profiles already hold
+	// them when apply=true.
+	sanitized := make([]configimport.Connection, len(result.Connections))
+	copy(sanitized, result.Connections)
+	for i := range sanitized {
+		sanitized[i].APIKey = ""
+	}
+
+	return c.JSON(http.StatusOK, map[string]any{
+		"success":     true,
+		"applied":     req.Apply,
+		"imported":    imported,
+		"sources":     result.Sources,
+		"connections": sanitized,
+	})
+}
+
+func profileKey(profile ai.AIProviderProfile) string {
+	models := profile.EffectiveModels()
+	return strings.ToLower(strings.Join([]string{
+		strings.TrimSpace(profile.Provider),
+		strings.TrimRight(strings.TrimSpace(profile.BaseURL), "/"),
+		strings.Join(models, ","),
+	}, "|"))
+}
+
+func profileExists(profiles []ai.AIProviderProfile, id string) bool {
+	for _, profile := range profiles {
+		if profile.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+func profileFromConnection(connection configimport.Connection, index int) ai.AIProviderProfile {
+	name := strings.TrimSpace(connection.Name)
+	if name == "" {
+		name = connection.SourceName
+	}
+	provider := strings.TrimSpace(connection.Provider)
+	if provider == "" {
+		provider = "custom"
+	}
+	models := append([]string(nil), connection.Models...)
+	if len(models) == 0 && strings.TrimSpace(connection.Model) != "" {
+		models = []string{strings.TrimSpace(connection.Model)}
+	}
+	primary := ""
+	if len(models) > 0 {
+		primary = models[0]
+	}
+	return ai.AIProviderProfile{
+		ID:                fmt.Sprintf("import-%s-%d", sanitizeID(connection.Source), index),
+		Name:              name,
+		Provider:          provider,
+		APIKey:            connection.APIKey,
+		Model:             primary,
+		Models:            models,
+		BaseURL:           strings.TrimSpace(connection.BaseURL),
+		Priority:          index,
+		RequestsPerMinute: 10,
+	}
+}
+
+func sanitizeID(value string) string {
+	value = strings.ToLower(strings.TrimSpace(value))
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '-' || r == '_' {
+			b.WriteRune(r)
+		}
+	}
+	if b.Len() == 0 {
+		return "config"
+	}
+	return b.String()
+}
+
 // RegisterAIHandlers wires the AI read/generate/settings endpoints.
 func RegisterAIHandlers(openAPI, api *echo.Group, deps Dependencies) {
-	h := NewAIHandlers(deps.DB, deps.AIEngine, deps.DailyManager, deps.Logger)
+	h := NewAIHandlers(deps.DB, deps.AIEngine, deps.DailyManager, deps.Catalog, deps.Logger)
 	openAPI.GET("/ai/quality", h.HandleQuality)
 	openAPI.GET("/ai/categories", h.HandleCategories)
 	openAPI.GET("/ai/items", h.HandleItems)
@@ -626,6 +887,10 @@ func RegisterAIHandlers(openAPI, api *echo.Group, deps Dependencies) {
 	openAPI.GET("/ai/daily/rss", h.HandleDailyRSS)
 	openAPI.GET("/ai/stats", h.HandleStats)
 
+	api.GET("/ai/catalog", h.HandleCatalog)
+	api.POST("/ai/models/discover", h.HandleDiscoverModels)
+	api.POST("/ai/import", h.HandleImportConfig)
+	api.GET("/ai/usage", h.HandleUsage)
 	api.POST("/ai/daily/generate", h.HandleDailyGenerate)
 	api.POST("/ai/reanalyze/:id", h.HandleReanalyze)
 	api.GET("/ai/settings", h.HandleGetSettings)

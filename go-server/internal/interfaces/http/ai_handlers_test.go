@@ -36,7 +36,7 @@ func TestHandleDailyReturnsStructuredContentWithoutReportWrapper(t *testing.T) {
 		t.Fatalf("InsertAIDailyReport returned error: %v", err)
 	}
 
-	handler := NewAIHandlers(db, nil, nil, zap.NewNop())
+	handler := NewAIHandlers(db, nil, nil, nil, zap.NewNop())
 	req := httptest.NewRequest(http.MethodGet, "/open/api/ai/daily?date=2026-06-13&type=morning", nil)
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)
@@ -90,18 +90,18 @@ func TestHandleDailyReturnsMarkdownReports(t *testing.T) {
 
 	const markdown = "# Grabby AI 早报 · 2026-11-04\n\n本次时间范围内共抓取 271 条资讯。"
 	if err := db.InsertAIDailyReport(sqlite.AIDailyReport{
-		ReportDate: "2026-11-04",
-		ReportType: "morning",
-		Title:      "Grabby AI 早报 · 2026-11-04",
-		Content:    markdown,
-		TotalItems: 271,
-		ModelUsed:  "system",
+		ReportDate:  "2026-11-04",
+		ReportType:  "morning",
+		Title:       "Grabby AI 早报 · 2026-11-04",
+		Content:     markdown,
+		TotalItems:  271,
+		ModelUsed:   "system",
 		GeneratedAt: time.Date(2026, 11, 4, 7, 20, 0, 0, time.UTC),
 	}); err != nil {
 		t.Fatalf("InsertAIDailyReport returned error: %v", err)
 	}
 
-	handler := NewAIHandlers(db, nil, nil, zap.NewNop())
+	handler := NewAIHandlers(db, nil, nil, nil, zap.NewNop())
 	req := httptest.NewRequest(http.MethodGet, "/open/api/ai/daily?date=2026-11-04&type=morning", nil)
 	rec := httptest.NewRecorder()
 	c := echo.New().NewContext(req, rec)

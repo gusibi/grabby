@@ -988,6 +988,10 @@ AI 读取接口挂载在 `/open/api/ai/` 下；生成、设置和评估类操作
 | POST | `/api/ai/reanalyze/{id}` | 重新分析指定内容 |
 | GET | `/open/api/ai/stats` | AI 分析统计 |
 | GET / POST | `/api/ai/settings` | 读取 / 保存 AI 设置 |
+| GET | `/api/ai/catalog` | 获取 models.dev 模型目录（query: `refresh=1` 强制刷新） |
+| POST | `/api/ai/models/discover` | 调供应商 `/v1/models` 等接口自动发现模型 |
+| POST | `/api/ai/import` | 从 Claude Code / Codex / OpenCode / CC Switch 导入配置（body: `source`、`apply`） |
+| GET | `/api/ai/usage` | 模型调用与 Token 用量统计（query: `days`） |
 | POST | `/api/ai/test` | 测试 AI 服务连接 |
 | POST | `/api/ai/start_eval` | 启动评估任务 |
 

@@ -1,5 +1,7 @@
 # Grabby
 
+<p align="center"><img src="assets/logo-512.png" width="128" alt="Grabby logo"></p>
+
 Grabby is a distributed web content harvesting system consisting of a Chrome extension and a Go backend service, designed for automated web content collection and processing.
 
 ## 项目背景
@@ -352,7 +354,8 @@ APP 复用 Web 版同一套后端接口，侧栏分四组：
 
 1. **01 服务状态** — 进程、监听地址、本机免密状态、Token 状态、扩展 WebSocket 地址；
 2. **02 AI 模型** — 启用开关、配置档选择 / 新建（对应后端的 provider profiles）、服务商预设
-   （OpenAI / DeepSeek / Gemini / OpenRouter / LM Studio / 自定义）、服务商、模型、Base URL、
+   （OpenAI / Anthropic / DeepSeek / Gemini / OpenRouter / LM Studio / Ollama / 自定义等）、
+   模型目录（实时读取 models.dev，含价格、上下文与能力标签）、服务商、模型、Base URL、
    API Key、每分钟请求上限、优质阈值、多模型策略；
 3. **03 提示词** — 系统提示词与日报提示词，标注可用变量；
 4. **04 日报定时** — 早报 / 晚报开关与时间，可在本页直接测试模型连通性；
@@ -362,6 +365,13 @@ APP 复用 Web 版同一套后端接口，侧栏分四组：
 模型配置必须写在「配置档（profile）」里：后端会用当前配置档回填 provider / model / base_url，
 所以设置页直接编辑选中的配置档并把它设为当前使用，保存后立即对新分析任务生效。
 切换配置档会重新载入该档的字段；新建配置档从空白表单开始，不会复制已有的 Key。
+
+设置页同时支持：
+
+- **导入已有配置**：自动扫描 Claude Code、Codex、OpenCode、CC Switch 的本地配置，预览后一键导入连接、Key、端点和模型；
+- **获取模型**：用当前连接调用供应商的 `/v1/models`（Anthropic / Gemini / Ollama 各自适配），勾选后写入模型列表；
+- **多模型**：模型输入支持逗号分隔的多个模型，按「多模型策略」轮询或故障转移；
+- **用量**：「AI 分析」页展示近 7 天的调用次数、Token 与平均延迟，数据来自 `ai_usage` 表。
 
 写操作走 `/api/*`，读操作走 `/open/api/*`。**APP 内不需要任何 token**：服务与本机调用（WebView、CLI、MCP、扩展）
 全部走 loopback，永远免密，也不会弹登录框；Token 只用于保护来自其他设备的请求，默认关闭。

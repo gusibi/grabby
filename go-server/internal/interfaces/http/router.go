@@ -9,6 +9,7 @@ import (
 	"go-server/internal/config"
 	"go-server/internal/infrastructure/browserregistry"
 	"go-server/internal/infrastructure/browserws"
+	"go-server/internal/infrastructure/catalog"
 	"go-server/internal/infrastructure/sqlite"
 	mcpiface "go-server/internal/interfaces/mcp"
 	wsiface "go-server/internal/interfaces/websocket"
@@ -27,6 +28,7 @@ type Dependencies struct {
 	BrowserRegistry *browserregistry.BrowserRegistry
 	AIEngine        *aiapp.AIEngine
 	DailyManager    *aiapp.AIDailyManager
+	Catalog         *catalog.Service
 	TaskQueue       *scraping.TaskQueue
 	Scraper         *scraping.Scraper
 	Scheduler       *scheduler.Scheduler

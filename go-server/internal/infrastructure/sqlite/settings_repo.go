@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"strconv"
 	"strings"
 )
@@ -97,6 +98,43 @@ func (d *Database) SaveSetting(key string, value string) error {
 	return err
 }
 
+// profileIDExists reports whether a profile with the given id is present.
+func profileIDExists(profiles []AIProviderProfile, id string) bool {
+	for _, profile := range profiles {
+		if profile.ID == id {
+			return true
+		}
+	}
+	return false
+}
+
+// ensureProfileIDs fills missing ids and de-duplicates them before rows are
+// written to the normalized tables (which use the id as a primary key).
+func ensureProfileIDs(profiles []AIProviderProfile) {
+	seen := make(map[string]struct{}, len(profiles))
+	for i := range profiles {
+		id := strings.TrimSpace(profiles[i].ID)
+		if id == "" {
+			id = fmt.Sprintf("profile-%d", i+1)
+		}
+		base := id
+		for suffix := 2; ; suffix++ {
+			if _, exists := seen[id]; !exists {
+				break
+			}
+			id = fmt.Sprintf("%s-%d", base, suffix)
+		}
+		profiles[i].ID = id
+		seen[id] = struct{}{}
+		if profiles[i].Priority <= 0 {
+			profiles[i].Priority = i + 1
+		}
+		if profiles[i].RequestsPerMinute <= 0 {
+			profiles[i].RequestsPerMinute = 10
+		}
+	}
+}
+
 func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 	var s AISettings
 	var err error
@@ -170,7 +208,9 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 		_ = d.SaveSetting("ai_daily_prompt", DefaultDailyPrompt)
 	}
 
-	// 9. Provider profiles
+	// 9. Provider profiles. The normalized ai_connections/ai_models tables are
+	// authoritative once they contain data; the legacy JSON blob is kept as a
+	// mirror and is migrated on first load.
 	profilesJSON, err := d.GetSetting("ai_provider_profiles", "")
 	if err != nil {
 		return s, err
@@ -182,6 +222,15 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 	if err != nil {
 		return s, err
 	}
+
+	usingTable := false
+	if hasTable, tableErr := d.HasAIConnections(); tableErr == nil && hasTable {
+		if tableProfiles, err := d.LoadAIConnections(); err == nil && len(tableProfiles) > 0 {
+			s.Profiles = tableProfiles
+			usingTable = true
+		}
+	}
+
 	if len(s.Profiles) == 0 {
 		s.Profiles = []AIProviderProfile{
 			{
@@ -194,7 +243,7 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 			},
 		}
 		s.ActiveProfileID = "default"
-	} else if s.ActiveProfileID == "default" {
+	} else if !usingTable && s.ActiveProfileID == "default" {
 		for i := range s.Profiles {
 			if s.Profiles[i].ID == "default" {
 				s.Profiles[i].Provider = s.Provider
@@ -208,6 +257,28 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 				break
 			}
 		}
+	}
+	if len(s.Profiles) > 0 && !profileIDExists(s.Profiles, s.ActiveProfileID) {
+		s.ActiveProfileID = s.Profiles[0].ID
+	}
+
+	// Migrate the effective profile set (including the generated default) into
+	// the normalized tables on first load, then load the persisted strategy.
+	if !usingTable && len(s.Profiles) > 0 {
+		ensureProfileIDs(s.Profiles)
+		if err := d.ReplaceAIConnections(s.Profiles); err != nil {
+			return s, err
+		}
+		strategy := s.Strategy
+		if strategy == "" {
+			strategy = "single"
+		}
+		if err := d.SaveAIRoute(strategy, s.Profiles); err != nil {
+			return s, err
+		}
+	}
+	if strategy, err := d.LoadAIRoute(); err == nil && strategy != "" {
+		s.Strategy = strategy
 	}
 
 	// 10. Morning/Evening report settings

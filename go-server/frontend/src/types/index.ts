@@ -126,6 +126,46 @@ export interface AITestResult {
   analysis?: AITestAnalysis;
 }
 
+export interface AIModelDiscovery {
+  id: string;
+  name?: string;
+  owned_by?: string;
+  created?: number;
+}
+
+export interface AIUsageByModel {
+  connection_id: string;
+  model_id: string;
+  task: string;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost: number;
+  avg_latency_ms: number;
+}
+
+export interface AIUsageByDay {
+  day: string;
+  requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  cost: number;
+}
+
+export interface AIUsageSummary {
+  days: number;
+  total_requests: number;
+  failed_requests: number;
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+  cost: number;
+  avg_latency_ms: number;
+  by_model: AIUsageByModel[];
+  by_day: AIUsageByDay[];
+}
+
 export interface DailyReportSection {
   title: string;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

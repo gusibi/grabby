@@ -343,6 +343,14 @@ export function DailyReportView({
                   if (reportData) {
                     return <JsonDailyReportView reportData={reportData} />;
                   }
+                  if (dailyReport.html_content) {
+                    return (
+                      <div
+                        className="g-reader max-w-none"
+                        dangerouslySetInnerHTML={{ __html: dailyReport.html_content }}
+                      />
+                    );
+                  }
                   if (dailyReportHtml) {
                     return (
                       <div

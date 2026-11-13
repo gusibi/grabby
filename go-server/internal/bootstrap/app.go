@@ -13,6 +13,7 @@ import (
 	"go-server/internal/config"
 	"go-server/internal/infrastructure/browserregistry"
 	"go-server/internal/infrastructure/browserws"
+	"go-server/internal/infrastructure/catalog"
 	"go-server/internal/infrastructure/sqlite"
 	httpiface "go-server/internal/interfaces/http"
 
@@ -27,6 +28,7 @@ type App struct {
 	browserRegistry *browserregistry.BrowserRegistry
 	aiEngine        *aiapp.AIEngine
 	dailyManager    *aiapp.AIDailyManager
+	catalogService  *catalog.Service
 	taskQueue       *scraping.TaskQueue
 	scraper         *scraping.Scraper
 	scheduler       *scheduler.Scheduler
@@ -61,6 +63,7 @@ func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) 
 	}
 
 	dailyManager := aiapp.NewAIDailyManager(db, aiEngine, logger)
+	catalogService := catalog.NewService(db, logger)
 	taskQueue := scraping.NewTaskQueue(wsManager, db, logger, 1, aiEngine)
 	scraper := scraping.NewScraper(db, wsManager, taskQueue, logger, aiEngine)
 	schedulerInstance := scheduler.NewScheduler(db, scraper, dailyManager, logger)
@@ -73,6 +76,7 @@ func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) 
 		browserRegistry: browserRegistry,
 		aiEngine:        aiEngine,
 		dailyManager:    dailyManager,
+		catalogService:  catalogService,
 		taskQueue:       taskQueue,
 		scraper:         scraper,
 		scheduler:       schedulerInstance,
@@ -86,6 +90,7 @@ func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) 
 // lifecycle: Run never installs signal handlers and never calls os.Exit.
 func (a *App) Run(ctx context.Context) error {
 	a.aiEngine.Start()
+	go a.catalogService.Start(ctx)
 	a.taskQueue.Start(ctx)
 
 	if err := a.scheduler.Start(ctx); err != nil {
@@ -114,6 +119,7 @@ func (a *App) Run(ctx context.Context) error {
 		BrowserRegistry: a.browserRegistry,
 		AIEngine:        a.aiEngine,
 		DailyManager:    a.dailyManager,
+		Catalog:         a.catalogService,
 		TaskQueue:       a.taskQueue,
 		Scraper:         a.scraper,
 		Scheduler:       a.scheduler,

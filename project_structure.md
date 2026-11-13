@@ -69,5 +69,6 @@ grabby/
 - Echo (HTTP 框架)
 - gorilla/websocket (WebSocket)
 - mark3labs/mcp-go (MCP Server)
+- goldmark + bluemonday（Markdown/HTML 混合渲染与安全过滤）
 - SQLite (数据存储)
 - 内嵌 React 前端（embed.FS）

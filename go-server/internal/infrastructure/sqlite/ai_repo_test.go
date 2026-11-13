@@ -298,7 +298,14 @@ func TestDatabase_AI_Operations(t *testing.T) {
 	}
 
 	// Legacy profiles (saved before multi-model support, no `models` field)
-	// still honour the top-level ai_model setting.
+	// still honour the top-level ai_model setting. Clear the normalized tables
+	// so the loader takes the legacy JSON migration path.
+	clearAITables := func() {
+		_ = db.gorm.Exec("DELETE FROM ai_models").Error
+		_ = db.gorm.Exec("DELETE FROM ai_connections").Error
+		_ = db.gorm.Exec("DELETE FROM ai_routes").Error
+	}
+	clearAITables()
 	legacyProfiles := `[{"id":"default","name":"默认服务商","provider":"openai","api_key":"env_key","model":"gpt-4o","base_url":"https://api.openai.com"}]`
 	if err := db.SaveSetting("ai_provider_profiles", legacyProfiles); err != nil {
 		t.Fatalf("Failed to reset provider profiles: %v", err)
@@ -321,7 +328,9 @@ func TestDatabase_AI_Operations(t *testing.T) {
 	}
 
 	// Multi-model profiles are authoritative: a stale top-level ai_model must
-	// not clobber the configured list.
+	// not clobber the configured list. Clear the normalized tables again so the
+	// migration path is exercised.
+	clearAITables()
 	multiProfiles := `[{"id":"default","name":"默认服务商","provider":"openai","api_key":"env_key","model":"gpt-4o","models":["gpt-4o","gpt-4o-mini"],"base_url":"https://api.openai.com"}]`
 	if err := db.SaveSetting("ai_provider_profiles", multiProfiles); err != nil {
 		t.Fatalf("Failed to save multi-model profiles: %v", err)

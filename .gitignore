@@ -62,6 +62,7 @@ dist/
 # AI Tools
 .claude/
 .antigravitycli/
+.workbuddy/
 
 # Environment
 .env

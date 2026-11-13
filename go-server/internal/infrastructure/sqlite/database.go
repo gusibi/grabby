@@ -84,8 +84,12 @@ func NewDatabase(dbPath string) (*Database, error) {
 	}
 
 	// AutoMigrate only the GORM-managed tables (extract cache + tweet archive +
-	// reddit post archive + xiaohongshu note archive).
-	if err := gormDB.AutoMigrate(&ExtractCache{}, &TweetRecord{}, &RedditPost{}, &XhsNote{}); err != nil {
+	// reddit post archive + xiaohongshu note archive + models.dev catalog cache +
+	// AI connections/models/routes/usage).
+	if err := gormDB.AutoMigrate(
+		&ExtractCache{}, &TweetRecord{}, &RedditPost{}, &XhsNote{}, &AICatalogSnapshot{},
+		&AIConnectionRecord{}, &AIModelRecord{}, &AIRouteRecord{}, &AIUsageRecord{},
+	); err != nil {
 		db.Close()
 		return nil, fmt.Errorf("gorm auto-migrate failed: %w", err)
 	}

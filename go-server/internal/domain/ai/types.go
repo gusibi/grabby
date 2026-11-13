@@ -112,6 +112,64 @@ func NormalizeModelList(provider string, models []string) []string {
 	return out
 }
 
+// modelPrefix maps a provider driver to the namespace Genkit expects in a
+// model reference. Local providers (LM Studio) and empty providers stay
+// unprefixed because they are called through the direct client.
+func modelPrefix(provider string) string {
+	switch strings.ToLower(strings.TrimSpace(provider)) {
+	case "gemini", "googleai", "google":
+		return "googleai/"
+	case "openai":
+		return "openai/"
+	case "anthropic", "claude":
+		return "anthropic/"
+	case "ollama":
+		return "ollama/"
+	case "vertex", "vertexai":
+		return "vertexai/"
+	case "custom":
+		return "custom/"
+	default:
+		return ""
+	}
+}
+
+// DriverModelRef produces the exact model reference the selected Genkit
+// driver expects. Storage may keep either a bare id or an already-prefixed
+// reference (older rows, env config), so this is applied at call time.
+func DriverModelRef(provider, model string) string {
+	model = strings.TrimSpace(model)
+	if model == "" {
+		return model
+	}
+	prefix := modelPrefix(provider)
+	if prefix == "" {
+		return model
+	}
+	lower := strings.ToLower(model)
+	if strings.HasPrefix(lower, prefix) {
+		return model
+	}
+	if prefix == "custom/" {
+		// A custom OpenAI-compatible provider may legitimately use a
+		// vendor/model id (for example OpenRouter's
+		// "anthropic/claude-3.5-sonnet"), so only the "custom/" namespace
+		// itself is stale.
+		return prefix + model
+	}
+	// Drop a stale namespace from a previously selected provider so the same
+	// input can be switched between drivers without producing
+	// "openai/openai/gpt-4o".
+	if idx := strings.Index(model, "/"); idx > 0 {
+		head := lower[:idx]
+		switch head {
+		case "googleai", "openai", "anthropic", "ollama", "vertexai", "custom":
+			model = model[idx+1:]
+		}
+	}
+	return prefix + model
+}
+
 func normalizeModelRef(provider, model string) string {
 	model = strings.TrimSpace(model)
 	if model == "" || !strings.EqualFold(provider, "custom") {
@@ -146,6 +204,7 @@ func NormalizeAISettings(settings AISettings) AISettings {
 		settings.EveningReportTime = "22:30"
 	}
 
+	seenIDs := make(map[string]struct{}, len(settings.Profiles))
 	for i := range settings.Profiles {
 		settings.Profiles[i].ID = strings.TrimSpace(settings.Profiles[i].ID)
 		settings.Profiles[i].Name = strings.TrimSpace(settings.Profiles[i].Name)
@@ -156,6 +215,16 @@ func NormalizeAISettings(settings AISettings) AISettings {
 		if settings.Profiles[i].ID == "" {
 			settings.Profiles[i].ID = fmt.Sprintf("profile-%d", i+1)
 		}
+		// Connection IDs are primary keys in the normalized tables; keep them
+		// unique even if a client sends duplicates.
+		baseID := settings.Profiles[i].ID
+		for suffix := 2; ; suffix++ {
+			if _, exists := seenIDs[settings.Profiles[i].ID]; !exists {
+				break
+			}
+			settings.Profiles[i].ID = fmt.Sprintf("%s-%d", baseID, suffix)
+		}
+		seenIDs[settings.Profiles[i].ID] = struct{}{}
 		if settings.Profiles[i].Name == "" {
 			settings.Profiles[i].Name = settings.Profiles[i].Provider
 		}

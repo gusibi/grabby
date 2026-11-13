@@ -4,15 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 	"sync"
 	"time"
 
 	genai "github.com/firebase/genkit/go/ai"
 	"github.com/firebase/genkit/go/genkit"
+	"github.com/firebase/genkit/go/plugins/anthropic"
 	oai "github.com/firebase/genkit/go/plugins/compat_oai"
 	"github.com/firebase/genkit/go/plugins/compat_oai/openai"
 	"github.com/firebase/genkit/go/plugins/googlegenai"
+	"github.com/firebase/genkit/go/plugins/ollama"
 	"go.uber.org/zap"
 
 	domainai "go-server/internal/domain/ai"
@@ -76,8 +79,10 @@ func NewAIEngine(settings domainai.AISettings, db *sqlite.Database, logger *zap.
 
 	if settings.Enabled {
 		if err := engine.initClients(settings); err != nil {
-			cancel()
-			return nil, err
+			// A malformed profile should not prevent the whole app from
+			// starting; the settings screen can still load and the user can
+			// fix the configuration.
+			logger.Warn("Failed to initialize AI clients; AI analysis will be unavailable until settings are fixed", zap.Error(err))
 		}
 	}
 
@@ -143,20 +148,38 @@ func (e *AIEngine) buildClient(p domainai.AIProviderProfile) (*profileClient, er
 func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, error) {
 	var gOpts []genkit.GenkitOption
 	var customPlugin *oai.OpenAICompatible
+	var anthropicPlugin *anthropic.Anthropic
+	var ollamaPlugin *ollama.Ollama
 
 	if settings.Enabled {
-		providerName := strings.ToLower(settings.Provider)
+		providerName := strings.ToLower(strings.TrimSpace(settings.Provider))
 		e.logger.Info("Initializing Genkit with provider", zap.String("provider", providerName))
 
-		// The official plugins panic during Init when no key is configured.
+		// The official plugins panic during Init when credentials are missing.
 		// Return a normal error instead so a malformed profile only gets
 		// skipped, never takes the whole server down.
-		if (providerName == "openai" || providerName == "gemini") && strings.TrimSpace(settings.APIKey) == "" {
-			return nil, fmt.Errorf("%s 官方接口缺少 API 密钥", providerName)
+		switch providerName {
+		case "openai", "gemini", "anthropic", "claude":
+			if strings.TrimSpace(settings.APIKey) == "" {
+				return nil, fmt.Errorf("%s 官方接口缺少 API 密钥", providerName)
+			}
+		case "vertex", "vertexai":
+			if strings.TrimSpace(os.Getenv("GOOGLE_CLOUD_PROJECT")) == "" {
+				return nil, fmt.Errorf("Vertex AI 需要设置 GOOGLE_CLOUD_PROJECT 环境变量")
+			}
+			if strings.TrimSpace(os.Getenv("GOOGLE_CLOUD_LOCATION")) == "" && strings.TrimSpace(os.Getenv("GOOGLE_CLOUD_REGION")) == "" {
+				return nil, fmt.Errorf("Vertex AI 需要设置 GOOGLE_CLOUD_LOCATION 或 GOOGLE_CLOUD_REGION 环境变量")
+			}
+		case "ollama":
+			// Local runtime: only ServerAddress is required.
+		case "custom":
+			// Any OpenAI-compatible endpoint; the key may be optional.
+		default:
+			return nil, fmt.Errorf("不支持的服务商驱动 %q，请更新配置或选择 OpenAI 兼容接口", settings.Provider)
 		}
 
 		switch providerName {
-		case "gemini":
+		case "gemini", "googleai", "google":
 			gOpts = append(gOpts, genkit.WithPlugins(
 				&googlegenai.GoogleAI{
 					APIKey: settings.APIKey,
@@ -168,6 +191,25 @@ func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, err
 					APIKey: settings.APIKey,
 				},
 			))
+		case "anthropic", "claude":
+			anthropicPlugin = &anthropic.Anthropic{
+				APIKey:  settings.APIKey,
+				BaseURL: settings.BaseURL,
+			}
+			gOpts = append(gOpts, genkit.WithPlugins(anthropicPlugin))
+		case "ollama":
+			ollamaPlugin = &ollama.Ollama{
+				ServerAddress: ollamaServerAddress(settings.BaseURL),
+				Timeout:       120,
+			}
+			gOpts = append(gOpts, genkit.WithPlugins(ollamaPlugin))
+		case "vertex", "vertexai":
+			gOpts = append(gOpts, genkit.WithPlugins(
+				&googlegenai.VertexAI{
+					ProjectID: os.Getenv("GOOGLE_CLOUD_PROJECT"),
+					Location:  firstNonEmptyEnv("GOOGLE_CLOUD_LOCATION", "GOOGLE_CLOUD_REGION"),
+				},
+			))
 		case "custom":
 			customPlugin = &oai.OpenAICompatible{
 				Provider: "custom",
@@ -175,32 +217,27 @@ func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, err
 				BaseURL:  settings.BaseURL,
 			}
 			gOpts = append(gOpts, genkit.WithPlugins(customPlugin))
-		default:
-			e.logger.Warn("Unknown provider, falling back to gemini default", zap.String("provider", settings.Provider))
-			gOpts = append(gOpts, genkit.WithPlugins(
-				&googlegenai.GoogleAI{},
-			))
 		}
 	}
 
 	g := genkit.Init(e.ctx, gOpts...)
 
-	// Dynamically register every custom model the profile may use. Genkit's
-	// custom/oai plugin resolves models by name, so all of them must be defined
-	// up front; otherwise only the first model would be callable.
-	if settings.Enabled && strings.ToLower(settings.Provider) == "custom" && customPlugin != nil {
-		models := settings.Models
-		if len(models) == 0 && settings.Model != "" {
-			models = []string{settings.Model}
+	// Dynamically register every model the profile may use. Genkit's custom/oai
+	// plugin resolves models by name, so all of them must be defined up front;
+	// otherwise only the first model would be callable. Anthropic and Ollama
+	// expose dynamic lookups, but defining the configured models keeps offline
+	// behavior predictable and surfaces bad ids at configuration time.
+	models := settings.Models
+	if len(models) == 0 && settings.Model != "" {
+		models = []string{settings.Model}
+	}
+	for _, modelName := range models {
+		modelID := stripModelNamespace(modelName)
+		if modelID == "" {
+			continue
 		}
-		for _, modelName := range models {
-			modelID := strings.TrimSpace(modelName)
-			if modelID == "" {
-				continue
-			}
-			if strings.HasPrefix(strings.ToLower(modelID), "custom/") {
-				modelID = modelID[7:]
-			}
+		switch {
+		case customPlugin != nil && strings.EqualFold(settings.Provider, "custom"):
 			e.logger.Info("Registering custom model with compat_oai plugin", zap.String("modelID", modelID))
 			customPlugin.DefineModel("custom", modelID, genai.ModelOptions{
 				Supports: &genai.ModelSupports{
@@ -209,10 +246,63 @@ func (e *AIEngine) initGenkit(settings domainai.AISettings) (*genkit.Genkit, err
 					Constrained: "all",
 				},
 			})
+		case anthropicPlugin != nil:
+			if anthropic.IsDefinedModel(g, modelID) {
+				continue
+			}
+			if _, err := anthropicPlugin.DefineModel(g, modelID, &genai.ModelOptions{
+				Label: "Anthropic - " + modelID,
+				Supports: &genai.ModelSupports{
+					Multiturn:  true,
+					SystemRole: true,
+					Tools:      true,
+					Media:      true,
+				},
+			}); err != nil {
+				e.logger.Warn("Failed to define Anthropic model", zap.String("model", modelID), zap.Error(err))
+			}
+		case ollamaPlugin != nil:
+			if ollama.IsDefinedModel(g, modelID) {
+				continue
+			}
+			e.logger.Info("Registering Ollama model", zap.String("modelID", modelID))
+			ollamaPlugin.DefineModel(g, ollama.ModelDefinition{Name: modelID, Type: "chat"}, nil)
 		}
 	}
 
 	return g, nil
+}
+
+// ollamaServerAddress accepts either an Ollama root URL (http://localhost:11434)
+// or an OpenAI-compatible URL (http://localhost:11434/v1) and returns the root
+// the native Ollama plugin expects.
+func ollamaServerAddress(baseURL string) string {
+	baseURL = strings.TrimSpace(strings.TrimRight(baseURL, "/"))
+	baseURL = strings.TrimSuffix(baseURL, "/v1")
+	if baseURL == "" {
+		return "http://localhost:11434"
+	}
+	return baseURL
+}
+
+func firstNonEmptyEnv(keys ...string) string {
+	for _, key := range keys {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func stripModelNamespace(model string) string {
+	model = strings.TrimSpace(model)
+	if idx := strings.Index(model, "/"); idx > 0 {
+		switch strings.ToLower(model[:idx]) {
+		case "googleai", "openai", "anthropic", "ollama", "vertexai", "custom":
+			return model[idx+1:]
+		}
+	}
+	return model
 }
 
 // ReloadSettings updates settings and restarts/stops workers if state changes.
@@ -226,7 +316,6 @@ func (e *AIEngine) ReloadSettings(settings domainai.AISettings) error {
 		zap.String("strategy", settings.Strategy),
 	)
 
-	oldEnabled := e.settings.Enabled
 	e.settings = settings
 	e.selector = NewProfileSelector(settings)
 	e.clients = make(map[string]*profileClient)
@@ -237,13 +326,19 @@ func (e *AIEngine) ReloadSettings(settings domainai.AISettings) error {
 		}
 	}
 
-	// If it was disabled and now enabled, start workers
-	if !oldEnabled && settings.Enabled && !e.activeWorkers {
-		e.logger.Info("AI Engine was enabled. Starting workers...")
-		e.activeWorkers = true
-		e.wg.Add(1)
-		go e.workerLoop(0)
-		go e.backfillLoop()
+	// Start workers whenever the engine is enabled and they are not running.
+	// This also recovers the case where startup skipped workers because no
+	// provider profile could be initialized.
+	if settings.Enabled && !e.activeWorkers {
+		if len(e.clients) == 0 {
+			e.logger.Warn("AI Engine was enabled but no provider profile could be initialized")
+		} else {
+			e.logger.Info("AI Engine was enabled. Starting workers...")
+			e.activeWorkers = true
+			e.wg.Add(1)
+			go e.workerLoop(0)
+			go e.backfillLoop()
+		}
 	}
 
 	return nil
@@ -256,6 +351,10 @@ func (e *AIEngine) Start() {
 
 	if !e.settings.Enabled {
 		e.logger.Info("AI Engine is disabled by configuration")
+		return
+	}
+	if len(e.clients) == 0 {
+		e.logger.Warn("AI Engine is enabled but no provider profile could be initialized")
 		return
 	}
 
@@ -442,7 +541,7 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 		}
 
 		ctx, cancel := context.WithTimeout(e.ctx, 120*time.Second)
-		rawJSON, genErr := e.callProfile(ctx, pc, sel.Model, prompt)
+		rawJSON, genErr := e.callProfile(ctx, pc, sel.Model, prompt, "analysis")
 		cancel()
 
 		if genErr != nil {
@@ -492,43 +591,105 @@ func (e *AIEngine) AnalyzeItem(itemID int64) error {
 
 // callProfile invokes the appropriate client for a profile + model.
 // Applies per-profile rate limiting before the request.
-func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, model, prompt string) (string, error) {
-	// Per-profile rate limit: wait for a token before calling
-	pc.rateLimiter.Wait()
-
-	if pc.lmstudio != nil {
-		schema := json.RawMessage(llm.AnalysisResponseSchema)
-		return pc.lmstudio.GenerateWithSchemaModel(ctx, model, prompt, &schema)
-	}
-	resp, err := genkit.Generate(ctx, pc.genkit,
-		genai.WithModelName(model),
-		genai.WithPrompt(prompt),
-		genai.WithOutputFormat("json"),
-	)
-	if err != nil {
-		return "", err
-	}
-	return llm.StripMarkdownFences(resp.Text()), nil
+func (e *AIEngine) callProfile(ctx context.Context, pc *profileClient, model, prompt, task string) (string, error) {
+	schema := json.RawMessage(llm.AnalysisResponseSchema)
+	return e.callProfileWithUsage(ctx, pc, model, prompt, task, &schema)
 }
 
 // callDailyProfile invokes a profile for daily report generation.
 // It uses the daily report schema instead of the per-item analysis schema.
 func (e *AIEngine) callDailyProfile(ctx context.Context, pc *profileClient, model, prompt string) (string, error) {
+	schema := json.RawMessage(DailyReportResponseSchema)
+	return e.callProfileWithUsage(ctx, pc, model, prompt, "daily", &schema)
+}
+
+// callProfileWithUsage performs one generation and appends a usage row. Token
+// counts come from Genkit when the provider reports them; LM Studio and
+// providers that omit usage get a conservative character-based estimate.
+func (e *AIEngine) callProfileWithUsage(ctx context.Context, pc *profileClient, model, prompt, task string, schema *json.RawMessage) (string, error) {
+	start := time.Now()
 	pc.rateLimiter.Wait()
 
-	if pc.lmstudio != nil {
-		schema := json.RawMessage(DailyReportResponseSchema)
-		return pc.lmstudio.GenerateWithSchemaModel(ctx, model, prompt, &schema)
-	}
-	resp, err := genkit.Generate(ctx, pc.genkit,
-		genai.WithModelName(model),
-		genai.WithPrompt(prompt),
-		genai.WithOutputFormat("json"),
+	model = domainai.DriverModelRef(pc.profile.Provider, model)
+	var (
+		text         string
+		inputTokens  int
+		outputTokens int
+		genErr       error
 	)
-	if err != nil {
-		return "", err
+
+	if pc.lmstudio != nil {
+		text, genErr = pc.lmstudio.GenerateWithSchemaModel(ctx, model, prompt, schema)
+		inputTokens = estimateTokens(prompt)
+		outputTokens = estimateTokens(text)
+	} else {
+		resp, err := genkit.Generate(ctx, pc.genkit,
+			genai.WithModelName(model),
+			genai.WithPrompt(prompt),
+			genai.WithOutputFormat("json"),
+		)
+		if err != nil {
+			genErr = err
+		} else {
+			text = llm.StripMarkdownFences(resp.Text())
+			if resp.Usage != nil {
+				inputTokens = resp.Usage.InputTokens
+				outputTokens = resp.Usage.OutputTokens
+			}
+			if inputTokens == 0 {
+				inputTokens = estimateTokens(prompt)
+			}
+			if outputTokens == 0 {
+				outputTokens = estimateTokens(text)
+			}
+		}
 	}
-	return llm.StripMarkdownFences(resp.Text()), nil
+
+	latency := time.Since(start).Milliseconds()
+	status := "success"
+	errMessage := ""
+	if genErr != nil {
+		status = "failed"
+		errMessage = truncateString(genErr.Error(), 500)
+	}
+	usage := sqlite.AIUsageRecord{
+		ConnectionID:     pc.profile.ID,
+		ModelID:          stripModelNamespace(model),
+		Task:             task,
+		PromptTokens:     inputTokens,
+		CompletionTokens: outputTokens,
+		TotalTokens:      inputTokens + outputTokens,
+		LatencyMS:        latency,
+		Status:           status,
+		Error:            errMessage,
+	}
+	if err := e.db.RecordAIUsage(usage); err != nil {
+		e.logger.Warn("Failed to record AI usage", zap.Error(err))
+	}
+	if genErr != nil {
+		return "", genErr
+	}
+	return text, nil
+}
+
+func estimateTokens(text string) int {
+	count := len([]rune(text))
+	if count == 0 {
+		return 0
+	}
+	tokens := count / 4
+	if tokens < 1 {
+		tokens = 1
+	}
+	return tokens
+}
+
+func truncateString(value string, max int) string {
+	runes := []rune(value)
+	if len(runes) <= max {
+		return value
+	}
+	return string(runes[:max])
 }
 
 // TestProfile performs a single, side-effect-free generation against a draft
@@ -564,7 +725,7 @@ func (e *AIEngine) TestProfile(ctx context.Context, p domainai.AIProviderProfile
 	e.mu.RUnlock()
 	settings.SystemPrompt = strings.TrimSpace(systemPrompt)
 
-	raw, err := e.callProfile(ctx, pc, p.Model, e.buildPrompt(settings, sample))
+	raw, err := e.callProfile(ctx, pc, p.Model, e.buildPrompt(settings, sample), "test")
 	if err != nil {
 		return nil, time.Since(start).Milliseconds(), fmt.Errorf("AI 接口连接失败: %w", err)
 	}
@@ -603,24 +764,8 @@ func normalizeTestProfile(p domainai.AIProviderProfile) domainai.AIProviderProfi
 	p.Model = strings.TrimSpace(p.Model)
 	p.BaseURL = strings.TrimSpace(p.BaseURL)
 
-	prefix := ""
-	switch p.Provider {
-	case "gemini":
-		prefix = "googleai/"
-	case "openai":
-		prefix = "openai/"
-	case "custom":
-		prefix = "custom/"
-	}
-	if prefix != "" && p.Model != "" && !strings.HasPrefix(strings.ToLower(p.Model), prefix) {
-		// Drop any stale namespace from a previously selected provider.
-		if idx := strings.Index(p.Model, "/"); idx > 0 {
-			head := strings.ToLower(p.Model[:idx])
-			if head == "googleai" || head == "openai" || head == "custom" {
-				p.Model = p.Model[idx+1:]
-			}
-		}
-		p.Model = prefix + p.Model
+	if models := domainai.NormalizeModelList(p.Provider, []string{p.Model}); len(models) > 0 {
+		p.Model = domainai.DriverModelRef(p.Provider, models[0])
 	}
 	return p
 }

@@ -139,6 +139,27 @@ Grabby 采用三层架构：
 5. 服务端将图片数据返回给用户
 ```
 
+## AI 配置与用量
+
+AI 设置不再只依赖一份 JSON：
+
+- `ai_connections` 保存供应商连接（driver / base_url / key / 优先级 / RPM）；
+- `ai_models` 保存连接下的模型及元数据（上下文、价格、能力、健康状态）；
+- `ai_routes` 保存当前策略与配置档顺序；
+- `ai_usage` 记录每次模型调用的任务、Token、延迟与状态。
+
+旧版本的 `ai_provider_profiles` JSON 会在首次启动时自动迁移到上述表；设置页仍然通过
+`AIProviderProfile` 形状读写，因此前端和引擎无需感知存储变化。
+
+## 内容渲染
+
+详情页正文由 Go 侧统一渲染，前端只消费 `html_content`：
+
+- `goldmark` + GFM 处理 Markdown，并开启 `html.WithUnsafe()` 以支持 Markdown 与原始 HTML 混合；
+- 抓取源经常返回被 RSS 层转义一次的 HTML（`&lt;p&gt;...`），渲染前会识别并解码；
+- `bluemonday.UGCPolicy()` 负责安全过滤，移除脚本、事件属性和危险 URL；
+- 渲染逻辑位于 `internal/application/render`，后续重构为 native 客户端时可以直接复用。
+
 ## 关键技术决策
 
 ### 为什么解析在浏览器端？

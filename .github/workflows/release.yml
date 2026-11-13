@@ -1,4 +1,4 @@
-name: Release Grabby CLI
+name: Release Grabby
 
 on:
   push:
@@ -8,40 +8,233 @@ on:
 permissions:
   contents: write
 
+env:
+  GO_VERSION: "1.27.3"
+  NODE_VERSION: "22"
+  GO_PROXY: "https://proxy.golang.org,direct"
+
 jobs:
-  goreleaser:
+  frontend:
+    name: Build web frontend
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: go-server/frontend/package-lock.json
+      - name: Install dependencies
+        working-directory: go-server/frontend
+        run: npm ci
+      - name: Build
+        working-directory: go-server/frontend
+        run: npm run build
+      - uses: actions/upload-artifact@v4
         with:
-          go-version: ">=1.22"
+          name: frontend-dist
+          path: go-server/frontend/dist
+          if-no-files-found: error
 
-      - name: Run GoReleaser
-        uses: goreleaser/goreleaser-action@v6
-        with:
-          distribution: goreleaser
-          version: "~> v2"
-          args: release --clean
-          workdir: go-server
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  # Build and test the CLI on every push to verify it compiles
-  build-check:
-    if: github.event_name == 'push' && !startsWith(github.ref, 'refs/tags/')
+  extension:
+    name: Build Chrome extension
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: chrome-extension/package-lock.json
+      - name: Install dependencies
+        working-directory: chrome-extension
+        run: npm ci
+      - name: Build defuddle bundle
+        working-directory: chrome-extension
+        run: npm run build
+      - name: Package extension
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist
+          cd chrome-extension
+          zip -r "../dist/grabby-extension-${VERSION}.zip" \
+            manifest.json \
+            background.js \
+            content/ \
+            lib/ \
+            icons/ \
+            popup/ \
+            options/ \
+            offscreen/ \
+            PRIVACY_POLICY*.md \
+            -x "lib/*.map" \
+            -x "src/*" \
+            -x "node_modules/*" \
+            -x "package.json" \
+            -x "package-lock.json" \
+            -x "build.js" \
+            -x "logs/*"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: extension
+          path: dist/grabby-extension-*.zip
+          if-no-files-found: error
+
+  server:
+    name: Build server (${{ matrix.goos }}/${{ matrix.goarch }})
+    needs: frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: ">=1.22"
-      - name: Build
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-server/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: go-server/frontend/dist
+      - name: Build and package
+        working-directory: go-server
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
-          cd go-cli && go build -o grabby .
-          ./grabby --version
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p ../dist/stage
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          go build -trimpath -ldflags "-s -w" -o "../dist/stage/grabby-server${EXT}" .
+          cp ../README.md ../LICENSE ../dist/stage/
+          cd ../dist/stage
+          if [ "$GOOS" = "windows" ]; then
+            zip -j "../grabby-server_${VERSION}_${GOOS}_${GOARCH}.zip" ./*
+          else
+            tar -czf "../grabby-server_${VERSION}_${GOOS}_${GOARCH}.tar.gz" ./*
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: server-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/grabby-server_*.tar.gz
+            dist/grabby-server_*.zip
+          if-no-files-found: error
+
+  cli:
+    name: Build CLI (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-cli/go.sum
+      - name: Build and package
+        working-directory: go-cli
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          OS="${GOOS}"
+          if [ "$OS" = "darwin" ]; then OS="Darwin"; fi
+          if [ "$OS" = "linux" ]; then OS="Linux"; fi
+          if [ "$OS" = "windows" ]; then OS="Windows"; fi
+          ARCH="$GOARCH"
+          if [ "$ARCH" = "amd64" ]; then ARCH="x86_64"; fi
+          EXT=""
+          if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
+          mkdir -p ../dist/stage
+          go build -trimpath \
+            -ldflags "-s -w \
+              -X github.com/gusibi/mcp-web-capture/go-cli/cmd.version=${VERSION} \
+              -X github.com/gusibi/mcp-web-capture/go-cli/cmd.commit=${GITHUB_SHA::7} \
+              -X github.com/gusibi/mcp-web-capture/go-cli/cmd.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            -o "../dist/stage/grabby${EXT}" .
+          cp ../README.md ../LICENSE ../dist/stage/
+          cd ../dist/stage
+          if [ "$GOOS" = "windows" ]; then
+            zip -j "../grabby_${OS}_${ARCH}.zip" ./*
+          else
+            tar -czf "../grabby_${OS}_${ARCH}.tar.gz" ./*
+          fi
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cli-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            dist/grabby_*.tar.gz
+            dist/grabby_*.zip
+          if-no-files-found: error
+
+  macos-app:
+    name: Build macOS app
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-server/go.sum
+      - name: Stamp version
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" go-server/desktop/Info.plist
+          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" go-server/desktop/Info.plist
+      - name: Build .app bundle
+        run: make package-macos-app
+      - name: Ad-hoc sign
+        run: codesign --force --deep --sign - dist/Grabby.app
+      - name: Package
+        run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p dist/release
+          ditto -c -k --sequesterRsrc --keepParent dist/Grabby.app "dist/release/Grabby-macOS-${VERSION}.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-app
+          path: dist/release/Grabby-macOS-*.zip
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub release
+    needs: [extension, server, cli, macos-app]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Generate checksums
+        run: |
+          set -euo pipefail
+          cd dist
+          find . -maxdepth 1 -type f ! -name checksums.txt -print0 | sort -z | xargs -0 sha256sum > /tmp/checksums.txt
+          mv /tmp/checksums.txt checksums.txt
+          cat checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Grabby ${{ github.ref_name }}
+          generate_release_notes: true
+          files: dist/*
+          fail_on_unmatched_files: true

@@ -1,7 +1,6 @@
 package httpiface
 
 import (
-	"bytes"
 	"context"
 	"embed"
 	"io"
@@ -12,9 +11,9 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
-	"github.com/yuin/goldmark"
 	"go.uber.org/zap"
 
+	"go-server/internal/application/render"
 	"go-server/internal/domain/item"
 	"go-server/internal/domain/source"
 )
@@ -114,20 +113,14 @@ func (h *contentHandlers) getItem(c echo.Context) error {
 		return detailErr(c, http.StatusNotFound, "Item not found")
 	}
 
-	htmlContent := ""
-	if scrapedItem.Content != "" {
-		trimmed := strings.TrimSpace(scrapedItem.Content)
-		if strings.HasPrefix(trimmed, "<") && strings.Contains(trimmed, ">") {
-			htmlContent = scrapedItem.Content
-		} else {
-			var buf bytes.Buffer
-			if err := goldmark.Convert([]byte(scrapedItem.Content), &buf); err == nil {
-				htmlContent = buf.String()
-			}
-		}
-	}
+	htmlContent := render.Render(scrapedItem.Content)
+	summaryHTML := render.Render(scrapedItem.Summary)
 
-	return c.JSON(http.StatusOK, map[string]any{"item": scrapedItem, "html_content": htmlContent})
+	return c.JSON(http.StatusOK, map[string]any{
+		"item":         scrapedItem,
+		"html_content": htmlContent,
+		"summary_html": summaryHTML,
+	})
 }
 
 func (h *contentHandlers) markItemRead(c echo.Context) error {

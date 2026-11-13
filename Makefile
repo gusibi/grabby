@@ -125,8 +125,10 @@ package-macos-app: build-desktop
 	@echo "==> 打包 macOS .app..."
 	@rm -rf $(DIST_DIR)/Grabby.app
 	@mkdir -p $(DIST_DIR)/Grabby.app/Contents/MacOS
+	@mkdir -p $(DIST_DIR)/Grabby.app/Contents/Resources
 	@cp $(DESKTOP_BIN) $(DIST_DIR)/Grabby.app/Contents/MacOS/Grabby
 	@cp $(GO_SERVER_DIR)/desktop/Info.plist $(DIST_DIR)/Grabby.app/Contents/Info.plist
+	@cp $(GO_SERVER_DIR)/desktop/assets/AppIcon.icns $(DIST_DIR)/Grabby.app/Contents/Resources/AppIcon.icns
 	@chmod +x $(DIST_DIR)/Grabby.app/Contents/MacOS/Grabby
 	@xattr -cr $(DIST_DIR)/Grabby.app 2>/dev/null || true
 	@echo "==> 完成: $(DIST_DIR)/Grabby.app"

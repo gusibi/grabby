@@ -12,7 +12,10 @@
  * about `custom/` or `googleai/` prefixes again.
  */
 
-export type BackendProvider = "gemini" | "openai" | "custom" | "lmstudio";
+import { useCallback, useEffect, useState } from "react";
+import { api } from "@/lib/api";
+
+export type BackendProvider = "gemini" | "openai" | "custom" | "lmstudio" | "anthropic" | "ollama" | "vertex";
 
 export type ProviderKind = "cloud" | "local" | "aggregator";
 
@@ -93,6 +96,26 @@ export const providerPresets: ProviderPreset[] = [
       { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", context: "1M", input: "0.30", output: "2.50", capabilities: [C("高性价比"), C("推理")] },
       { id: "gemini-2.0-flash", name: "Gemini 2.0 Flash", context: "1M", input: "0.10", output: "0.40", capabilities: [C("极速")] },
       { id: "gemini-2.0-flash-lite", name: "Gemini 2.0 Flash Lite", context: "1M", input: "0.075", output: "0.30", capabilities: [C("轻量")] },
+    ],
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic Claude",
+    legalName: "Anthropic",
+    mark: "CL",
+    color: "#D97706",
+    kind: "cloud",
+    backend: "anthropic",
+    baseUrl: "",
+    apiKeyHint: "sk-ant-...",
+    apiKeyUrl: "https://console.anthropic.com/settings/keys",
+    docsUrl: "https://docs.anthropic.com/en/docs/about-claude/models",
+    description: { zh: "Claude 官方 API，写作与长文见长", en: "Official Claude API, strong writing and long context" },
+    requiresKey: true,
+    models: [
+      { id: "claude-sonnet-5-5", name: "Claude Sonnet 5.5", context: "1M", capabilities: [C("旗舰"), C("推理")], recommended: true },
+      { id: "claude-opus-5-5", name: "Claude Opus 5.5", context: "1M", capabilities: [C("旗舰")] },
+      { id: "claude-haiku-5-5", name: "Claude Haiku 5.5", context: "1M", capabilities: [C("极速")] },
     ],
   },
   {
@@ -387,9 +410,9 @@ export const presetById = (id: string): ProviderPreset =>
 const normalizeBase = (url: string) => url.trim().replace(/\/+$/, "").toLowerCase();
 
 /** Infer the preset from a saved profile so legacy configurations still render correctly. */
-export function resolvePreset(provider: string, baseUrl: string): ProviderPreset {
+export function resolvePresetFrom(presets: ProviderPreset[], provider: string, baseUrl: string): ProviderPreset {
   const normalized = normalizeBase(baseUrl);
-  const candidates = providerPresets.filter((p) => p.backend === provider && p.id !== "custom");
+  const candidates = presets.filter((p) => p.backend === provider && p.id !== "custom");
   const match = candidates.find((p) => p.baseUrl && normalizeBase(p.baseUrl) === normalized);
   if (match) return match;
 
@@ -397,7 +420,12 @@ export function resolvePreset(provider: string, baseUrl: string): ProviderPreset
     const official = candidates.find((p) => !p.baseUrl);
     if (official) return official;
   }
-  return presetById("custom");
+  return presets.find((p) => p.id === "custom") ?? providerPresets[providerPresets.length - 1];
+}
+
+/** Infer the preset from a saved profile using the built-in catalog. */
+export function resolvePreset(provider: string, baseUrl: string): ProviderPreset {
+  return resolvePresetFrom(providerPresets, provider, baseUrl);
 }
 
 /** Convert a friendly model id into the exact reference Genkit expects. */
@@ -408,6 +436,12 @@ export function toModelRef(backend: BackendProvider, modelId: string): string {
       return `googleai/${clean}`;
     case "openai":
       return `openai/${clean}`;
+    case "anthropic":
+      return `anthropic/${clean}`;
+    case "ollama":
+      return `ollama/${clean}`;
+    case "vertex":
+      return `vertexai/${clean}`;
     case "lmstudio":
       return clean;
     case "custom":
@@ -419,7 +453,7 @@ export function toModelRef(backend: BackendProvider, modelId: string): string {
 /** Strip the Genkit namespace so the model can be shown / matched in the catalog. */
 export function fromModelRef(ref: string): string {
   const clean = (ref || "").trim();
-  return clean.replace(/^(googleai|openai|custom)\//i, "");
+  return clean.replace(/^(googleai|openai|anthropic|ollama|vertexai|custom)\//i, "");
 }
 
 export function defaultModelRef(preset: ProviderPreset): string {
@@ -445,3 +479,288 @@ export const providerName = (p: ProviderPreset, language: "zh" | "en") =>
 /** Provider description in the active UI language. */
 export const providerDescription = (p: ProviderPreset, language: "zh" | "en") =>
   p.description[language];
+
+/* ------------------------------------------------------------------ */
+/* Live models.dev catalog                                             */
+/* ------------------------------------------------------------------ */
+
+export type CatalogDriver = "openai" | "anthropic" | "gemini" | "ollama" | "custom" | "vertex";
+
+export interface CatalogModel {
+  id: string;
+  name: string;
+  context?: number;
+  max_output?: number;
+  input_price?: number;
+  output_price?: number;
+  capabilities?: string[];
+  release_date?: string;
+}
+
+export interface CatalogProvider {
+  id: string;
+  name: string;
+  api?: string;
+  doc?: string;
+  npm?: string;
+  env?: string[];
+  driver: CatalogDriver;
+  models: CatalogModel[];
+}
+
+export interface CatalogResponse {
+  success: boolean;
+  source?: string;
+  fetched_at?: string;
+  count?: number;
+  providers?: CatalogProvider[];
+  error?: string;
+}
+
+const capabilityLabels: Record<string, string> = {
+  vision: "视觉",
+  reasoning: "推理",
+  tool: "工具",
+  structured: "结构化",
+};
+
+function formatContext(value?: number): string {
+  if (!value || value <= 0) return "";
+  if (value >= 1_000_000) {
+    const millions = Math.round((value / 1_000_000) * 10) / 10;
+    return `${millions}M`;
+  }
+  if (value >= 1_000) return `${Math.round(value / 1_000)}K`;
+  return String(value);
+}
+
+function formatPrice(value?: number): string {
+  if (value === undefined || value === null || Number.isNaN(value)) return "";
+  if (value === 0) return "0";
+  return value.toFixed(2);
+}
+
+function preferredModelIndex(models: CatalogModel[]): number {
+  const index = models.findIndex((model) => {
+    const caps = model.capabilities ?? [];
+    return caps.includes("structured") && caps.includes("tool");
+  });
+  return index >= 0 ? index : 0;
+}
+
+function catalogModels(models: CatalogModel[]): ModelInfo[] {
+  const preferred = preferredModelIndex(models);
+  return models.map((model, index) => ({
+    id: model.id,
+    name: model.name,
+    context: formatContext(model.context),
+    input: formatPrice(model.input_price),
+    output: formatPrice(model.output_price),
+    capabilities: (model.capabilities ?? []).map((cap) => capabilityLabels[cap] ?? cap).slice(0, 3),
+    recommended: index === preferred,
+  }));
+}
+
+function providerMark(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+  return name.trim().slice(0, 2).toUpperCase() || "AI";
+}
+
+function providerColor(id: string): string {
+  let hash = 0;
+  for (let i = 0; i < id.length; i += 1) {
+    hash = (hash * 31 + id.charCodeAt(i)) >>> 0;
+  }
+  const hue = hash % 360;
+  return `hsl(${hue} 62% 42%)`;
+}
+
+const aggregatorIDs = new Set([
+  "openrouter", "siliconflow", "together", "fireworks", "groq", "cerebras",
+  "perplexity", "qiniu", "requesty", "vercel", "cloudflare-ai-gateway",
+]);
+
+function isLocalProvider(provider: CatalogProvider): boolean {
+  if (provider.driver === "ollama" || provider.id === "lmstudio") return true;
+  const api = (provider.api ?? "").toLowerCase();
+  return api.includes("localhost") || api.includes("127.0.0.1") || api.includes("0.0.0.0");
+}
+
+/** Convert one live models.dev provider into the UI preset shape. */
+export function catalogToPreset(provider: CatalogProvider): ProviderPreset {
+  const backend: BackendProvider =
+    provider.driver === "vertex" ? "vertex" : provider.driver;
+  const requiresKey = (provider.env?.length ?? 0) > 0;
+  const kind: ProviderKind = isLocalProvider(provider)
+    ? "local"
+    : aggregatorIDs.has(provider.id)
+      ? "aggregator"
+      : "cloud";
+  return {
+    id: provider.id,
+    name: provider.name,
+    legalName: provider.name,
+    mark: providerMark(provider.name),
+    color: providerColor(provider.id),
+    kind,
+    backend,
+    baseUrl: provider.api ?? "",
+    apiKeyHint: provider.env?.[0] ?? (requiresKey ? "API Key" : "无需密钥"),
+    apiKeyUrl: "",
+    docsUrl: provider.doc ?? "",
+    description: {
+      zh: `${provider.models.length} 个模型 · models.dev`,
+      en: `${provider.models.length} models · models.dev`,
+    },
+    requiresKey,
+    models: catalogModels(provider.models),
+  };
+}
+
+const providerAliases: Record<string, string> = {
+  google: "gemini",
+};
+
+/**
+ * Merge the live catalog over the curated presets. Curated entries keep their
+ * branding and known endpoints, while the model list and provider coverage come
+ * from models.dev. Curated providers missing from the live response are kept as
+ * an offline fallback.
+ */
+export function mergeCatalogProviders(live: CatalogProvider[]): ProviderPreset[] {
+  const curatedByID = new Map(providerPresets.map((preset) => [preset.id, preset]));
+  const curatedByAPI = new Map(
+    providerPresets
+      .filter((preset) => preset.baseUrl)
+      .map((preset) => [normalizeBase(preset.baseUrl), preset])
+  );
+
+  const merged: ProviderPreset[] = [];
+  const seen = new Set<string>();
+
+  for (const provider of live) {
+    const alias = providerAliases[provider.id] ?? provider.id;
+    const curated =
+      curatedByID.get(alias) ??
+      (provider.api ? curatedByAPI.get(normalizeBase(provider.api)) : undefined);
+
+    if (curated) {
+      if (seen.has(curated.id)) continue;
+      seen.add(curated.id);
+      merged.push({
+        ...curated,
+        backend: (provider.driver === "vertex" ? "vertex" : provider.driver) as BackendProvider,
+        baseUrl: curated.baseUrl || provider.api || "",
+        requiresKey: (provider.env?.length ?? 0) > 0 || curated.requiresKey,
+        models: provider.models.length ? catalogModels(provider.models) : curated.models,
+      });
+      continue;
+    }
+
+    if (seen.has(provider.id)) continue;
+    seen.add(provider.id);
+    merged.push(catalogToPreset(provider));
+  }
+
+  for (const preset of providerPresets) {
+    if (preset.id === "custom" || seen.has(preset.id)) continue;
+    seen.add(preset.id);
+    merged.push(preset);
+  }
+
+  const custom = curatedByID.get("custom");
+  if (custom) merged.push(custom);
+
+  // Common providers first so the default view is not a wall of 200 entries;
+  // the rest stay available through search.
+  const priority = ["openai", "anthropic", "gemini", "deepseek", "openrouter", "ollama", "lmstudio", "xai", "mistral", "groq", "qwen"];
+  merged.sort((a, b) => {
+    if (a.id === "custom") return 1;
+    if (b.id === "custom") return -1;
+    const ai = priority.indexOf(a.id);
+    const bi = priority.indexOf(b.id);
+    if (ai >= 0 || bi >= 0) return (ai >= 0 ? ai : 999) - (bi >= 0 ? bi : 999);
+    return a.name.localeCompare(b.name);
+  });
+  return merged;
+}
+
+interface CachedCatalog {
+  providers: CatalogProvider[];
+  fetchedAt?: string;
+  source?: string;
+}
+
+let cachedCatalog: CachedCatalog | null = null;
+
+export interface ProviderCatalogState {
+  presets: ProviderPreset[];
+  source: "live" | "builtin";
+  fetchedAt?: string;
+  loading: boolean;
+  error?: string;
+  refresh: () => void;
+}
+
+/**
+ * Load the live models.dev catalog once per session and return the merged
+ * presets. If the request fails the built-in snapshot is used so settings still
+ * work offline.
+ */
+export function useProviderCatalog(): ProviderCatalogState {
+  const [presets, setPresets] = useState<ProviderPreset[]>(() => (
+    cachedCatalog ? mergeCatalogProviders(cachedCatalog.providers) : providerPresets
+  ));
+  const [source, setSource] = useState<"live" | "builtin">(cachedCatalog ? "live" : "builtin");
+  const [fetchedAt, setFetchedAt] = useState<string | undefined>(cachedCatalog?.fetchedAt);
+  const [loading, setLoading] = useState(!cachedCatalog);
+  const [error, setError] = useState<string | undefined>();
+
+  const load = useCallback(async (force: boolean) => {
+    if (!force && cachedCatalog) {
+      setPresets(mergeCatalogProviders(cachedCatalog.providers));
+      setSource("live");
+      setFetchedAt(cachedCatalog.fetchedAt);
+      setLoading(false);
+      return;
+    }
+
+    setLoading(true);
+    setError(undefined);
+    try {
+      const data: CatalogResponse = await api.getAICatalog(force);
+      if (data.success && Array.isArray(data.providers) && data.providers.length > 0) {
+        cachedCatalog = {
+          providers: data.providers,
+          fetchedAt: data.fetched_at,
+          source: data.source,
+        };
+        setPresets(mergeCatalogProviders(data.providers));
+        setSource("live");
+        setFetchedAt(data.fetched_at);
+      } else {
+        setSource("builtin");
+        setError(data.error || "模型目录不可用，已使用内置目录");
+      }
+    } catch (err) {
+      setSource("builtin");
+      setError(err instanceof Error ? err.message : "模型目录请求失败，已使用内置目录");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load(false);
+  }, [load]);
+
+  return {
+    presets,
+    source,
+    fetchedAt,
+    loading,
+    error,
+    refresh: () => { void load(true); },
+  };
+}

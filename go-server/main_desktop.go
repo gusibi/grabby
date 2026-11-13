@@ -37,6 +37,12 @@ import (
 //go:embed all:desktop/dist
 var frontendFS embed.FS
 
+//go:embed desktop/assets/icon.png
+var desktopIconPNG []byte
+
+//go:embed desktop/assets/tray.png
+var trayIconPNGData []byte
+
 const desktopAppName = "Grabby"
 
 func main() {
@@ -198,9 +204,16 @@ func main() {
 	})
 
 	mygo.App.WhenReady(func() {
-		icon, err := trayIconPNG()
-		if err != nil {
-			log.Printf("desktop: cannot build tray icon: %v", err)
+		if err := mygo.App.Dock.SetIcon(desktopIconPNG); err != nil {
+			log.Printf("desktop: cannot set dock icon: %v", err)
+		}
+		icon := trayIconPNGData
+		if len(icon) == 0 {
+			var err error
+			icon, err = trayIconPNG()
+			if err != nil {
+				log.Printf("desktop: cannot build tray icon: %v", err)
+			}
 		}
 		menu := mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "打开 " + desktopAppName, Click: func(*mygo.MenuItem, *mygo.Window) { openMainWindow() }},

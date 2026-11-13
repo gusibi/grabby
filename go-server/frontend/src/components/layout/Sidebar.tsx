@@ -134,12 +134,12 @@ export function Sidebar({
     >
       {/* Brand */}
       <div className="h-[62px] shrink-0 flex items-center gap-2.5 px-3.5" style={{ borderBottom: "1px solid var(--g-line)" }}>
-        <span
-          className="w-8 h-8 rounded-[10px] flex items-center justify-center shrink-0 g-serif font-bold text-[19px]"
-          style={{ background: "var(--g-signal)", color: "var(--g-on-signal)", lineHeight: 1 }}
-        >
-          G
-        </span>
+        <img
+          src="/logo-32.png"
+          alt=""
+          aria-hidden="true"
+          className="w-8 h-8 rounded-[10px] shrink-0 object-cover"
+        />
         {!collapsed && (
           <div className="min-w-0 g-fade">
             <div className="text-[13px] font-semibold tracking-[-0.02em] leading-none">grabby</div>

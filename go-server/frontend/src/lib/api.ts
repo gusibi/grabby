@@ -54,6 +54,18 @@ export const api = {
     body: JSON.stringify(sourceForm),
   }),
   getAISettings: () => jsonFetch("/api/ai/settings"),
+  getAICatalog: (refresh = false) => jsonFetch(`/api/ai/catalog${refresh ? "?refresh=1" : ""}`),
+  discoverAIModels: (payload: { provider: string; base_url?: string; api_key?: string; profile_id?: string }) => jsonFetch("/api/ai/models/discover", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  }),
+  importAIConfig: (source = "auto", apply = true) => jsonFetch("/api/ai/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, apply }),
+  }),
+  getAIUsage: (days = 7) => jsonFetch(`/api/ai/usage?days=${days}`),
   saveAISettings: (settings: Record<string, unknown>) => jsonFetch("/api/ai/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },

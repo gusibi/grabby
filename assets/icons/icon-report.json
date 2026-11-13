@@ -1,0 +1,58 @@
+{
+  "source": {
+    "path": "/Users/gusi/Github/grabby/assets/logo-1024.png",
+    "format": "PNG",
+    "size": [
+      1024,
+      1024
+    ],
+    "sha256": "a0938968dcd757ed38da9288e25b2866727fdbc3beb9ac9c4d611266f0bf9089"
+  },
+  "options": {
+    "platforms": [
+      "macos",
+      "windows",
+      "linux"
+    ],
+    "fit": "auto",
+    "background": null,
+    "mac_style": "system-mask",
+    "name": "grabby"
+  },
+  "warnings": [],
+  "files": [
+    "icon-report.json",
+    "linux/hicolor/128x128/apps/grabby.png",
+    "linux/hicolor/16x16/apps/grabby.png",
+    "linux/hicolor/22x22/apps/grabby.png",
+    "linux/hicolor/24x24/apps/grabby.png",
+    "linux/hicolor/256x256/apps/grabby.png",
+    "linux/hicolor/32x32/apps/grabby.png",
+    "linux/hicolor/48x48/apps/grabby.png",
+    "linux/hicolor/512x512/apps/grabby.png",
+    "linux/hicolor/64x64/apps/grabby.png",
+    "linux/hicolor/96x96/apps/grabby.png",
+    "macos/icon.icns",
+    "macos/icon.iconset/icon_128x128.png",
+    "macos/icon.iconset/icon_128x128@2x.png",
+    "macos/icon.iconset/icon_16x16.png",
+    "macos/icon.iconset/icon_16x16@2x.png",
+    "macos/icon.iconset/icon_256x256.png",
+    "macos/icon.iconset/icon_256x256@2x.png",
+    "macos/icon.iconset/icon_32x32.png",
+    "macos/icon.iconset/icon_32x32@2x.png",
+    "macos/icon.iconset/icon_512x512.png",
+    "macos/icon.iconset/icon_512x512@2x.png",
+    "windows/icon-128.png",
+    "windows/icon-16.png",
+    "windows/icon-20.png",
+    "windows/icon-24.png",
+    "windows/icon-256.png",
+    "windows/icon-32.png",
+    "windows/icon-40.png",
+    "windows/icon-48.png",
+    "windows/icon-64.png",
+    "windows/icon-96.png",
+    "windows/icon.ico"
+  ]
+}

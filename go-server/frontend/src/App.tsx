@@ -1023,6 +1023,7 @@ export default function App() {
                     isSavingSettings={isSavingSettings}
                     saveAISettings={saveAISettings}
                     resetAISettings={fetchAISettings}
+                    reloadAISettings={fetchAISettings}
                     isAuthenticated={isAuthenticated}
                   />
                 )}

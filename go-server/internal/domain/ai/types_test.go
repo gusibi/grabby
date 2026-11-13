@@ -21,6 +21,29 @@ func TestNormalizeModelListKeepsProviderNamespace(t *testing.T) {
 	}
 }
 
+func TestDriverModelRefAddsAndReplacesNamespaces(t *testing.T) {
+	cases := []struct {
+		provider string
+		model    string
+		want     string
+	}{
+		{"anthropic", "claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"},
+		{"anthropic", "anthropic/claude-sonnet-4-5", "anthropic/claude-sonnet-4-5"},
+		{"ollama", "qwen3", "ollama/qwen3"},
+		{"gemini", "gemini-2.5-flash", "googleai/gemini-2.5-flash"},
+		{"openai", "gpt-4o", "openai/gpt-4o"},
+		{"custom", "deepseek-chat", "custom/deepseek-chat"},
+		{"custom", "anthropic/claude-3.5-sonnet", "custom/anthropic/claude-3.5-sonnet"},
+		{"lmstudio", "local-model", "local-model"},
+		{"anthropic", "openai/gpt-4o", "anthropic/gpt-4o"},
+	}
+	for _, tc := range cases {
+		if got := DriverModelRef(tc.provider, tc.model); got != tc.want {
+			t.Errorf("DriverModelRef(%q, %q) = %q, want %q", tc.provider, tc.model, got, tc.want)
+		}
+	}
+}
+
 func TestNormalizeAISettingsMigratesLegacyModel(t *testing.T) {
 	settings := NormalizeAISettings(AISettings{
 		Profiles: []AIProviderProfile{

@@ -25,7 +25,8 @@
     aiCategory: "",
     health: null, stats: null, items: [], browsers: [],
     sources: [], sourceCategories: [], aiCategories: [], logs: [],
-    aiSettings: null, aiStats: null, aiItems: [],
+    aiSettings: null, aiStats: null, aiItems: [], aiCatalog: null, aiUsage: null,
+    discoveredModels: [],
     daily: null, dailyList: [], dailyDate: dateStr(new Date()), dailyType: "daily",
     adapter: "twitter-search", adapterResult: null, adapterBusy: false,
     captures: [],
@@ -219,6 +220,7 @@
       d = await fetchAll({
         aiSettings: api("/api/ai/settings"), aiStats: api("/open/api/ai/stats"),
         aiCategories: api("/open/api/ai/categories"),
+        aiUsage: api("/api/ai/usage?days=7"),
         aiItems: api("/open/api/ai/items?limit=24&score_min=7" +
           (state.aiCategory ? "&category=" + encodeURIComponent(state.aiCategory) : ""))
       });
@@ -232,7 +234,8 @@
     } else if (view === "settings") {
       d = await fetchAll({
         desktopSettings: api("/api/desktop/settings"), health: api("/open/api/health"),
-        aiSettings: api("/api/ai/settings"), aiStats: api("/open/api/ai/stats")
+        aiSettings: api("/api/ai/settings"), aiStats: api("/open/api/ai/stats"),
+        aiUsage: api("/api/ai/usage?days=7")
       });
     } else {
       d = await fetchAll({ health: api("/open/api/health") });
@@ -259,6 +262,8 @@
     if (d.sources) state.sources = Array.isArray(d.sources) ? d.sources : (d.sources.sources || []);
     if (d.captures) state.captures = d.captures.items || [];
     if (d.aiSettings) { state.aiSettings = d.aiSettings.settings || null; state.activeProfileID = null; }
+    if (d.aiCatalog && d.aiCatalog.providers) state.aiCatalog = d.aiCatalog;
+    if (d.aiUsage && d.aiUsage.summary) state.aiUsage = d.aiUsage.summary;
     if (d.aiStats) state.aiStats = d.aiStats;
     if (d.aiItems) state.aiItems = d.aiItems.items || [];
     if (d.dailyList) state.dailyList = Array.isArray(d.dailyList) ? d.dailyList : (d.dailyList.reports || d.dailyList.items || []);
@@ -271,6 +276,23 @@
 
     syncStatus();
     render();
+
+    // The catalog can be several MB on first run. Load it after the page is
+    // usable so a slow/unreachable models.dev never blocks the settings page.
+    if (view === "settings" && !state.aiCatalog) {
+      api("/api/ai/catalog").then(function (cr) {
+        if (seq !== loadSeq || state.view !== "settings") return;
+        if (cr && cr.providers && cr.providers.length) {
+          var active = document.activeElement;
+          if (active && active.closest && active.closest('form[data-form="ai-settings"]')) {
+            state.aiCatalog = cr;
+            return;
+          }
+          state.aiCatalog = cr;
+          render();
+        }
+      }).catch(function () { /* built-in presets remain usable */ });
+    }
   }
 
   async function reloadItems() {
@@ -495,42 +517,171 @@
 
   var PROVIDER_PRESETS = [
     { id: "openai", name: "OpenAI", provider: "openai", base_url: "", models: ["gpt-4o-mini", "gpt-4o", "gpt-4.1"] },
+    { id: "anthropic", name: "Anthropic", provider: "anthropic", base_url: "", models: ["claude-sonnet-5-5", "claude-opus-5-5", "claude-haiku-5-5"] },
     { id: "deepseek", name: "DeepSeek", provider: "custom", base_url: "https://api.deepseek.com/v1", models: ["deepseek-chat", "deepseek-reasoner"] },
     { id: "gemini", name: "Gemini", provider: "gemini", base_url: "", models: ["gemini-2.0-flash", "gemini-1.5-pro"] },
     { id: "openrouter", name: "OpenRouter", provider: "custom", base_url: "https://openrouter.ai/api/v1", models: ["anthropic/claude-3.5-sonnet", "google/gemini-2.0-flash-001"] },
+    { id: "ollama", name: "Ollama", provider: "ollama", base_url: "http://localhost:11434/v1", models: ["qwen3", "llama3.2", "deepseek-r1"] },
     { id: "lmstudio", name: "LM Studio", provider: "lmstudio", base_url: "http://localhost:1234/v1", models: [] },
     { id: "custom", name: "自定义", provider: "custom", base_url: "", models: [] }
   ];
 
+  var PROVIDER_ALIASES = { google: "gemini" };
+  var COMMON_PROVIDER_IDS = ["openai", "anthropic", "gemini", "deepseek", "openrouter", "ollama", "lmstudio", "custom", "xai", "mistral", "groq", "qwen"];
+
+  function normalizeBaseURL(url) {
+    return String(url || "").trim().replace(/\/+$/, "").toLowerCase();
+  }
+
+  // providerList merges the live models.dev catalog over the built-in presets.
+  // Branding and known endpoints stay curated; model lists come from the live
+  // catalog so the desktop app no longer ships a stale provider table.
+  function providerList() {
+    var live = (state.aiCatalog && state.aiCatalog.providers) || [];
+    if (!live.length) return PROVIDER_PRESETS.slice();
+    var out = [];
+    var seen = {};
+    live.forEach(function (p) {
+      var id = PROVIDER_ALIASES[p.id] || p.id;
+      var preset = {
+        id: id,
+        name: p.name || id,
+        provider: p.driver || "custom",
+        base_url: p.api || "",
+        models: (p.models || []).map(function (m) { return m.id; }),
+        doc: p.doc || "",
+        env: p.env || []
+      };
+      for (var i = 0; i < PROVIDER_PRESETS.length; i++) {
+        var base = PROVIDER_PRESETS[i];
+        if (base.id === id || (base.provider === preset.provider && base.base_url && normalizeBaseURL(base.base_url) === normalizeBaseURL(preset.base_url))) {
+          preset.name = base.name;
+          preset.base_url = base.base_url || preset.base_url;
+          if (!preset.models.length) preset.models = base.models;
+          break;
+        }
+      }
+      if (!seen[id]) { seen[id] = 1; out.push(preset); }
+    });
+    PROVIDER_PRESETS.forEach(function (p) {
+      if (!seen[p.id]) { seen[p.id] = 1; out.push(p); }
+    });
+    // Keep the generic custom endpoint at the end so it never looks like the
+    // primary recommendation.
+    out.sort(function (a, b) {
+      if (a.id === "custom") return 1;
+      if (b.id === "custom") return -1;
+      return String(a.name).localeCompare(String(b.name));
+    });
+    return out;
+  }
+
   function presetById(id) {
-    for (var i = 0; i < PROVIDER_PRESETS.length; i++) if (PROVIDER_PRESETS[i].id === id) return PROVIDER_PRESETS[i];
+    var list = providerList();
+    for (var i = 0; i < list.length; i++) if (list[i].id === id) return list[i];
     return null;
   }
 
-  // activePreset matches the saved settings against the preset list so the
+  // activePreset matches the saved settings against the provider list so the
   // matching chip stays highlighted after a reload.
   function activePreset(settings) {
     var provider = String((settings && settings.provider) || "");
-    var baseURL = String((settings && settings.base_url) || "").replace(/\/+$/, "");
-    for (var i = 0; i < PROVIDER_PRESETS.length; i++) {
-      var p = PROVIDER_PRESETS[i];
+    var baseURL = normalizeBaseURL(settings && settings.base_url);
+    var list = providerList();
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
       if (p.id === "custom") continue;
-      if (p.provider === provider && p.base_url.replace(/\/+$/, "") === baseURL) return p.id;
+      if (p.provider === provider && normalizeBaseURL(p.base_url) === baseURL) return p.id;
     }
-    return provider ? "" : "";
+    for (var j = 0; j < list.length; j++) {
+      if (list[j].provider === provider && !baseURL && !normalizeBaseURL(list[j].base_url)) return list[j].id;
+    }
+    // A saved custom endpoint may have an empty base URL; keep the generic
+    // "custom" preset selected instead of falling back to the first provider.
+    if (provider === "custom" || provider) return "custom";
+    return "";
   }
 
   function modelSuggestions(settings) {
     var provider = String((settings && settings.provider) || "");
-    var baseURL = String((settings && settings.base_url) || "").replace(/\/+$/, "");
-    for (var i = 0; i < PROVIDER_PRESETS.length; i++) {
-      var p = PROVIDER_PRESETS[i];
-      if (p.provider === provider && p.base_url.replace(/\/+$/, "") === baseURL) return p.models;
+    var baseURL = normalizeBaseURL(settings && settings.base_url);
+    var list = providerList();
+    for (var i = 0; i < list.length; i++) {
+      var p = list[i];
+      if (p.provider === provider && normalizeBaseURL(p.base_url) === baseURL) return p.models;
+    }
+    for (var j = 0; j < list.length; j++) {
+      if (list[j].provider === provider && !baseURL) return list[j].models;
     }
     return [];
   }
 
-  var MODEL_PREFIXES = { gemini: "googleai/", openai: "openai/", custom: "custom/" };
+  // applyProviderPreset fills the visible form from a catalog entry. The
+  // hidden `provider` field keeps the backend driver separate from the catalog
+  // id (models.dev has many providers that share the "custom" driver).
+  function applyProviderPreset(preset) {
+    var aiForm = document.querySelector('form[data-form="ai-settings"]');
+    if (!preset || !aiForm) return;
+    var presetSel = aiForm.querySelector('[name="provider_preset"]');
+    var providerInput = aiForm.querySelector('[name="provider"]');
+    var baseInput = aiForm.querySelector('[name="base_url"]');
+    var modelInput = aiForm.querySelector('[name="model"]');
+    if (presetSel) presetSel.value = preset.id;
+    if (providerInput) providerInput.value = preset.provider || "custom";
+    if (baseInput) baseInput.value = preset.base_url || "";
+    if (modelInput) modelInput.value = preset.models.length ? preset.models[0] : "";
+    state.discoveredModels = [];
+    var discovered = $("discovered-models");
+    if (discovered) discovered.innerHTML = "";
+    var list = $("model-options");
+    if (list) {
+      list.innerHTML = (preset.models || []).map(function (m) {
+        return '<option value="' + attr(m) + '"></option>';
+      }).join("");
+    }
+    var chips = document.querySelectorAll('#content [data-action="provider-preset"]');
+    for (var i = 0; i < chips.length; i++) {
+      chips[i].classList.toggle("is-active", chips[i].dataset.value === preset.id);
+    }
+  }
+
+  // renderDiscoveredModelsHTML renders the checkbox list returned by the
+  // provider's /v1/models endpoint. The model text input stays the source of
+  // truth; "应用所选" copies the checked ids into it as a comma-separated list.
+  function renderDiscoveredModelsHTML(models, selectedRefs) {
+    if (!models || !models.length) return "";
+    var selected = {};
+    (selectedRefs || []).forEach(function (ref) {
+      selected[stripModelRef(ref)] = 1;
+    });
+    var items = models.map(function (model, index) {
+      var id = typeof model === "string" ? model : model.id;
+      var name = typeof model === "string" ? model : (model.name || model.id);
+      if (!id) return "";
+      var checked = selected[id] ? " checked" : "";
+      return '<label class="discovered-item" data-search="' + attr((id + " " + name).toLowerCase()) + '">' +
+        '<input type="checkbox" name="discovered_model" value="' + attr(id) + '"' + checked + ">" +
+        '<span class="discovered-name">' + esc(name) + '</span>' +
+        '<span class="discovered-id mono">' + esc(id) + "</span></label>";
+    }).join("");
+    return '<div class="discovered-head"><span>发现 ' + models.length + ' 个模型，勾选后点「应用所选」</span>' +
+      '<button class="mini" data-action="ai-apply-models" type="button">应用所选</button></div>' +
+      '<input id="discovered-search" class="date-input discovered-search" placeholder="过滤模型 ID 或名称">' +
+      '<div class="discovered-items">' + items + "</div>";
+  }
+
+  function applyDiscoveredSelection() {
+    var checked = document.querySelectorAll('#discovered-models input[name="discovered_model"]:checked');
+    var values = [];
+    for (var i = 0; i < checked.length; i++) values.push(checked[i].value);
+    var input = document.querySelector('#content form[data-form="ai-settings"] input[name="model"]');
+    if (!input) return;
+    if (!values.length) { toast("请先勾选至少一个模型", true); return; }
+    input.value = values.join(", ");
+    toast("已写入 " + values.length + " 个模型，保存后生效");
+  }
+
+  var MODEL_PREFIXES = { gemini: "googleai/", openai: "openai/", anthropic: "anthropic/", ollama: "ollama/", vertex: "vertexai/", custom: "custom/" };
 
   // Genkit needs a namespaced model reference, while users think in plain model
   // ids. The settings page shows the plain id and re-adds the namespace on save,
@@ -538,7 +689,7 @@
   function stripModelRef(model) {
     var m = String(model || "");
     var lower = m.toLowerCase();
-    var known = ["googleai/", "openai/", "custom/"];
+    var known = ["googleai/", "openai/", "anthropic/", "ollama/", "vertexai/", "custom/"];
     for (var i = 0; i < known.length; i++) {
       if (lower.indexOf(known[i]) === 0) return m.slice(known[i].length);
     }
@@ -553,7 +704,7 @@
     var slash = m.indexOf("/");
     if (slash > 0) {
       var head = m.slice(0, slash).toLowerCase();
-      if (head === "googleai" || head === "openai" || head === "custom") m = m.slice(slash + 1);
+      if (head === "googleai" || head === "openai" || head === "anthropic" || head === "ollama" || head === "vertexai" || head === "custom") m = m.slice(slash + 1);
     }
     return prefix + m;
   }
@@ -602,6 +753,15 @@
       [st.average_score == null ? "—" : Number(st.average_score).toFixed(1), "平均评分"],
       [st.queue_length == null ? "—" : st.queue_length, "队列长度"]
     ]);
+    var usage = state.aiUsage || {};
+    html += '<div class="panel" style="margin-top:18px"><h3>用量 · 近 ' + esc(usage.days || 7) + " 天</h3>" +
+      '<div class="row"><span class="row-label">调用</span><span class="row-value">' + esc(usage.total_requests || 0) + " 次" +
+        (usage.failed_requests ? " · " + esc(usage.failed_requests) + " 次失败" : "") + "</span></div>" +
+      '<div class="row"><span class="row-label">Tokens</span><span class="row-value mono">' +
+        esc(Number(usage.prompt_tokens || 0).toLocaleString()) + " 输入 / " +
+        esc(Number(usage.completion_tokens || 0).toLocaleString()) + " 输出</span></div>" +
+      '<div class="row"><span class="row-label">平均延迟</span><span class="row-value mono">' +
+        esc(Math.round(usage.avg_latency_ms || 0)) + " ms</span></div></div>";
     html += '<div class="toolbar" style="margin-top:18px">' +
       '<button class="btn" data-action="ai-test" type="button">测试模型连通性</button>' +
       '<button class="btn" data-action="ai-eval" type="button">启动全量评测</button>' +
@@ -664,7 +824,9 @@
     var sections = dailySections(d);
     if (d.format === "markdown") {
       html += '<div class="panel"><h3>' + esc(d.title || "日报") + "</h3>" +
-        '<pre class="code-block report-block">' + esc(d.content || "") + "</pre></div>";
+        (d.html_content
+          ? '<div class="detail-content">' + safeHtml(d.html_content) + "</div>"
+          : '<pre class="code-block report-block">' + esc(d.content || "") + "</pre>") + "</div>";
     } else if (sections && Object.keys(sections).length) {
       html += '<div class="report-head"><div class="eyebrow">' + esc(state.dailyType === "daily" ? "DAILY BRIEF" : state.dailyType.toUpperCase()) + "</div>" +
         '<h2 class="report-title">' + esc(d.title || "Grabby 日报") + "</h2>" +
@@ -806,6 +968,11 @@
       : ai);
     var activePresetID = activePreset(effective);
     var suggestions = modelSuggestions(effective);
+    var effectiveModels = (effective.models && effective.models.length)
+      ? effective.models
+      : (effective.model ? [effective.model] : []);
+    var modelValues = effectiveModels.map(stripModelRef).join(", ");
+    var discoveredHTML = renderDiscoveredModelsHTML(state.discoveredModels || [], effectiveModels);
 
     var html = head("偏好", "设置", "模型、提示词、日报定时与本地服务都在这里，保存后立即生效");
 
@@ -833,10 +1000,28 @@
     /* 02–04 共用一次保存 */
     html += '<form data-form="ai-settings">';
 
-    var presetChips = PROVIDER_PRESETS.map(function (p) {
+    var providers = providerList();
+    var commonProviders = providers.filter(function (p) { return COMMON_PROVIDER_IDS.indexOf(p.id) >= 0; });
+    if (commonProviders.length < 8) {
+      providers.forEach(function (p) {
+        if (commonProviders.length >= 8) return;
+        if (p.id === "custom") return;
+        if (commonProviders.indexOf(p) < 0) commonProviders.push(p);
+      });
+    }
+    var presetChips = commonProviders.map(function (p) {
       return '<button class="chip' + (activePresetID === p.id ? " is-active" : "") +
         '" data-action="provider-preset" data-value="' + attr(p.id) + '" type="button">' + esc(p.name) + "</button>";
     }).join("");
+
+    var providerOptions = providers.map(function (p) {
+      return '<option value="' + attr(p.id) + '" data-driver="' + attr(p.provider) + '"' +
+        (activePresetID === p.id ? " selected" : "") + ">" + esc(p.name) + "</option>";
+    }).join("");
+
+    var catalogLabel = (state.aiCatalog && state.aiCatalog.providers && state.aiCatalog.providers.length)
+      ? "models.dev · " + state.aiCatalog.providers.length + " 个服务商"
+      : "内置目录（点「刷新目录」获取 models.dev 实时数据）";
 
     var profileOptions = profiles.map(function (p) {
       return '<option value="' + attr(p.id) + '"' + (prof && prof.id === p.id ? " selected" : "") + ">" +
@@ -851,14 +1036,18 @@
       '<div class="profile-row">' +
         '<label class="field"><span>当前配置档</span><select name="profile_id">' + profileOptions + "</select></label>" +
         '<button class="btn" data-action="new-profile" type="button">新建配置档</button>' +
+        '<button class="btn" data-action="ai-import" type="button">导入已有配置</button>' +
       "</div>" +
-      '<div class="preset-block"><div class="preset-label">快速预设（填入下方字段）</div><div class="chips">' + presetChips + "</div></div>" +
+      '<div class="preset-block"><div class="preset-label">常用服务商（填入下方字段）</div><div class="chips">' + presetChips + "</div>" +
+        '<div class="catalog-row"><span class="hint">' + esc(catalogLabel) + "</span>" +
+        '<button class="mini" data-action="ai-catalog-refresh" type="button">刷新目录</button></div></div>' +
       '<div class="form-grid" style="margin-top:16px">' +
-        '<label class="field"><span>服务商</span><select name="provider">' +
-          [["openai", "OpenAI"], ["gemini", "Google Gemini"], ["custom", "OpenAI 兼容（自定义）"], ["lmstudio", "LM Studio（本机）"]].map(function (x) {
-            return '<option value="' + x[0] + '"' + (effective.provider === x[0] ? " selected" : "") + ">" + x[1] + "</option>";
-          }).join("") + "</select></label>" +
-        '<label class="field"><span>模型</span><input name="model" list="model-options" value="' + attr(stripModelRef(effective.model)) + '" placeholder="例如 gpt-4o-mini"></label>' +
+        '<label class="field"><span>服务商</span><select name="provider_preset">' + providerOptions + "</select>" +
+          '<input type="hidden" name="provider" value="' + attr(effective.provider || "custom") + '"></label>' +
+        '<label class="field"><span>模型（多个用逗号分隔）</span><div class="token-row">' +
+          '<input name="model" list="model-options" value="' + attr(modelValues) + '" placeholder="例如 gpt-4o-mini，多个用逗号分隔">' +
+          '<button class="btn" data-action="ai-discover-models" type="button">获取模型</button>' +
+        "</div></label>" +
         field("Base URL（可选）", "base_url", effective.base_url || "", "text", 'placeholder="留空使用服务商默认地址"') +
         '<label class="field"><span>API Key</span><div class="token-row">' +
           '<input name="api_key" type="password" value="" placeholder="' + (effective.api_key ? "已配置，留空表示不修改" : "粘贴 API Key") + '" autocomplete="off">' +
@@ -871,6 +1060,7 @@
             return '<option value="' + x[0] + '"' + ((ai.strategy || "single") === x[0] ? " selected" : "") + ">" + x[1] + "</option>";
           }).join("") + "</select></label>" +
       "</div>" +
+      '<div id="discovered-models" class="discovered-list">' + discoveredHTML + "</div>" +
       '<datalist id="model-options">' + suggestions.map(function (m) {
         return '<option value="' + attr(m) + '"></option>';
       }).join("") + "</datalist>" +
@@ -1035,7 +1225,7 @@
         (an.ai_category ? badge(an.ai_category, false) : "") +
         (an.ai_summary ? '<p>' + esc(an.ai_summary) + "</p>" : "") +
         (an.ai_comment ? '<p class="detail-comment">' + esc(an.ai_comment) + "</p>" : "") + "</div>" : "") +
-      (it.summary ? '<div class="detail-summary">' + esc(it.summary) + "</div>" : "") +
+      (it.summary ? '<div class="detail-summary">' + safeHtml(d.item.summary_html || esc(it.summary)) + "</div>" : "") +
       '<div class="detail-content">' + safeHtml(d.item.html_content || "") + "</div>";
     var footer = (it.url ? '<a class="btn primary" href="' + attr(it.url) + '" target="_blank" rel="noopener">打开原文</a>' : "") +
       '<button class="btn" data-action="star" data-id="' + attr(it.id) + '" data-starred="' + attr(it.starred || 0) + '" type="button">' +
@@ -1095,6 +1285,15 @@
     }, 300);
   });
 
+  document.addEventListener("input", function (e) {
+    if (e.target.id !== "discovered-search") return;
+    var term = String(e.target.value || "").toLowerCase();
+    var items = document.querySelectorAll("#discovered-models .discovered-item");
+    for (var i = 0; i < items.length; i++) {
+      items[i].style.display = (items[i].dataset.search || "").indexOf(term) >= 0 ? "" : "none";
+    }
+  });
+
   $("dialog-modal").addEventListener("click", function (e) {
     if (e.target === $("dialog-modal")) closeDialog();
   });
@@ -1135,12 +1334,25 @@
       } else if (kind === "ai-settings") {
         var next = Object.assign({}, state.aiSettings || {});
         var provider = String(fd.get("provider") || "").trim();
-        var model = String(fd.get("model") || "").trim();
+        var presetID = String(fd.get("provider_preset") || "").trim();
+        var chosenPreset = presetById(presetID);
+        var chosenName = chosenPreset ? chosenPreset.name : providerLabel(provider);
+        var rawModelInput = String(fd.get("model") || "").trim();
         var baseURL = String(fd.get("base_url") || "").trim();
         var key = String(fd.get("api_key") || "").trim();
         var rpm = Math.max(1, Math.round(Number(fd.get("requests_per_minute") || 10)));
-        if (!model) { toast("请填写模型 ID", true); return; }
-        model = modelRefFor(provider, model);
+        if (!rawModelInput) { toast("请填写模型 ID", true); return; }
+        var seenModels = {};
+        var models = rawModelInput.split(/[,，\n]/).map(function (m) { return m.trim(); }).filter(function (m) {
+          if (!m) return false;
+          var ref = modelRefFor(provider, m);
+          var lower = ref.toLowerCase();
+          if (seenModels[lower]) return false;
+          seenModels[lower] = 1;
+          return true;
+        }).map(function (m) { return modelRefFor(provider, m); });
+        if (!models.length) { toast("请填写模型 ID", true); return; }
+        var model = models[0];
 
         next.enabled = fd.get("enabled") === "on";
         next.quality_threshold = Math.round(Number(fd.get("quality_threshold") || 7));
@@ -1163,7 +1375,7 @@
         }
         if (!target) {
           var n = list.length + 1;
-          target = { id: "profile-" + n, name: providerLabel(provider), priority: n, requests_per_minute: rpm };
+          target = { id: "profile-" + n, name: chosenName, priority: n, requests_per_minute: rpm };
           while (list.some(function (x) { return x.id === target.id; })) {
             n += 1;
             target.id = "profile-" + n;
@@ -1171,29 +1383,21 @@
           }
           list.push(target);
         }
-        // Keep any extra models the profile already had; the edited one becomes
-        // primary so rotation order follows the user's choice. Extra models are
-        // dropped when the provider changes — a Gemini model id is meaningless
-        // on an OpenAI-compatible endpoint.
-        var sameProvider = String(target.provider || "") === provider;
-        var models = sameProvider ? (target.models || []).slice() : [];
-        if (sameProvider && !models.length && target.model) models = [target.model];
-        models = models.filter(function (m) { return m !== model; });
-        models.unshift(model);
-
+        // The text input now carries the complete model list (comma-separated),
+        // so save it as-is instead of trying to merge it with stale extras.
         target.provider = provider;
         target.model = model;
         target.models = models;
         target.base_url = baseURL;
         target.requests_per_minute = rpm;
         if (key) target.api_key = key;
-        if (!target.name) target.name = providerLabel(provider);
+        if (!target.name) target.name = chosenName;
 
         next.profiles = list;
         next.active_profile_id = target.id;
         next.provider = provider;
         next.model = model;
-        next.models = [model];
+        next.models = models;
         next.base_url = baseURL;
         if (key) next.api_key = key;
         state.activeProfileID = target.id;
@@ -1249,7 +1453,11 @@
     if (e.target.id === "daily-date" && e.target.value) { state.dailyDate = e.target.value; loadView("daily"); }
     if (e.target.id === "daily-type") { state.dailyType = e.target.value; loadView("daily"); }
     if (e.target.name === "adapter") { state.adapter = e.target.value; render(); }
-    if (e.target.name === "profile_id") { state.activeProfileID = e.target.value; render(); }
+    if (e.target.name === "profile_id") { state.activeProfileID = e.target.value; state.discoveredModels = []; render(); }
+    if (e.target.name === "provider_preset") {
+      var chosenProvider = presetById(e.target.value);
+      if (chosenProvider) applyProviderPreset(chosenProvider);
+    }
     if (e.target.name === "token_enabled") {
       var form = e.target.closest("form");
       var input = form && form.querySelector('input[name="api_token"]');
@@ -1314,28 +1522,67 @@
       }
       if (action === "provider-preset") {
         var preset = presetById(target.dataset.value);
-        var aiForm = document.querySelector('form[data-form="ai-settings"]');
-        if (preset && aiForm) {
-          var providerSel = aiForm.querySelector('[name="provider"]');
-          var baseInput = aiForm.querySelector('[name="base_url"]');
-          var modelInput = aiForm.querySelector('[name="model"]');
-          if (providerSel) providerSel.value = preset.provider;
-          if (baseInput) baseInput.value = preset.base_url;
-          if (modelInput) {
-            modelInput.value = preset.models.length ? preset.models[0] : "";
-            modelInput.setAttribute("list", "model-options");
-          }
-          var list = $("model-options");
-          if (list) {
-            list.innerHTML = preset.models.map(function (m) {
-              return '<option value="' + attr(m) + '"></option>';
+        if (preset) {
+          applyProviderPreset(preset);
+          toast(preset.base_url ? "已套用 " + preset.name + " 预设，填入 API Key 后保存" : "已套用 " + preset.name + " 预设");
+        }
+        return;
+      }
+      if (action === "ai-catalog-refresh") {
+        toast("正在刷新模型目录…");
+        var cr = await api("/api/ai/catalog?refresh=1");
+        if (cr && cr.providers && cr.providers.length) {
+          state.aiCatalog = cr;
+          toast("模型目录已更新（" + cr.providers.length + " 个服务商）");
+          render();
+        } else {
+          toast(cr && cr.error ? cr.error : "刷新目录失败", true);
+        }
+        return;
+      }
+      if (action === "ai-discover-models") {
+        var discoverForm = document.querySelector('form[data-form="ai-settings"]');
+        if (!discoverForm) return;
+        var df = new FormData(discoverForm);
+        var discoverProvider = String(df.get("provider") || "");
+        var discoverBase = String(df.get("base_url") || "");
+        var discoverKey = String(df.get("api_key") || "").trim();
+        var discoverProfile = String(df.get("profile_id") || "");
+        if (discoverProfile === "__new") discoverProfile = "";
+        toast("正在获取模型列表…");
+        var dr = await post("/api/ai/models/discover", {
+          provider: discoverProvider,
+          base_url: discoverBase,
+          api_key: discoverKey,
+          profile_id: discoverProfile
+        });
+        if (dr && dr.success && dr.models && dr.models.length) {
+          state.discoveredModels = dr.models;
+          var modelInput = discoverForm.querySelector('[name="model"]');
+          var currentModels = modelInput ? modelInput.value.split(/[,，\n]/).map(function (m) { return m.trim(); }).filter(Boolean) : [];
+          var discoveredBox = $("discovered-models");
+          if (discoveredBox) discoveredBox.innerHTML = renderDiscoveredModelsHTML(dr.models, currentModels);
+          var modelList = $("model-options");
+          if (modelList) {
+            modelList.innerHTML = dr.models.map(function (m) {
+              return '<option value="' + attr(m.id) + '"></option>';
             }).join("");
           }
-          var chips = document.querySelectorAll('#content [data-action="provider-preset"]');
-          for (var ci = 0; ci < chips.length; ci++) {
-            chips[ci].classList.toggle("is-active", chips[ci].dataset.value === preset.id);
-          }
-          toast(preset.base_url ? "已套用 " + preset.name + " 预设，填入 API Key 后保存" : "已套用 " + preset.name + " 预设");
+          toast("发现 " + dr.models.length + " 个模型，勾选后点「应用所选」");
+        } else {
+          toast(dr && dr.error ? dr.error : "获取模型失败", true);
+        }
+        return;
+      }
+      if (action === "ai-apply-models") { applyDiscoveredSelection(); return; }
+      if (action === "ai-import") {
+        toast("正在扫描本机配置…");
+        var ir = await post("/api/ai/import", { source: "auto", apply: true });
+        if (ir && ir.success) {
+          toast(ir.imported > 0 ? "已导入 " + ir.imported + " 个配置档" : "没有发现新的配置", false);
+          if (ir.imported > 0) await loadView("settings");
+        } else {
+          toast(ir && ir.error ? ir.error : "导入失败", true);
         }
         return;
       }
@@ -1417,8 +1664,35 @@
       }
       if (action === "logs-source") { await openLogs(id); return; }
       if (action === "ai-test") {
-        toast("正在测试模型…");
-        var tr = await post("/api/ai/test", {});
+        var aiState = state.aiSettings || {};
+        var currentProf = currentProfile(aiState);
+        var savedKey = (currentProf && currentProf.api_key) || aiState.api_key || "";
+        var testForm = document.querySelector('form[data-form="ai-settings"]');
+        var testPayload = {};
+        if (testForm) {
+          var tf = new FormData(testForm);
+          var testProvider = String(tf.get("provider") || "");
+          var testModel = String(tf.get("model") || "").split(/[,，\n]/)[0].trim();
+          if (!testModel) { toast("请先选择或填写模型 ID", true); return; }
+          var testKey = String(tf.get("api_key") || "").trim() || savedKey;
+          var testModelRef = modelRefFor(testProvider, testModel);
+          testPayload = {
+            profile: {
+              id: (currentProf && currentProf.id) || "default",
+              name: (currentProf && currentProf.name) || providerLabel(testProvider),
+              provider: testProvider,
+              api_key: testKey,
+              model: testModelRef,
+              models: [testModelRef],
+              base_url: String(tf.get("base_url") || ""),
+              requests_per_minute: Math.max(1, Math.round(Number(tf.get("requests_per_minute") || 10))),
+              disabled: false
+            },
+            system_prompt: String(tf.get("system_prompt") || "")
+          };
+        }
+        toast("正在测试当前表单的模型配置…");
+        var tr = await post("/api/ai/test", testPayload);
         var txt = typeof tr === "string" ? tr : JSON.stringify(tr, null, 2);
         openDialog("模型连通性测试", '<pre class="code-block result-block">' + esc(txt.slice(0, 6000)) + "</pre>", "", true); return;
       }

@@ -13,6 +13,7 @@ import {
   Cloud,
   Copy,
   Cpu,
+  Download,
   ExternalLink,
   Eye,
   EyeOff,
@@ -29,11 +30,12 @@ import {
   Sparkles,
   Terminal,
   Trash2,
+  Upload,
   WandSparkles,
   X,
   Zap,
 } from "lucide-react";
-import type { AIProviderProfile, AITestResult } from "@/types";
+import type { AIProviderProfile, AITestResult, AIUsageSummary } from "@/types";
 import {
   defaultModelRef,
   providerDescription,
@@ -41,11 +43,12 @@ import {
   findModelInfo,
   fromModelRef,
   kindLabel,
-  providerPresets,
-  resolvePreset,
+  resolvePresetFrom,
   toModelRef,
+  useProviderCatalog,
 } from "@/lib/model-catalog";
 import type { ModelInfo, ProviderKind, ProviderPreset } from "@/lib/model-catalog";
+import { api } from "@/lib/api";
 import { Mark, ScoreRing, SettingSection, Toggle } from "@/components/ui/Settings";
 import { useFeedback } from "@/components/ui/feedback-context";
 import { useTranslation } from "@/lib/i18n";
@@ -97,6 +100,7 @@ interface AISettingsViewProps {
   isSavingSettings: boolean;
   saveAISettings: () => void;
   resetAISettings: () => void;
+  reloadAISettings: () => Promise<void> | void;
   isAuthenticated: boolean;
 }
 
@@ -284,14 +288,21 @@ function ModelPicker({
           }}
         >
           {filtered.length > 0 ? (
-            filtered.map((model) => (
-              <ModelOption
-                key={model.id}
-                model={model}
-                active={fromModelRef(modelRef) === model.id}
-                onSelect={() => commit(model.id)}
-              />
-            ))
+            <>
+              {filtered.slice(0, 80).map((model) => (
+                <ModelOption
+                  key={model.id}
+                  model={model}
+                  active={fromModelRef(modelRef) === model.id}
+                  onSelect={() => commit(model.id)}
+                />
+              ))}
+              {filtered.length > 80 && (
+                <div className="px-3.5 py-2.5 text-[10.5px]" style={{ color: "var(--g-faint)", borderTop: "1px solid var(--g-line)" }}>
+                  仅显示前 80 个，继续输入可缩小范围
+                </div>
+              )}
+            </>
           ) : (
             <button
               type="button"
@@ -346,10 +357,12 @@ function ModelListEditor({
   preset,
   models,
   onChange,
+  action,
 }: {
   preset: ProviderPreset;
   models: string[];
   onChange: (models: string[]) => void;
+  action?: ReactNode;
 }) {
   const c = useAiSettingsCopy();
 
@@ -372,7 +385,10 @@ function ModelListEditor({
 
   return (
     <div className="g-field">
-      <FieldLabel hint={c.modelsHint}>{c.modelsLabel}</FieldLabel>
+      <div className="flex items-center justify-between gap-3 mb-2">
+        <FieldLabel hint={c.modelsHint}>{c.modelsLabel}</FieldLabel>
+        {action}
+      </div>
 
       {models.length === 0 ? (
         <div
@@ -713,19 +729,29 @@ export function AISettingsView(props: AISettingsViewProps) {
     isSavingSettings,
     saveAISettings,
     resetAISettings,
+    reloadAISettings,
     isAuthenticated,
   } = props;
 
   const { toast, confirm } = useFeedback();
   const { language } = useTranslation();
   const c = useAiSettingsCopy();
+  const catalog = useProviderCatalog();
   const [providerFilter, setProviderFilter] = useState<"all" | ProviderKind>("all");
   const [providerQuery, setProviderQuery] = useState("");
   const [showKey, setShowKey] = useState(false);
   const [openPrompt, setOpenPrompt] = useState<"system" | "daily" | null>(null);
   const [baseline, setBaseline] = useState<string | null>(null);
+  const [discovering, setDiscovering] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [liveModels, setLiveModels] = useState<Record<string, ModelInfo[]>>({});
+  const [usage, setUsage] = useState<AIUsageSummary | null>(null);
 
-  const preset = useMemo(() => resolvePreset(aiProvider, aiBaseUrl), [aiProvider, aiBaseUrl]);
+  const preset = useMemo(() => resolvePresetFrom(catalog.presets, aiProvider, aiBaseUrl), [catalog.presets, aiProvider, aiBaseUrl]);
+  const effectivePreset = useMemo(() => {
+    const discovered = liveModels[preset.id];
+    return discovered && discovered.length > 0 ? { ...preset, models: discovered } : preset;
+  }, [preset, liveModels]);
   const keyMissing = (aiProvider === "openai" || aiProvider === "gemini") && !aiApiKey.trim();
   const sortedProfiles = useMemo(
     () => [...aiProfiles].sort((a, b) => (a.priority || 999) - (b.priority || 999)),
@@ -743,6 +769,16 @@ export function AISettingsView(props: AISettingsViewProps) {
     if (!isLoadingSettings && baseline === null) setBaseline(signature);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isLoadingSettings, signature]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getAIUsage(7)
+      .then((data) => {
+        if (!cancelled && data?.success && data.summary) setUsage(data.summary as AIUsageSummary);
+      })
+      .catch(() => { /* usage is optional */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const isDirty = baseline !== null && signature !== baseline;
 
@@ -788,6 +824,57 @@ export function AISettingsView(props: AISettingsViewProps) {
     updateActiveProfile({ requests_per_minute: rpm });
   };
 
+  const handleDiscoverModels = async () => {
+    setDiscovering(true);
+    try {
+      const data = await api.discoverAIModels({
+        provider: aiProvider,
+        base_url: aiBaseUrl,
+        api_key: aiApiKey,
+        profile_id: activeProfileId,
+      });
+      if (data?.success && Array.isArray(data.models) && data.models.length > 0) {
+        const models: ModelInfo[] = data.models.map((model: { id: string; name?: string }) => ({
+          id: model.id,
+          name: model.name || model.id,
+          capabilities: [],
+        }));
+        setLiveModels((previous) => ({ ...previous, [preset.id]: models }));
+        if (aiModels.length === 0) {
+          setAiModels([toModelRef(preset.backend, models[0].id)]);
+        }
+        toast(c.discoverDoneTitle, c.discoverDoneBody(models.length), "success");
+      } else {
+        toast(c.discoverFailedTitle, data?.error || c.discoverFailedBody, "error");
+      }
+    } catch (err) {
+      toast(c.discoverFailedTitle, err instanceof Error ? err.message : c.discoverFailedBody, "error");
+    } finally {
+      setDiscovering(false);
+    }
+  };
+
+  const handleImportConfig = async () => {
+    setImporting(true);
+    try {
+      const data = await api.importAIConfig("auto", true);
+      if (data?.success) {
+        toast(
+          c.importDoneTitle,
+          data.imported > 0 ? c.importDoneBody(data.imported) : c.importEmptyBody,
+          data.imported > 0 ? "success" : "info"
+        );
+        if (data.imported > 0) await reloadAISettings();
+      } else {
+        toast(c.importFailedTitle, data?.error || c.importFailedBody, "error");
+      }
+    } catch (err) {
+      toast(c.importFailedTitle, err instanceof Error ? err.message : c.importFailedBody, "error");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   const runTest = () => {
     const draft: AIProviderProfile = {
       id: activeProfileId || "default",
@@ -814,12 +901,14 @@ export function AISettingsView(props: AISettingsViewProps) {
 
   const filteredPresets = useMemo(() => {
     const q = providerQuery.trim().toLowerCase();
-    return providerPresets.filter((p) => {
+    return catalog.presets.filter((p) => {
       if (providerFilter !== "all" && p.kind !== providerFilter) return false;
       if (!q) return true;
       return p.name.toLowerCase().includes(q) || p.legalName.toLowerCase().includes(q) || p.id.includes(q);
     });
-  }, [providerFilter, providerQuery]);
+  }, [catalog.presets, providerFilter, providerQuery]);
+
+  const visiblePresets = useMemo(() => filteredPresets.slice(0, 60), [filteredPresets]);
 
   if (isLoadingSettings) {
     return (
@@ -883,7 +972,25 @@ export function AISettingsView(props: AISettingsViewProps) {
           </span>
           <span>{c.metaThreshold} <b style={{ color: "var(--g-ink)" }}>≥ {aiQualityThreshold}</b></span>
           <span>{c.metaRate} <b style={{ color: "var(--g-ink)" }}>{aiRequestsPerMinute} {c.rateUnit}</b></span>
-          <span className="ml-auto hidden lg:inline">{c.catalogSource}</span>
+          <span className="ml-auto hidden lg:flex items-center gap-2">
+            <span className="flex items-center gap-1.5">
+              <span
+                className="w-1.5 h-1.5 rounded-full"
+                style={{ background: catalog.source === "live" ? "var(--g-signal)" : "var(--g-faint)" }}
+              />
+              {catalog.source === "live" ? c.catalogLive : c.catalogBuiltin}
+              {catalog.fetchedAt ? ` · ${new Date(catalog.fetchedAt).toLocaleDateString()}` : ""}
+            </span>
+            <button
+              type="button"
+              className="g-icon-btn !w-5 !h-5"
+              title={catalog.error || c.catalogRefresh}
+              onClick={catalog.refresh}
+              disabled={catalog.loading}
+            >
+              <RotateCcw size={11} className={catalog.loading ? "g-spin" : ""} />
+            </button>
+          </span>
         </div>
 
         <div className="mt-8 grid grid-cols-1 lg:grid-cols-[286px_minmax(0,1fr)] gap-6 items-start">
@@ -896,15 +1003,20 @@ export function AISettingsView(props: AISettingsViewProps) {
                   <div className="text-[13px] font-semibold mt-1.5">{c.railProfilesTitle}</div>
                 </div>
                 {isAuthenticated && (
-                  <button className="g-icon-btn" title={c.railAddProfile} onClick={handleAddAIProfile}>
-                    <Plus size={15} />
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button className="g-icon-btn" title={c.importConfig} onClick={handleImportConfig} disabled={importing}>
+                      {importing ? <Loader2 size={14} className="g-spin" /> : <Upload size={14} />}
+                    </button>
+                    <button className="g-icon-btn" title={c.railAddProfile} onClick={handleAddAIProfile}>
+                      <Plus size={15} />
+                    </button>
+                  </div>
                 )}
               </div>
               <div className="px-2.5 pb-2.5 space-y-1 max-h-[340px] overflow-y-auto g-scroll">
                 {sortedProfiles.map((profile, idx) => {
                   const active = profile.id === activeProfileId;
-                  const p = resolvePreset(profile.provider, profile.base_url || "");
+                  const p = resolvePresetFrom(catalog.presets, profile.provider, profile.base_url || "");
                   return (
                     <div
                       key={profile.id}
@@ -1032,6 +1144,27 @@ export function AISettingsView(props: AISettingsViewProps) {
               </div>
             )}
 
+            {/* Usage */}
+            {isAuthenticated && (
+              <div className="g-panel-flat p-4">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="g-eyebrow">{c.usageTitle(usage?.days ?? 7)}</div>
+                  <span className="g-mono text-[9.5px]" style={{ color: usage?.failed_requests ? "#e9be68" : "var(--g-faint)" }}>
+                    {usage?.failed_requests ? c.usageFailed(usage.failed_requests) : c.usageStable}
+                  </span>
+                </div>
+                <div className="text-[13px] font-semibold mt-1.5">
+                  {c.usageRequests(usage?.total_requests ?? 0)}
+                </div>
+                <div className="g-hint mt-1">
+                  {c.usageTokens(
+                    Number(usage?.total_tokens ?? 0).toLocaleString(),
+                    Math.round(usage?.avg_latency_ms ?? 0)
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Section index */}
             <div className="g-panel-flat p-4">
               <div className="g-eyebrow">{c.railIndex}</div>
@@ -1102,10 +1235,15 @@ export function AISettingsView(props: AISettingsViewProps) {
                     </div>
                   </div>
                   <div className="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2.5 g-stagger">
-                    {filteredPresets.map((p) => (
+                    {visiblePresets.map((p) => (
                       <ProviderTile key={p.id} preset={p} active={p.id === preset.id} onClick={() => handlePresetChange(p)} />
                     ))}
                   </div>
+                  {filteredPresets.length > visiblePresets.length && (
+                    <div className="mt-3 g-hint">
+                      {c.providerMore(visiblePresets.length, filteredPresets.length)}
+                    </div>
+                  )}
                   {filteredPresets.length === 0 && (
                     <div className="py-8 text-center text-[12px]" style={{ color: "var(--g-faint)" }}>{c.providerEmpty}</div>
                   )}
@@ -1140,7 +1278,22 @@ export function AISettingsView(props: AISettingsViewProps) {
                 </div>
 
                 <div className="mt-5">
-                  <ModelListEditor preset={preset} models={aiModels} onChange={setAiModels} />
+                  <ModelListEditor
+                    preset={effectivePreset}
+                    models={aiModels}
+                    onChange={setAiModels}
+                    action={(
+                      <button
+                        className="g-btn g-btn-secondary g-btn-sm"
+                        type="button"
+                        onClick={handleDiscoverModels}
+                        disabled={discovering}
+                      >
+                        {discovering ? <Loader2 size={12} className="g-spin" /> : <Download size={12} />}
+                        {c.discoverModels}
+                      </button>
+                    )}
+                  />
                 </div>
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
