@@ -58,14 +58,14 @@ changelog:
 release:
   github:
     owner: gusibi
-    name: mcp-web-capture
+    name: grabby
   header: |
     ## Grabby CLI {{ .Version }}
 
     ### 安装
 
     ```bash
-    curl -fsSL https://raw.githubusercontent.com/gusibi/mcp-web-capture/main/scripts/install.sh | bash
+    curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash
     ```
 
     ### 下载

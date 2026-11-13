@@ -52,7 +52,7 @@ Chrome 扩展负责在带登录态的浏览器中抓取内容，Go 服务负责�
 
 ### 1. 安装桌面 App
 
-从 [Releases](https://github.com/gusibi/mcp-web-capture/releases) 下载对应平台的安装包。
+从 [Releases](https://github.com/gusibi/grabby/releases) 下载对应平台的安装包。
 
 安装包是**单个自包含的可执行文件**：Go 服务端、HTTP / WebSocket / MCP、SQLite 和桌面界面全部打包在一起，
 不需要再安装 Go、Node、数据库或单独启动后端。唯一的外部依赖是系统自带的 WebView
@@ -133,7 +133,7 @@ cd Grabby-<版本>-Linux-amd64
 需要 Go 1.27.3+、Node.js 22+（仅构建 Web 界面时需要）。
 
 ```bash
-git clone https://github.com/gusibi/mcp-web-capture.git
+git clone https://github.com/gusibi/grabby.git
 cd grabby
 make app          # 构建 → 打包 dist/Grabby.app → 启动
 ```

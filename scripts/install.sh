@@ -2,12 +2,12 @@
 set -euo pipefail
 
 # Grabby CLI Installer
-# Usage: curl -fsSL https://raw.githubusercontent.com/gusibi/mcp-web-capture/main/scripts/install.sh | bash
+# Usage: curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash
 #
 # 安装 grabby 二进制到 ~/.local/bin/grabby
 # 配置文件目录: ~/.grabby/
 
-REPO="gusibi/mcp-web-capture"
+REPO="gusibi/grabby"
 BINARY="grabby"
 INSTALL_DIR="${GRABBY_INSTALL_DIR:-${HOME}/.local/bin}"
 CONFIG_DIR="${HOME}/.grabby"
