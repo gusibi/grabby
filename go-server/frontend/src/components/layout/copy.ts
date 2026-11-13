@@ -11,6 +11,7 @@ const zhTitles: TitleMap = {
   "ai-settings": { title: "模型接入", kicker: "INTELLIGENCE" },
   logs: { title: "抓取日志", kicker: "ACTIVITY" },
   device: { title: "设备与连接", kicker: "SYSTEM" },
+  backup: { title: "备份与恢复", kicker: "BACKUP" },
   "captures-extract": { title: "网页提取", kicker: "CAPTURES" },
   "captures-twitter": { title: "推文归档", kicker: "CAPTURES" },
 };
@@ -23,6 +24,7 @@ const enTitles: TitleMap = {
   "ai-settings": { title: "Model access", kicker: "INTELLIGENCE" },
   logs: { title: "Fetch logs", kicker: "ACTIVITY" },
   device: { title: "Devices", kicker: "SYSTEM" },
+  backup: { title: "Backup & restore", kicker: "BACKUP" },
   "captures-extract": { title: "Web extracts", kicker: "CAPTURES" },
   "captures-twitter": { title: "Tweet archive", kicker: "CAPTURES" },
 };
@@ -43,6 +45,7 @@ const zh = {
   navModel: "模型配置",
   navLogs: "抓取日志",
   navDevice: "设备与连接",
+  navBackup: "备份与恢复",
   lightMode: "切换浅色",
   darkMode: "切换深色",
   light: "浅色",
@@ -74,6 +77,7 @@ const en: ShellCopy = {
   navModel: "Model settings",
   navLogs: "Fetch logs",
   navDevice: "Devices",
+  navBackup: "Backup & restore",
   lightMode: "Switch to light",
   darkMode: "Switch to dark",
   light: "Light",

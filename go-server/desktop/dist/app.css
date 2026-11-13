@@ -258,6 +258,44 @@ code, pre, .mono { font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
 :root[data-platform="win"] .stat-value { font-weight: 600; font-size: 24px; }
 .stat-label { margin-top: 2px; font-size: 12px; color: var(--muted); }
 
+/* ---------- Today (compact overview) ---------- */
+.today-head { margin: 4px 0 14px; }
+.today-head-line { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.today-title { margin: 2px 0 0; font-size: 28px; font-weight: 650; letter-spacing: -0.02em; line-height: 1.15; }
+.today-desc { font-size: 12.5px; color: var(--muted); }
+.today-stats {
+  display: flex; flex-wrap: wrap; padding: 12px 0;
+  border: 1px solid var(--border); border-radius: var(--card-radius);
+  background: var(--surface); box-shadow: var(--card-shadow);
+}
+.today-stat { flex: 1 1 120px; padding: 0 18px; border-left: 1px solid var(--border); }
+.today-stat:first-child { border-left: 0; }
+.today-stat-value { font-size: 20px; font-weight: 700; letter-spacing: -0.02em; line-height: 1.2; }
+.today-stat-label { margin-top: 1px; font-size: 11.5px; color: var(--muted); }
+.today-bar {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px;
+  margin-top: 12px; padding: 10px 16px;
+  border: 1px solid var(--border); border-radius: var(--card-radius);
+  background: var(--surface); box-shadow: var(--card-shadow);
+}
+.today-conn { display: flex; align-items: center; gap: 8px; min-width: 0; font-size: 12.5px; }
+.today-conn-text { font-weight: 600; white-space: nowrap; }
+.today-conn-addr { font-size: 11px; color: var(--faint); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.today-links { display: flex; flex-wrap: wrap; gap: 6px; }
+.today-report {
+  margin-top: 12px; padding: 14px 18px;
+  border: 1px solid var(--border); border-left: 3px solid var(--accent);
+  border-radius: var(--card-radius); background: var(--surface); box-shadow: var(--card-shadow);
+}
+.today-report-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 14px; }
+.today-report-title { margin-top: 3px; font-size: 15px; font-weight: 650; }
+.today-report-preview {
+  margin-top: 8px; font-size: 12.5px; line-height: 1.6; color: var(--muted);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.today-report-meta { margin-top: 8px; font-size: 11px; color: var(--faint); }
+.load-more { display: flex; justify-content: center; margin-top: 22px; }
+
 /* ---------- Cards ---------- */
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(248px, 1fr)); gap: 18px; }
 :root[data-platform="win"] .card-grid { gap: 14px; }
@@ -377,6 +415,10 @@ code, pre, .mono { font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
 .chip:hover { color: var(--text); }
 .chip.is-active { border-color: transparent; background: var(--accent); color: #fff; }
 :root[data-platform="win"] .chip { border-radius: 4px; }
+.filter-row { display: flex; align-items: flex-start; gap: 10px; margin-top: 10px; }
+.filter-label { flex: 0 0 auto; min-width: 44px; padding-top: 6px; font-size: 11.5px; color: var(--faint); }
+.chip-count { margin-left: 3px; font-size: 10px; opacity: 0.75; }
+.chip.is-active .chip-count { opacity: 0.9; }
 
 /* ---------- Added: forms ---------- */
 input, textarea, select { user-select: text; }
@@ -482,6 +524,7 @@ a.report-link:hover { color: var(--accent); }
 .detail-ai { margin: 16px 0; padding: 14px 16px; border-radius: 12px; background: var(--surface-alt); }
 .detail-ai p { margin: 10px 0 0; font-size: 13px; line-height: 1.6; }
 .detail-ai .detail-comment { color: var(--muted); }
+.detail-ai .detail-analysis-meta { font-size: 11px; color: var(--faint); }
 .detail-summary { margin: 14px 0; padding: 12px 14px; border-left: 3px solid var(--accent); background: var(--surface-alt); font-size: 13px; line-height: 1.6; }
 .detail-content { font-size: 13.5px; line-height: 1.75; color: var(--text); }
 .detail-content p { margin: 0 0 12px; }

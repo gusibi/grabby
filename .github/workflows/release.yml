@@ -5,14 +5,24 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      version:
+        description: "要构建的版本号（不带 v，例如 0.2.0）；手动构建只上传产物，不创建 Release"
+        required: true
 
 permissions:
   contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   GO_VERSION: "1.27.3"
   NODE_VERSION: "22"
   GO_PROXY: "https://proxy.golang.org,direct"
+  GOPROXY: "https://proxy.golang.org,direct"
+  VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
   frontend:
@@ -56,7 +66,7 @@ jobs:
       - name: Package extension
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#v}"
           mkdir -p dist
           cd chrome-extension
           zip -r "../dist/grabby-extension-${VERSION}.zip" \
@@ -110,7 +120,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#v}"
           mkdir -p ../dist/stage
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
@@ -153,7 +163,7 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
+          VERSION="${VERSION#v}"
           OS="${GOOS}"
           if [ "$OS" = "darwin" ]; then OS="Darwin"; fi
           if [ "$OS" = "linux" ]; then OS="Linux"; fi
@@ -184,8 +194,8 @@ jobs:
             dist/grabby_*.zip
           if-no-files-found: error
 
-  macos-app:
-    name: Build macOS app
+  desktop-macos:
+    name: Build macOS app (universal DMG)
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
@@ -194,31 +204,83 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: go-server/go.sum
-      - name: Stamp version
-        run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${VERSION}" go-server/desktop/Info.plist
-          /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${VERSION}" go-server/desktop/Info.plist
-      - name: Build .app bundle
-        run: make package-macos-app
-      - name: Ad-hoc sign
-        run: codesign --force --deep --sign - dist/Grabby.app
-      - name: Package
-        run: |
-          set -euo pipefail
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p dist/release
-          ditto -c -k --sequesterRsrc --keepParent dist/Grabby.app "dist/release/Grabby-macOS-${VERSION}.zip"
+      - name: Build DMG
+        run: bash scripts/package-desktop.sh macos "${VERSION}"
       - uses: actions/upload-artifact@v4
         with:
-          name: macos-app
-          path: dist/release/Grabby-macOS-*.zip
+          name: desktop-macos
+          path: dist/Grabby-*-macOS-*.dmg
           if-no-files-found: error
+
+  desktop-windows:
+    name: Build Windows app (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-server/go.sum
+      - name: Install packaging tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y nsis zip
+      - name: Build exe, zip and installer
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: bash scripts/package-desktop.sh windows "${VERSION}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-windows-${{ matrix.arch }}
+          path: |
+            dist/Grabby-*-Windows-${{ matrix.arch }}.exe
+            dist/Grabby-*-Windows-${{ matrix.arch }}.zip
+            dist/Grabby-*-Windows-${{ matrix.arch }}-setup.exe
+          if-no-files-found: error
+
+  desktop-linux:
+    name: Build Linux app
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-server/go.sum
+      - name: Build binary, tarball and deb
+        run: bash scripts/package-desktop.sh linux "${VERSION}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-linux
+          path: |
+            dist/Grabby-*-Linux-*.tar.gz
+            dist/grabby_*.deb
+          if-no-files-found: error
+
+  test:
+    name: Go tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: go-server/go.sum
+      - name: Run Go tests
+        working-directory: go-server
+        run: go test ./...
 
   release:
     name: Create GitHub release
-    needs: [extension, server, cli, macos-app]
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [test, extension, server, cli, desktop-macos, desktop-windows, desktop-linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
@@ -227,8 +289,19 @@ jobs:
           path: dist
       - uses: actions/download-artifact@v4
         with:
-          name: macos-app
+          pattern: desktop-macos
           path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-windows-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-linux
+          path: dist
+          merge-multiple: true
       - uses: actions/download-artifact@v4
         with:
           pattern: server-*

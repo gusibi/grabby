@@ -4,6 +4,7 @@ import {
   AtSign,
   ChevronLeft,
   ChevronRight,
+  DatabaseBackup,
   FileText,
   Globe,
   LayoutGrid,
@@ -223,6 +224,13 @@ export function Sidebar({
               active={currentView === "device"}
               collapsed={collapsed}
               onClick={() => setCurrentView("device")}
+            />
+            <NavItem
+              icon={<DatabaseBackup size={15} />}
+              label={c.navBackup}
+              active={currentView === "backup"}
+              collapsed={collapsed}
+              onClick={() => setCurrentView("backup")}
             />
           </NavGroup>
         )}

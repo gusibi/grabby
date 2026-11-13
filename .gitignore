@@ -101,3 +101,6 @@ grabby-v2-complete-*.html
 
 # Raw browser captures (may contain personal account data)
 go-server/testdata/raw/
+
+# Generated Windows resources (created per build/tag by go-winres)
+go-server/rsrc_windows_*.syso

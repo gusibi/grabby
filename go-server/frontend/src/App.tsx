@@ -14,6 +14,7 @@ import { AISettingsView } from "@/features/ai-settings/AISettingsView";
 import { LogsView } from "@/features/logs/LogsView";
 import { DailyReportView } from "@/features/daily-report/DailyReportView";
 import { DeviceSettingsView } from "@/features/device/DeviceSettingsView";
+import { BackupView } from "@/features/backup/BackupView";
 import { ExtractCapturesView } from "@/features/captures/ExtractCapturesView";
 import { TwitterCapturesView } from "@/features/captures/TwitterCapturesView";
 import { AuthDialog } from "@/features/auth/AuthDialog";
@@ -58,7 +59,7 @@ export default function App() {
   const [currentView, setCurrentView] = useState<AppView>(() => {
     const raw = window.location.hash.replace(/^#/, "");
     const parts = raw.split("?")[0].replace(/^\//, "").split("/");
-    const valid: AppView[] = ["grid", "settings", "ai-settings", "logs", "device", "daily", "captures-extract", "captures-twitter"];
+    const valid: AppView[] = ["grid", "settings", "ai-settings", "logs", "device", "backup", "daily", "captures-extract", "captures-twitter"];
     return valid.includes(parts[0] as AppView) ? (parts[0] as AppView) : "grid";
   });
   const [items, setItems] = useState<ScrapedItem[]>([]);
@@ -765,7 +766,7 @@ export default function App() {
       const [pathPart, queryPart] = rawHash.split('?');
       const parts = pathPart.replace(/^\//, '').split('/');
       const params = new URLSearchParams(queryPart || '');
-      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily', 'captures-extract', 'captures-twitter'];
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'backup', 'daily', 'captures-extract', 'captures-twitter'];
       const hashView = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
       const hashDate = parts[1];
       const hashType = parts[2];
@@ -797,7 +798,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const protectedViews: AppView[] = ["settings", "ai-settings", "device", "daily"];
+    const protectedViews: AppView[] = ["settings", "ai-settings", "device", "backup", "daily"];
     if (!authRequired || isAuthenticated || !protectedViews.includes(currentView)) {
       return;
     }
@@ -849,7 +850,7 @@ export default function App() {
       const [pathPart, queryPart] = currentHash.split('?');
       const parts = pathPart.replace(/^\//, '').split('/');
       const params = new URLSearchParams(queryPart || '');
-      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'daily', 'captures-extract', 'captures-twitter'];
+      const validViews: AppView[] = ['grid', 'settings', 'ai-settings', 'logs', 'device', 'backup', 'daily', 'captures-extract', 'captures-twitter'];
       const view = validViews.includes(parts[0] as AppView) ? (parts[0] as AppView) : 'grid';
       const date = parts[1];
       const type = parts[2];
@@ -888,7 +889,7 @@ export default function App() {
     // Wait until the session has been resolved: otherwise a deep link to an
     // admin view is bounced back to the grid while auth is still loading.
     if (!authReady) return;
-    const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device", "captures-extract", "captures-twitter"];
+    const adminViews: AppView[] = ["settings", "ai-settings", "logs", "device", "backup", "captures-extract", "captures-twitter"];
     if (authRequired && !isAuthenticated && adminViews.includes(currentView)) {
       setCurrentView("grid");
     }
@@ -1050,6 +1051,17 @@ export default function App() {
 
                 {currentView === "device" && (
                   <DeviceSettingsView isAuthenticated={isAuthenticated} />
+                )}
+
+                {currentView === "backup" && (
+                  <BackupView
+                    sources={sources}
+                    onImported={() => {
+                      fetchSources();
+                      fetchStats();
+                      fetchAISettings();
+                    }}
+                  />
                 )}
 
                 {currentView === "captures-extract" && (

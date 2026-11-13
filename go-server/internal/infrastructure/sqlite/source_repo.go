@@ -73,6 +73,35 @@ func (d *Database) InsertSource(src Source) error {
 	return err
 }
 
+// UpsertSource inserts a source or overwrites its user-editable fields when the
+// id already exists. Runtime bookkeeping columns (ETag, last fetch status) are
+// left untouched so a config restore does not erase the local sync state.
+func (d *Database) UpsertSource(src Source) error {
+	category := src.Category
+	if category == "" {
+		category = "General"
+	}
+	enabled := src.Enabled
+	if enabled != 0 {
+		enabled = 1
+	}
+	_, err := d.db.Exec(`
+		INSERT INTO sources (id, name, type, url, schedule, enabled, default_category, config, category, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+		ON CONFLICT(id) DO UPDATE SET
+			name = excluded.name,
+			type = excluded.type,
+			url = excluded.url,
+			schedule = excluded.schedule,
+			enabled = excluded.enabled,
+			default_category = excluded.default_category,
+			config = excluded.config,
+			category = excluded.category,
+			updated_at = CURRENT_TIMESTAMP
+	`, src.ID, src.Name, src.Type, src.URL, src.Schedule, enabled, src.DefaultCategory, src.Config, category)
+	return err
+}
+
 func (d *Database) UpdateSource(src Source) error {
 	category := src.Category
 	if category == "" {

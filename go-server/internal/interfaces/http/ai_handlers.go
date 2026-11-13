@@ -460,54 +460,7 @@ func (h *AIHandlers) HandleSaveSettings(c echo.Context) error {
 // persistSettings normalizes, stores and reloads one AI settings document. It is
 // shared by the settings endpoint and the config importer.
 func (h *AIHandlers) persistSettings(req ai.AISettings) error {
-	// Normalize settings
-	req = ai.NormalizeAISettings(req)
-
-	// 1. Save to SQLite database
-	enabledStr := "false"
-	if req.Enabled {
-		enabledStr = "true"
-	}
-	_ = h.db.SaveSetting("ai_enabled", enabledStr)
-	_ = h.db.SaveSetting("ai_provider", req.Provider)
-	_ = h.db.SaveSetting("ai_api_key", req.APIKey)
-	_ = h.db.SaveSetting("ai_model", req.Model)
-	_ = h.db.SaveSetting("ai_base_url", req.BaseURL)
-	_ = h.db.SaveSetting("ai_quality_threshold", strconv.Itoa(req.QualityThreshold))
-	_ = h.db.SaveSetting("ai_system_prompt", req.SystemPrompt)
-	_ = h.db.SaveSetting("ai_daily_prompt", req.DailyPrompt)
-	_ = h.db.SaveSetting("ai_active_profile_id", req.ActiveProfileID)
-	if profilesBytes, err := json.Marshal(req.Profiles); err == nil {
-		_ = h.db.SaveSetting("ai_provider_profiles", string(profilesBytes))
-	}
-
-	morningEnabledStr := "false"
-	if req.MorningReportEnabled {
-		morningEnabledStr = "true"
-	}
-	eveningEnabledStr := "false"
-	if req.EveningReportEnabled {
-		eveningEnabledStr = "true"
-	}
-	_ = h.db.SaveSetting("ai_morning_report_enabled", morningEnabledStr)
-	_ = h.db.SaveSetting("ai_evening_report_enabled", eveningEnabledStr)
-	_ = h.db.SaveSetting("ai_morning_report_time", req.MorningReportTime)
-	_ = h.db.SaveSetting("ai_evening_report_time", req.EveningReportTime)
-
-	// 1b. Normalized tables (connections / models / route) are authoritative
-	// for the engine and the usage dashboard.
-	if err := h.db.ReplaceAIConnections(req.Profiles); err != nil {
-		return fmt.Errorf("save AI connections: %w", err)
-	}
-	if err := h.db.SaveAIRoute(req.Strategy, req.Profiles); err != nil {
-		return fmt.Errorf("save AI route: %w", err)
-	}
-
-	// 2. Reload settings in the AI Engine
-	if err := h.aiEngine.ReloadSettings(req); err != nil {
-		return fmt.Errorf("reload AI engine settings: %w", err)
-	}
-	return nil
+	return appai.PersistSettings(h.db, h.aiEngine, req)
 }
 
 // HandleTestConnection tests the AI connection. When the request carries a

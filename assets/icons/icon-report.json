@@ -1,12 +1,12 @@
 {
   "source": {
-    "path": "/Users/gusi/Github/grabby/assets/logo-1024.png",
+    "path": "/Users/gusi/Github/grabby/assets/logo-new.png",
     "format": "PNG",
     "size": [
-      1024,
-      1024
+      1254,
+      1254
     ],
-    "sha256": "a0938968dcd757ed38da9288e25b2866727fdbc3beb9ac9c4d611266f0bf9089"
+    "sha256": "475b77bf12af96b0bfc9d461a28f91a5b7c02c377056440902c9ab46b462d277"
   },
   "options": {
     "platforms": [
@@ -16,7 +16,7 @@
     ],
     "fit": "auto",
     "background": null,
-    "mac_style": "system-mask",
+    "mac_style": "rounded",
     "name": "grabby"
   },
   "warnings": [],

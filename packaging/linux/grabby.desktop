@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Grabby
+Name[zh_CN]=Grabby
+Comment=Local-first web capture and AI reading desk
+Comment[zh_CN]=本地优先的浏览器采集 + AI 阅读台
+Exec=/opt/grabby/grabby
+Icon=grabby
+Terminal=false
+Categories=Network;Utility;
+Keywords=capture;reader;rss;ai;
+StartupNotify=true

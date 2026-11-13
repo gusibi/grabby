@@ -23,10 +23,12 @@
     category: "",
     sourceCategory: "",
     aiCategory: "",
-    health: null, stats: null, items: [], browsers: [],
+    health: null, stats: null, items: [], browsers: [], itemsCursor: "",
     sources: [], sourceCategories: [], aiCategories: [], logs: [],
     aiSettings: null, aiStats: null, aiItems: [], aiCatalog: null, aiUsage: null,
+    aiTab: "items",
     discoveredModels: [],
+    pendingImport: null,
     daily: null, dailyList: [], dailyDate: dateStr(new Date()), dailyType: "daily",
     adapter: "twitter-search", adapterResult: null, adapterBusy: false,
     captures: [],
@@ -176,13 +178,14 @@
     }).join("") + "</div>";
   }
 
-  function itemsUrl() {
+  function itemsUrl(cursor) {
     var p = ["limit=60"];
     var base;
     if (state.filter === "quality") {
       base = "/open/api/ai/items?";
       p.push("score_min=7");
       if (state.aiCategory) p.push("category=" + encodeURIComponent(state.aiCategory));
+      if (state.sourceCategory) p.push("source_category=" + encodeURIComponent(state.sourceCategory));
     } else {
       base = "/open/api/items?";
       if (state.filter === "starred") p.push("starred=1");
@@ -190,6 +193,7 @@
       if (state.category) p.push("category=" + encodeURIComponent(state.category));
       if (state.sourceCategory) p.push("source_category=" + encodeURIComponent(state.sourceCategory));
     }
+    if (cursor) p.push("cursor=" + encodeURIComponent(cursor));
     return base + p.join("&");
   }
 
@@ -209,15 +213,19 @@
       d = await fetchAll({
         health: api("/open/api/health"), stats: api("/open/api/stats"),
         items: api(itemsUrl()), browsers: api("/api/browsers"),
-        aiCategories: api("/open/api/ai/categories")
+        aiCategories: api("/open/api/ai/categories"),
+        // Only the newest two reports are needed to preview today's latest one,
+        // and this keeps the 今天 page from downloading the whole archive.
+        dailyList: api("/open/api/ai/daily/list?limit=2")
       });
     } else if (view === "sources" || view === "news") {
       d = await fetchAll({
-        sources: api("/api/sources"), stats: api("/open/api/stats"),
+        health: api("/open/api/health"), sources: api("/api/sources"), stats: api("/open/api/stats"),
         captures: api("/api/captures/extract?limit=8")
       });
     } else if (view === "ai") {
       d = await fetchAll({
+        health: api("/open/api/health"),
         aiSettings: api("/api/ai/settings"), aiStats: api("/open/api/ai/stats"),
         aiCategories: api("/open/api/ai/categories"),
         aiUsage: api("/api/ai/usage?days=7"),
@@ -226,6 +234,7 @@
       });
     } else if (view === "daily") {
       d = await fetchAll({
+        health: api("/open/api/health"),
         daily: api("/open/api/ai/daily?date=" + encodeURIComponent(state.dailyDate) + "&type=" + encodeURIComponent(state.dailyType)),
         dailyList: api("/open/api/ai/daily/list?limit=30")
       });
@@ -256,6 +265,7 @@
         });
       }
       state.items = list;
+      state.itemsCursor = d.items.cursor || d.items.next_cursor || "";
     }
     if (d.browsers) state.browsers = d.browsers.browsers || [];
     if (d.aiCategories) state.aiCategories = d.aiCategories.categories || [];
@@ -296,7 +306,7 @@
   }
 
   async function reloadItems() {
-    var d = await fetchAll({ items: api(itemsUrl()) });
+    var d = await fetchAll({ items: api(itemsUrl("")) });
     if (d.items) {
       var list = d.items.items || [];
       if (state.filter === "quality" && state.query) {
@@ -306,8 +316,26 @@
         });
       }
       state.items = list;
+      state.itemsCursor = d.items.cursor || d.items.next_cursor || "";
       render();
     }
+  }
+
+  async function loadMoreItems() {
+    if (!state.itemsCursor) return;
+    var scroll = $("content").scrollTop;
+    var d = await api(itemsUrl(state.itemsCursor));
+    var more = d.items || [];
+    if (state.filter === "quality" && state.query) {
+      var q = state.query.toLowerCase();
+      more = more.filter(function (it) {
+        return ((it.title || "") + " " + (it.ai_summary || it.summary || "")).toLowerCase().indexOf(q) >= 0;
+      });
+    }
+    state.items = state.items.concat(more);
+    state.itemsCursor = d.cursor || d.next_cursor || "";
+    render();
+    $("content").scrollTop = scroll;
   }
 
   /* ---------------- Views ---------------- */
@@ -316,25 +344,78 @@
     var s = state.stats || {}, h = state.health || {};
     var date = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
     var connected = !!h.browser_connected;
-    var html = head("GRABBY", "今天", date + " · 你的浏览器采集概览");
-    html += statGrid([
-      [s.total_count == null ? "—" : s.total_count, "已归档内容"],
-      [s.unread_count == null ? "—" : s.unread_count, "未读"],
-      [s.starred_count == null ? "—" : s.starred_count, "已收藏"],
+    var report = latestReportForDate(state.dailyList, dateStr(new Date()));
+
+    var html = '<div class="page-head today-head"><div class="eyebrow">GRABBY</div>' +
+      '<div class="today-head-line"><h1 class="today-title">今天</h1>' +
+      '<span class="today-desc">' + esc(date) + " · 你的浏览器采集概览</span></div></div>";
+
+    // One compact strip instead of four oversized cards.
+    html += '<div class="today-stats">' + [
+      [s.total_count, "已归档"],
+      [s.unread_count, "未读"],
+      [s.starred_count, "已收藏"],
       [h.browser_count == null ? "—" : h.browser_count, "已连接浏览器"]
-    ]);
-    html += '<div class="panel" style="margin-top:18px">' +
-      '<div class="row"><div><div class="row-label">浏览器扩展</div>' +
-      '<div class="row-value big">' + (connected ? "已连接 · 可以作为中转执行抓取" : "未连接 · 请在 Chrome 中安装并连接扩展") + "</div></div>" +
-      badge(connected ? "在线" : "离线", connected) + "</div>" +
-      '<div class="hint">扩展地址 ws://localhost:' + esc(location.port || "5040") + "/ws_browser</div></div>";
-    html += '<div class="quick-grid">' +
-      '<button class="quick" data-action="goto" data-view="sources" type="button"><span>订阅源</span><small>' + esc(state.sources.length || asNames(s.source_categories).length) + ' 个已配置</small></button>' +
-      '<button class="quick" data-action="goto" data-view="daily" type="button"><span>AI 日报</span><small>查看今日总结</small></button>' +
-      '<button class="quick" data-action="goto" data-view="news" type="button"><span>新闻源</span><small>平台采集与归档</small></button>' +
-      "</div>";
+    ].map(function (x) {
+      return '<div class="today-stat"><div class="today-stat-value">' + esc(x[0] == null ? "—" : x[0]) +
+        '</div><div class="today-stat-label">' + esc(x[1]) + "</div></div>";
+    }).join("") + "</div>";
+
+    html += '<div class="today-bar">' +
+      '<div class="today-conn">' +
+        '<span class="status-dot' + (connected ? " ok" : "") + '"></span>' +
+        '<span class="today-conn-text">' + (connected ? "扩展已连接" : "扩展未连接") + "</span>" +
+        '<span class="today-conn-addr mono">ws://localhost:' + esc(location.port || "5040") + "/ws_browser</span>" +
+        badge(connected ? "在线" : "离线", connected) +
+      "</div>" +
+      '<div class="today-links">' +
+        '<button class="mini" data-action="goto" data-view="sources" type="button">订阅源 ' +
+          esc(state.sources.length || asNames(s.source_categories).length) + "</button>" +
+        '<button class="mini" data-action="goto" data-view="news" type="button">新闻源</button>' +
+        '<button class="mini" data-action="goto" data-view="daily" type="button">AI 日报</button>' +
+      "</div></div>";
+
+    if (report) html += todayReportCard(report);
+
     html += '<h2 class="section-title">最新内容</h2>' + cards(state.items.slice(0, 12), true);
     return html;
+  }
+
+  // Pull the first readable paragraph out of a stored daily report so the
+  // 今天 page can preview it without rendering the whole document.
+  function reportPreviewText(r) {
+    try {
+      var doc = JSON.parse(r.content || "{}");
+      var sections = dailySections(doc);
+      if (sections) {
+        var keys = Object.keys(sections);
+        for (var i = 0; i < keys.length; i++) {
+          var sec = sections[keys[i]];
+          var items = sec && Array.isArray(sec.items) ? sec.items : [];
+          for (var j = 0; j < items.length; j++) {
+            var text = items[j] && (items[j].summary || items[j].comment);
+            if (text) return String(text);
+          }
+        }
+      }
+      if (doc.summary) return String(doc.summary);
+    } catch (e) { /* markdown reports have no sections */ }
+    return "";
+  }
+
+  function todayReportCard(r) {
+    var type = r.report_type || "daily";
+    var date = r.report_date || r.date || "";
+    var preview = reportPreviewText(r);
+    return '<div class="today-report">' +
+      '<div class="today-report-head">' +
+        '<div class="today-report-heading"><span class="eyebrow">今日' + esc(reportTypeLabel(type)) + "</span>" +
+          '<div class="today-report-title">' + esc(r.title || (date + " · " + reportTypeLabel(type))) + "</div></div>" +
+        '<button class="mini" data-action="daily-open" data-date="' + attr(date) + '" data-type="' + attr(type) + '" type="button">查看日报</button>' +
+      "</div>" +
+      (preview ? '<div class="today-report-preview">' + esc(preview) + "</div>" : "") +
+      '<div class="today-report-meta">生成于 ' + esc(fmtTime(r.generated_at)) +
+        (r.total_items ? " · 共 " + esc(r.total_items) + " 条 / " + esc(r.quality_items || 0) + " 条优质" : "") + "</div></div>";
   }
 
   function chips(items, current, action, key) {
@@ -348,21 +429,47 @@
   }
 
   function renderLibrary() {
-    var html = head("内容库", "全部内容", "共 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集");
+    var s = state.stats || {};
+    var filtered = state.filter !== "all" || !!state.query || !!state.category || !!state.sourceCategory;
+    // state.items only holds the current page, so fall back to the library
+    // totals for the unfiltered view instead of showing "共 60 条".
+    var total = !filtered && s.total_count != null ? s.total_count : state.items.length;
+    var desc = filtered
+      ? "当前显示 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集"
+      : "共 " + total + " 条 · 来自 RSS、新闻源与浏览器采集";
+    var html = head("内容库", "全部内容", desc);
     html += '<div class="toolbar">' +
       '<div class="segmented">' +
         '<button class="seg' + (state.filter === "all" ? " is-active" : "") + '" data-action="filter" data-value="all" type="button">全部</button>' +
         '<button class="seg' + (state.filter === "starred" ? " is-active" : "") + '" data-action="filter" data-value="starred" type="button">已收藏</button>' +
         '<button class="seg' + (state.filter === "quality" ? " is-active" : "") + '" data-action="filter" data-value="quality" type="button">AI 优质</button>' +
       "</div>" +
-      (state.sourceCategory ? '<button class="chip is-active" data-action="clear-group" type="button">来源分组：' +
-        esc(state.sourceCategory) + " ×</button>" : "") +
       "</div>";
+
+    // Source groups (体育新闻 / 财经新闻 …) are the filter people reach for
+    // most, so keep them one click away instead of hiding them behind the nav.
+    var srcCats = (s.source_categories || []).slice();
+    if (srcCats.length) {
+      var srcUnread = s.source_category_unread || {};
+      html += '<div class="filter-row"><span class="filter-label">来源</span><div class="chips">' +
+        '<button class="chip' + (!state.sourceCategory ? " is-active" : "") + '" data-action="source-all" type="button">全部</button>' +
+        srcCats.map(function (name) {
+          return '<button class="chip' + (state.sourceCategory === name ? " is-active" : "") +
+            '" data-action="source-category" data-value="' + attr(name) + '" type="button">' + esc(name) +
+            (srcUnread[name] != null ? ' <span class="chip-count">' + esc(srcUnread[name]) + "</span>" : "") + "</button>";
+        }).join("") + "</div></div>";
+    }
+
     var quality = state.filter === "quality";
     var cats = asNames(quality ? state.aiCategories : (state.stats && state.stats.categories));
-    if (cats.length) html += chips(cats, quality ? state.aiCategory : state.category,
-      quality ? "quality-category" : "category", "value");
+    if (cats.length) {
+      html += '<div class="filter-row"><span class="filter-label">' + (quality ? "AI 分类" : "类型") + "</span>" +
+        chips(cats, quality ? state.aiCategory : state.category, quality ? "quality-category" : "category", "value") + "</div>";
+    }
     html += '<div style="height:16px"></div>' + cards(state.items, false);
+    if (state.itemsCursor) {
+      html += '<div class="load-more"><button class="btn" data-action="load-more" type="button">加载更多</button></div>';
+    }
     return html;
   }
 
@@ -746,39 +853,47 @@
   function renderAi() {
     var s = state.aiSettings || {};
     var st = state.aiStats || {};
+    var tab = state.aiTab === "overview" ? "overview" : "items";
     var html = head("智能", "AI 分析", "每条新内容自动进入分析队列，按质量评分筛选优质内容与日报素材");
-    html += statGrid([
-      [st.total_processed == null ? "—" : st.total_processed, "已分析"],
-      [st.total_pending == null ? "—" : st.total_pending, "待处理"],
-      [st.average_score == null ? "—" : Number(st.average_score).toFixed(1), "平均评分"],
-      [st.queue_length == null ? "—" : st.queue_length, "队列长度"]
-    ]);
-    var usage = state.aiUsage || {};
-    html += '<div class="panel" style="margin-top:18px"><h3>用量 · 近 ' + esc(usage.days || 7) + " 天</h3>" +
-      '<div class="row"><span class="row-label">调用</span><span class="row-value">' + esc(usage.total_requests || 0) + " 次" +
-        (usage.failed_requests ? " · " + esc(usage.failed_requests) + " 次失败" : "") + "</span></div>" +
-      '<div class="row"><span class="row-label">Tokens</span><span class="row-value mono">' +
-        esc(Number(usage.prompt_tokens || 0).toLocaleString()) + " 输入 / " +
-        esc(Number(usage.completion_tokens || 0).toLocaleString()) + " 输出</span></div>" +
-      '<div class="row"><span class="row-label">平均延迟</span><span class="row-value mono">' +
-        esc(Math.round(usage.avg_latency_ms || 0)) + " ms</span></div></div>";
-    html += '<div class="toolbar" style="margin-top:18px">' +
-      '<button class="btn" data-action="ai-test" type="button">测试模型连通性</button>' +
-      '<button class="btn" data-action="ai-eval" type="button">启动全量评测</button>' +
-      '<button class="btn" data-action="goto" data-view="settings" type="button">模型设置</button>' +
-      '<span class="toolbar-note">模型、提示词与日报定时已移到「设置」页</span></div>';
+    html += '<div class="toolbar"><div class="segmented">' +
+      '<button class="seg' + (tab === "items" ? " is-active" : "") + '" data-action="ai-tab" data-value="items" type="button">优质内容</button>' +
+      '<button class="seg' + (tab === "overview" ? " is-active" : "") + '" data-action="ai-tab" data-value="overview" type="button">概览与配置</button>' +
+      "</div></div>";
 
-    html += '<div class="panel"><h3>当前分析配置</h3>' +
-      '<div class="row"><span class="row-label">AI 分析</span><span class="row-value">' +
-        (s.enabled ? badge("已启用", true) : badge("未启用", false)) + "</span></div>" +
-      settingRow("服务商 / 模型", esc(s.provider || "未配置") + " · " + esc(s.model || "未配置")) +
-      settingRow("Base URL", '<span class="mono">' + esc(s.base_url || "服务商默认") + "</span>") +
-      settingRow("优质阈值", esc(s.quality_threshold == null ? 7 : s.quality_threshold) + " 分以上") +
-      settingRow("多模型策略", esc(strategyLabel(s.strategy))) +
-      settingRow("早晚报", morningEveningSummary(s)) +
-      '<p class="hint">改动请到「设置 → AI 模型」，保存后立即对新的分析任务生效。</p></div>';
+    if (tab === "overview") {
+      html += statGrid([
+        [st.total_processed == null ? "—" : st.total_processed, "已分析"],
+        [st.total_pending == null ? "—" : st.total_pending, "待处理"],
+        [st.average_score == null ? "—" : Number(st.average_score).toFixed(1), "平均评分"],
+        [st.queue_length == null ? "—" : st.queue_length, "队列长度"]
+      ]);
+      var usage = state.aiUsage || {};
+      html += '<div class="panel" style="margin-top:18px"><h3>用量 · 近 ' + esc(usage.days || 7) + " 天</h3>" +
+        '<div class="row"><span class="row-label">调用</span><span class="row-value">' + esc(usage.total_requests || 0) + " 次" +
+          (usage.failed_requests ? " · " + esc(usage.failed_requests) + " 次失败" : "") + "</span></div>" +
+        '<div class="row"><span class="row-label">Tokens</span><span class="row-value mono">' +
+          esc(Number(usage.prompt_tokens || 0).toLocaleString()) + " 输入 / " +
+          esc(Number(usage.completion_tokens || 0).toLocaleString()) + " 输出</span></div>" +
+        '<div class="row"><span class="row-label">平均延迟</span><span class="row-value mono">' +
+          esc(Math.round(usage.avg_latency_ms || 0)) + " ms</span></div></div>";
+      html += '<div class="toolbar" style="margin-top:18px">' +
+        '<button class="btn" data-action="ai-test" type="button">测试模型连通性</button>' +
+        '<button class="btn" data-action="ai-eval" type="button">启动全量评测</button>' +
+        '<button class="btn" data-action="goto" data-view="settings" type="button">模型设置</button>' +
+        '<span class="toolbar-note">模型、提示词与日报定时已移到「设置」页</span></div>';
 
-    html += '<h2 class="section-title">AI 优质内容</h2>';
+      html += '<div class="panel"><h3>当前分析配置</h3>' +
+        '<div class="row"><span class="row-label">AI 分析</span><span class="row-value">' +
+          (s.enabled ? badge("已启用", true) : badge("未启用", false)) + "</span></div>" +
+        settingRow("服务商 / 模型", esc(s.provider || "未配置") + " · " + esc(s.model || "未配置")) +
+        settingRow("Base URL", '<span class="mono">' + esc(s.base_url || "服务商默认") + "</span>") +
+        settingRow("优质阈值", esc(s.quality_threshold == null ? 7 : s.quality_threshold) + " 分以上") +
+        settingRow("多模型策略", esc(strategyLabel(s.strategy))) +
+        settingRow("早晚报", morningEveningSummary(s)) +
+        '<p class="hint">改动请到「设置 → AI 模型」，保存后立即对新的分析任务生效。</p></div>';
+      return html;
+    }
+
     if (state.aiCategories && state.aiCategories.length) {
       html += chips(asNames(state.aiCategories), state.aiCategory, "ai-category", "value");
       html += '<div style="height:14px"></div>';
@@ -789,7 +904,8 @@
         '<div class="ai-score">' + esc(it.quality_score == null ? "—" : Number(it.quality_score).toFixed(1)) + "</div>" +
         '<div class="ai-main"><div class="ai-title">' + esc(it.title || "未命名内容") + "</div>" +
         '<div class="ai-summary">' + esc(it.ai_summary || it.summary || "") + "</div>" +
-        '<div class="ai-meta">' + esc(it.ai_category || it.category || "未分类") + " · " + esc(it.origin_source || "") + "</div></div>" +
+        '<div class="ai-meta">' + esc(it.ai_category || it.category || "未分类") + " · " + esc(it.origin_source || "") +
+          (it.ai_processed_at ? " · 分析于 " + esc(fmtTime(it.ai_processed_at)) : "") + "</div></div>" +
         '<button class="mini" data-action="reanalyze" data-id="' + attr(it.id) + '" type="button">重新分析</button>' +
         "</div>";
     }).join("") + "</div>";
@@ -804,6 +920,19 @@
       return obj;
     }
     return data.sections && typeof data.sections === "object" ? data.sections : null;
+  }
+
+  var REPORT_TYPE_LABELS = { daily: "日报", morning: "早报", evening: "晚报" };
+  function reportTypeLabel(type) { return REPORT_TYPE_LABELS[type] || type || "日报"; }
+  function reportsForDate(list, date) {
+    return (list || []).filter(function (r) { return (r.report_date || r.date || "") === date; });
+  }
+  function latestReportForDate(list, date) {
+    var same = reportsForDate(list, date);
+    if (!same.length) return null;
+    return same.slice().sort(function (a, b) {
+      return new Date(b.generated_at || 0) - new Date(a.generated_at || 0);
+    })[0];
   }
 
   function renderDaily() {
@@ -851,7 +980,25 @@
           }).join("") + "</div>";
       }).join("");
     } else {
-      html += '<div class="panel">' + empty(state.dailyDate + " 暂无日报", "点击「生成日报」在后台生成，稍后会自动刷新。") + "</div>";
+      // The user may be looking at a type that was never generated for this
+      // date (e.g. the default 日报 while only 早报/晚报 exist). Say so instead
+      // of claiming the whole day is empty, and link the reports that do exist.
+      var typeName = reportTypeLabel(state.dailyType);
+      var others = reportsForDate(state.dailyList, state.dailyDate).filter(function (r) {
+        return (r.report_type || "daily") !== state.dailyType;
+      });
+      if (others.length) {
+        html += '<div class="panel"><h3>' + esc(state.dailyDate + " 还没有" + typeName) + "</h3>" +
+          '<p class="hint">该日期已生成 ' + esc(others.map(function (r) { return reportTypeLabel(r.report_type || "daily"); }).join(" / ")) + "，可直接查看。</p>" +
+          others.map(function (r) {
+            var rt = r.report_type || "daily";
+            return '<div class="row"><div><div class="row-value">' + esc(r.title || (state.dailyDate + " · " + reportTypeLabel(rt))) + "</div>" +
+              '<div class="row-label">' + esc(reportTypeLabel(rt)) + " · 生成于 " + esc(fmtTime(r.generated_at)) + "</div></div>" +
+              '<button class="mini" data-action="daily-open" data-date="' + attr(state.dailyDate) + '" data-type="' + attr(rt) + '" type="button">查看</button></div>';
+          }).join("") + "</div>";
+      } else {
+        html += '<div class="panel">' + empty(state.dailyDate + " 暂无日报", "点击「生成日报」在后台生成，稍后会自动刷新。") + "</div>";
+      }
     }
 
     html += '<h2 class="section-title">历史日报</h2><div class="panel">';
@@ -859,8 +1006,9 @@
       ? state.dailyList.map(function (r) {
           var date = r.report_date || r.date || "";
           var type = r.report_type || "daily";
-          return '<div class="row"><div><div class="row-value">' + esc(r.title || (date + " · " + type)) + "</div>" +
-            '<div class="row-label">' + esc(date) + " · " + esc(type) + "</div></div>" +
+          return '<div class="row"><div><div class="row-value">' + esc(r.title || (date + " · " + reportTypeLabel(type))) + "</div>" +
+            '<div class="row-label">' + esc(date) + " · " + esc(reportTypeLabel(type)) +
+            (r.generated_at ? " · 生成于 " + esc(fmtTime(r.generated_at)) : "") + "</div></div>" +
             '<button class="mini" data-action="daily-open" data-date="' + attr(date) + '" data-type="' + attr(type) + '" type="button">查看</button></div>';
         }).join("")
       : "<p>暂无历史日报</p>";
@@ -1117,6 +1265,14 @@
       settingRow("APP 设置", '<span class="mono">desktop-settings.json</span>', "包含 API Token，权限 0600") +
       settingRow("配置文件来源", '<span class="mono">.env</span>', "APP 不读取其中的 GRABBY_ADMIN_KEY / GRABBY_API_TOKEN") +
       '<p class="hint">想换一个库，可在启动前设置 GRABBY_DESKTOP_DATA_DIR。Web 版与命令行的配置不受这里影响。</p>' +
+      '<div class="form-actions" style="margin-top:16px">' +
+        '<button class="btn primary" data-action="config-export" type="button">导出配置备份</button>' +
+        '<button class="btn" data-action="config-import" type="button">导入配置备份</button>' +
+        '<span class="toolbar-note">包含 AI 设置与数据源，不含内容库与抓取日志</span>' +
+      "</div>" +
+      '<input type="file" id="config-import-file" accept="application/json,.json" hidden>' +
+      '<p class="hint">备份文件包含明文 API Key，请妥善保管。导入时 AI 配置整体覆盖并立即生效；' +
+      "数据源按 ID 新增或更新，不会删除本地已有数据源。</p>" +
       '<div style="margin-top:16px"><div class="preset-label">调用示例</div>' +
       '<pre class="code-block">' + esc(curl) + "</pre>" +
       '<div style="margin-top:10px"><button class="copy-btn" data-copy="' + attr(curl) + '" type="button">复制命令</button></div></div>'
@@ -1224,7 +1380,9 @@
       (an.quality_score != null ? '<div class="detail-ai"><span class="badge ok">AI 评分 ' + esc(Number(an.quality_score).toFixed(1)) + "</span>" +
         (an.ai_category ? badge(an.ai_category, false) : "") +
         (an.ai_summary ? '<p>' + esc(an.ai_summary) + "</p>" : "") +
-        (an.ai_comment ? '<p class="detail-comment">' + esc(an.ai_comment) + "</p>" : "") + "</div>" : "") +
+        (an.ai_comment ? '<p class="detail-comment">' + esc(an.ai_comment) + "</p>" : "") +
+        '<p class="detail-analysis-meta">分析于 ' + esc(fmtTime(an.processed_at)) +
+          (an.model_used ? " · 模型 " + esc(an.model_used) : "") + "</p></div>" : "") +
       (it.summary ? '<div class="detail-summary">' + safeHtml(d.item.summary_html || esc(it.summary)) + "</div>" : "") +
       '<div class="detail-content">' + safeHtml(d.item.html_content || "") + "</div>";
     var footer = (it.url ? '<a class="btn primary" href="' + attr(it.url) + '" target="_blank" rel="noopener">打开原文</a>' : "") +
@@ -1255,6 +1413,43 @@
       '<button class="btn danger-btn" data-action="' + action + '" data-id="' + attr(data) + '" type="button">确认删除</button>' +
       '<button class="btn" data-action="dialog-close" type="button">取消</button>');
   }
+
+  // Read a local backup file and show a preview dialog before anything is
+  // written. Validation mirrors the server so obvious mistakes never round-trip.
+  async function importConfigBackup(file) {
+    if (file.size > 16 * 1024 * 1024) { toast("备份文件过大（上限 16 MB）", true); return; }
+    var text;
+    try { text = await file.text(); } catch (e) { toast("读取文件失败，请重新选择", true); return; }
+    var doc;
+    try { doc = JSON.parse(text); } catch (e) { toast("无法解析该文件，请确认是 Grabby 导出的备份", true); return; }
+    if (!doc || typeof doc !== "object" || Array.isArray(doc)) { toast("无法解析该文件", true); return; }
+    if (doc.app && doc.app !== "grabby") { toast("这不是 Grabby 的配置文件", true); return; }
+    if (typeof doc.version === "number" && doc.version > 1) { toast("备份来自更新版本，请先升级 Grabby", true); return; }
+    var hasAI = !!doc.ai && typeof doc.ai === "object";
+    var sourceCount = Array.isArray(doc.sources) ? doc.sources.length : 0;
+    if (!hasAI && !sourceCount) { toast("备份中没有可导入的 AI 配置或数据源", true); return; }
+
+    var profileCount = hasAI && Array.isArray(doc.ai.profiles) ? doc.ai.profiles.length : 0;
+    var exportedAt = doc.exported_at ? fmtTime(doc.exported_at) : "未知";
+    var summary =
+      "<p><b>文件：</b>" + esc(file.name) + "<br>" +
+      "<b>导出时间：</b>" + esc(exportedAt) + "<br>" +
+      "<b>AI 配置：</b>" + (hasAI ? esc(profileCount ? profileCount + " 个配置档案" : "有（含提示词与日报定时）") : "无") + "<br>" +
+      "<b>数据源：</b>" + (sourceCount ? esc(sourceCount + " 个") : "无") + "</p>" +
+      "<p class=\"hint\">导入会覆盖当前 AI 配置并立即生效；数据源按 ID 新增或更新，不影响本地已有数据源与已抓取内容。备份文件包含明文 API Key。</p>";
+    state.pendingImport = doc;
+    openDialog("导入配置备份", summary,
+      '<button class="btn primary" data-action="config-import-confirm" type="button">确认导入</button>' +
+      '<button class="btn" data-action="config-import-cancel" type="button">取消</button>', true);
+  }
+
+  document.addEventListener("change", function (e) {
+    var input = e.target;
+    if (!input || input.id !== "config-import-file") return;
+    var file = input.files && input.files[0];
+    input.value = "";
+    if (file) importConfigBackup(file);
+  });
 
   /* ---------------- Actions ---------------- */
 
@@ -1604,8 +1799,59 @@
         }
         return;
       }
+      if (action === "config-export") {
+        toast("正在导出配置…");
+        var exportRes = await fetch("/api/config/export", { credentials: "same-origin" });
+        if (!exportRes.ok) {
+          var exportErr = await exportRes.text();
+          toast("导出失败：" + (exportErr || ("HTTP " + exportRes.status)), true);
+          return;
+        }
+        var exportBlob = await exportRes.blob();
+        var disposition = exportRes.headers.get("Content-Disposition") || "";
+        var nameMatch = /filename="?([^";]+)"?/.exec(disposition);
+        var exportName = (nameMatch && nameMatch[1]) || "grabby-config.json";
+        var exportUrl = URL.createObjectURL(exportBlob);
+        var exportAnchor = document.createElement("a");
+        exportAnchor.href = exportUrl;
+        exportAnchor.download = exportName;
+        document.body.appendChild(exportAnchor);
+        exportAnchor.click();
+        exportAnchor.remove();
+        setTimeout(function () { URL.revokeObjectURL(exportUrl); }, 1000);
+        toast("备份已下载，请妥善保管");
+        return;
+      }
+      if (action === "config-import") {
+        var importInput = $("config-import-file");
+        if (importInput) importInput.click();
+        return;
+      }
+      if (action === "config-import-cancel") {
+        state.pendingImport = null;
+        closeDialog();
+        return;
+      }
+      if (action === "config-import-confirm") {
+        if (!state.pendingImport) { closeDialog(); toast("没有待导入的备份", true); return; }
+        var importRes2 = await post("/api/config/import", { data: state.pendingImport });
+        if (importRes2 && importRes2.success) {
+          var parts = [];
+          if (importRes2.ai_imported) parts.push("AI 配置已恢复");
+          parts.push("数据源 新增 " + (importRes2.sources_created || 0) + " / 更新 " + (importRes2.sources_updated || 0));
+          if (importRes2.warnings && importRes2.warnings.length) parts.push(importRes2.warnings.join("；"));
+          state.pendingImport = null;
+          closeDialog();
+          toast("导入完成：" + parts.join(" · "));
+          await loadView("settings");
+        } else {
+          toast((importRes2 && (importRes2.detail || importRes2.error)) || "导入失败", true);
+        }
+        return;
+      }
       if (action === "detail") { await openDetail(id); return; }
       if (action === "filter") { state.filter = target.dataset.value; await reloadItems(); return; }
+      if (action === "load-more") { await loadMoreItems(); return; }
       if (action === "category") {
         state.category = state.category === target.dataset.value ? "" : target.dataset.value;
         await reloadItems(); return;
@@ -1616,10 +1862,16 @@
         state.view = "library"; render(); await reloadItems(); return;
       }
       if (action === "clear-group") { state.sourceCategory = ""; await reloadItems(); return; }
+      if (action === "source-category") {
+        state.sourceCategory = state.sourceCategory === target.dataset.value ? "" : target.dataset.value;
+        await reloadItems(); return;
+      }
+      if (action === "source-all") { state.sourceCategory = ""; await reloadItems(); return; }
       if (action === "quality-category") {
         state.aiCategory = state.aiCategory === target.dataset.value ? "" : target.dataset.value;
         await reloadItems(); return;
       }
+      if (action === "ai-tab") { state.aiTab = target.dataset.value === "overview" ? "overview" : "items"; render(); return; }
       if (action === "ai-category") { state.aiCategory = state.aiCategory === target.dataset.value ? "" : target.dataset.value; await loadView("ai"); return; }
       if (action === "star") {
         var next = target.dataset.starred == 1 ? 0 : 1;
@@ -1719,6 +1971,7 @@
       }
       if (action === "daily-open") {
         state.dailyDate = target.dataset.date; state.dailyType = target.dataset.type || "daily";
+        state.view = "daily";
         await loadView("daily"); return;
       }
       if (action === "device-kick" || action === "device-ban" || action === "device-unban") {
@@ -1742,14 +1995,35 @@
     document.body.removeChild(ta);
   }
 
+  // Poll the health endpoint so the sidebar footer and the 今天 dashboard agree
+  // on the extension state. The dashboard is otherwise rendered once when the
+  // view is entered, so an extension that connects afterwards would leave
+  // "0 已连接浏览器 / 未连接" on screen while the footer already says 已连接.
+  async function refreshHealth() {
+    var h;
+    try { h = await api("/open/api/health"); } catch (e) { return; }
+    var prev = state.health || {};
+    var wasOffline = prev.status !== "ok" || !!state.error;
+    state.health = h;
+    state.error = "";
+    syncStatus();
+    var changed = wasOffline ||
+      !!prev.browser_connected !== !!h.browser_connected ||
+      (Number(prev.browser_count) || 0) !== (Number(h.browser_count) || 0);
+    if (changed && state.view === "today") {
+      var scroll = $("content").scrollTop;
+      render();
+      $("content").scrollTop = scroll;
+    }
+  }
+
   async function init() {
     var session = null;
     try { session = await api("/api/auth/session"); } catch (e) { /* server not ready */ }
     if (!desktopMode && session && session.auth_required && !session.authenticated) showLogin();
     await loadView(state.view);
-    setInterval(function () {
-      api("/open/api/health").then(function (h) { state.health = h; syncStatus(); }).catch(function () {});
-    }, 15000);
+    setInterval(refreshHealth, 15000);
+    window.addEventListener("focus", refreshHealth);
   }
 
   init();

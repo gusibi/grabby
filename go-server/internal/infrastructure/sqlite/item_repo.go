@@ -242,7 +242,7 @@ func (d *Database) CleanupOldData() error {
 
 func (d *Database) CountItems() (int, error) {
 	var count int
-	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items WHERE fetched_at >= datetime('now', '-24 hours')").Scan(&count)
+	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items").Scan(&count)
 	return count, err
 }
 
@@ -259,7 +259,7 @@ func (d *Database) CountStarredItems() (int, error) {
 }
 
 func (d *Database) CountItemsByCategory() (map[string]int, error) {
-	rows, err := d.db.Query("SELECT category, COUNT(*) FROM scraped_items WHERE fetched_at >= datetime('now', '-24 hours') GROUP BY category")
+	rows, err := d.db.Query("SELECT category, COUNT(*) FROM scraped_items GROUP BY category")
 	if err != nil {
 		return nil, err
 	}
@@ -281,7 +281,7 @@ func (d *Database) CountItemsBySourceCategory() (map[string]int, error) {
 		SELECT s.category, COUNT(*) 
 		FROM scraped_items si 
 		JOIN sources s ON si.source_id = s.id 
-		WHERE si.fetched_at >= datetime('now', '-24 hours')
+		WHERE si.read_status = 0
 		GROUP BY s.category
 	`)
 	if err != nil {
@@ -305,7 +305,6 @@ func (d *Database) GetDistinctSourceCategories() ([]string, error) {
 		SELECT DISTINCT s.category 
 		FROM scraped_items si 
 		JOIN sources s ON si.source_id = s.id 
-		WHERE si.fetched_at >= datetime('now', '-24 hours')
 	`)
 	if err != nil {
 		return nil, err

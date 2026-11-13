@@ -76,6 +76,24 @@ export const api = {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(draft ?? {}),
   }),
+  exportConfig: async () => {
+    const response = await fetch("/api/config/export");
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(text || `请求失败 (${response.status})`);
+    }
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const match = /filename="?([^";]+)"?/.exec(disposition);
+    return {
+      blob: await response.blob(),
+      filename: match?.[1] || "grabby-config.json",
+    };
+  },
+  importConfig: (data: unknown) => jsonFetch("/api/config/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ data }),
+  }),
   startEvaluation: () => jsonFetch("/api/ai/start_eval", { method: "POST" }),
   getExtractCaptures: (limit = 100, offset = 0) => jsonFetch(`/api/captures/extract?limit=${limit}&offset=${offset}`),
   getTwitterCaptures: (source = "", limit = 100, offset = 0) => jsonFetch(

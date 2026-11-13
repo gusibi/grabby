@@ -1,4 +1,4 @@
-export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings" | "device" | "captures-extract" | "captures-twitter";
+export type AppView = "grid" | "list" | "settings" | "logs" | "daily" | "ai-settings" | "device" | "backup" | "captures-extract" | "captures-twitter";
 
 // 抓取记录：网页提取缓存的一条记录
 export interface ExtractCaptureRecord {
