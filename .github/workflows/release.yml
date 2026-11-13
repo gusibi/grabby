@@ -223,6 +223,20 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
+          name: extension
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: macos-app
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: server-*
+          path: dist
+          merge-multiple: true
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: cli-*
           path: dist
           merge-multiple: true
       - name: Generate checksums
