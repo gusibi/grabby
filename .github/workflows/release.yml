@@ -4,6 +4,7 @@ on:
   push:
     tags:
       - "v*"
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -114,7 +115,7 @@ jobs:
           EXT=""
           if [ "$GOOS" = "windows" ]; then EXT=".exe"; fi
           go build -trimpath -ldflags "-s -w" -o "../dist/stage/grabby-server${EXT}" .
-          cp ../README.md ../LICENSE ../dist/stage/
+          cp ../readme.md ../dist/stage/
           cd ../dist/stage
           if [ "$GOOS" = "windows" ]; then
             zip -j "../grabby-server_${VERSION}_${GOOS}_${GOARCH}.zip" ./*
@@ -168,7 +169,7 @@ jobs:
               -X github.com/gusibi/mcp-web-capture/go-cli/cmd.commit=${GITHUB_SHA::7} \
               -X github.com/gusibi/mcp-web-capture/go-cli/cmd.date=$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
             -o "../dist/stage/grabby${EXT}" .
-          cp ../README.md ../LICENSE ../dist/stage/
+          cp ../readme.md ../dist/stage/
           cd ../dist/stage
           if [ "$GOOS" = "windows" ]; then
             zip -j "../grabby_${OS}_${ARCH}.zip" ./*
