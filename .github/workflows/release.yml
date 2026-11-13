@@ -265,6 +265,7 @@ jobs:
 
   test:
     name: Go tests
+    needs: frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -273,6 +274,10 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: go-server/go.sum
+      - uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: go-server/frontend/dist
       - name: Run Go tests
         working-directory: go-server
         run: go test ./...
