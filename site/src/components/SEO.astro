@@ -6,14 +6,14 @@ export interface Props {
 const { pageType } = Astro.props;
 
 const titles: Record<string, string> = {
-  home: 'Grabby — URL to Markdown, powered by real browser | Web Content Capture',
+  home: 'Grabby — Web Capture, RSS & AI Reading | Local-first Content Desk',
   setup: 'Grabby Setup Guide — Installation & Configuration',
   api: 'Grabby API Reference — HTTP, MCP & WebSocket',
 };
 
 const descriptions: Record<string, string> = {
-  home: 'Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Ships a self-contained Go desktop app with AI analysis, MCP support, full-page screenshots, and local SQLite storage.',
-  setup: 'Install and configure Grabby — desktop app, Chrome extension, WebSocket connection, AI models, and MCP integration.',
+  home: 'Grabby is a local-first content desk: capture any page to clean Markdown with a real Chrome browser, collect RSS feeds and platforms, then let AI score, summarize and turn everything into a daily briefing. Ships as a self-contained Go desktop app with MCP support and local SQLite storage.',
+  setup: 'Install and configure Grabby — desktop app, Chrome extension, WebSocket connection, RSS feeds, AI models, and MCP integration.',
   api: 'Complete API reference for Grabby — HTTP REST endpoints, MCP tools (screenshot, extract), WebSocket protocol, and error codes.',
 };
 
@@ -23,7 +23,7 @@ const description = descriptions[pageType] || descriptions.home;
 
 <title>{title}</title>
 <meta name="description" content={description} />
-<meta name="keywords" content="Grabby, web capture, URL to Markdown, MCP tool, Chrome extension, web scraper, screenshot, AI agent, browser automation" />
+<meta name="keywords" content="Grabby, web capture, URL to Markdown, RSS reader, feed reader, AI analysis, AI summarizer, daily briefing, MCP tool, Chrome extension, web scraper, local-first, browser automation" />
 <meta name="author" content="gusibi" />
 <meta name="google-site-verification" content="Ojbu1Is-TmeiWN5hvlOGFRDKfKza6dCPrGeZyIA3XZw" />
 <link rel="canonical" href={new URL(Astro.url.pathname, Astro.site).href} />
@@ -36,11 +36,14 @@ const description = descriptions[pageType] || descriptions.home;
 <meta property="og:url" content={new URL(Astro.url.pathname, Astro.site).href} />
 <meta property="og:locale" content="zh_CN" />
 <meta property="og:site_name" content="Grabby" />
+<meta property="og:image" content={new URL('/screenshot.png', Astro.site).href} />
+<meta property="og:image:alt" content="Grabby desktop app — Today page with AI briefing and latest content" />
 
 <!-- Twitter -->
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content={title} />
 <meta name="twitter:description" content={description} />
+<meta name="twitter:image" content={new URL('/screenshot.png', Astro.site).href} />
 
 <!-- Favicon -->
 <link rel="icon" type="image/png" sizes="128x128" href="/favicon.png" />
