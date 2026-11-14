@@ -485,6 +485,23 @@ APP 复用 Web 版同一套后端接口，侧栏分四组：
 | API 接入 | Base URL、MCP、鉴权、中转链路、端点清单与 curl 示例 | — |
 | 设置 | 六个分区：服务状态、AI 模型、提示词、日报定时、API 与安全、数据与文件（含配置导出 / 导入） | `/api/ai/settings`、`/api/desktop/settings`、`/api/ai/test`、`/api/config/*` |
 
+### 阅读体验
+
+- **展示方式**：顶部工具栏可在「卡片」与「列表」之间切换，选择写入 `localStorage`，下次启动保持；
+  快捷键 `V` 随时切换。
+- **相关链接**：侧栏底部提供「浏览器插件」「项目网站」「Releases」三个链接，点击后由系统默认
+  浏览器打开，不会打断 App 内的阅读状态。
+- **应用内阅读**：点击任意卡片或列表行，右侧滑出阅读面板，展示服务端抓取并清洗过的全文，
+  不再跳出浏览器。面板包含来源与分类、AI 精读（评分环、摘要、点评、标签）、阅读进度条、
+  阅读时长、收藏按钮，以及底部「在浏览器打开」兜底链接。
+- **阅读时的列表**：面板打开后，左侧列表进入紧凑模式——封面、标题、摘要、统计模块同步缩小，
+  滚动位置保持不变，方便在列表与文章之间来回切换。阅读面板占据剩余全部宽度（列表固定为
+  420px 紧凑栏），窗口宽度低于 1120px 时改为覆盖式全宽布局（窗口最小宽度 900px）。
+- **快捷键**：`Esc` 关闭面板并回到原列表项；`J` / `K` 下一篇 / 上一篇；`V` 切换卡片 / 列表；
+  `/` 聚焦搜索框（内容库）。
+- **未抓取到正文**：仍会显示摘要、AI 分析与来源信息，并提示在浏览器中打开原文；
+  系统「减少动态效果」开启时，滑入与字号过渡会自动收敛。
+
 **设置页（参考 Web 的 AISettings 布局）**用编号分区 + 顶部快速跳转，全部配置集中在一页：
 
 1. **01 服务状态** — 进程、监听地址、本机免密状态、Token 状态、扩展 WebSocket 地址；
@@ -534,9 +551,9 @@ make package-macos-app   # 生成 dist/Grabby.app（本机架构，未签名）
 发布产物使用统一脚本构建（CI 也调用它）：
 
 ```bash
-bash scripts/package-desktop.sh macos   0.2.0   # 通用架构 .app + .dmg
-bash scripts/package-desktop.sh windows 0.2.0   # .exe + zip + NSIS 安装包（需 go-winres、makensis）
-bash scripts/package-desktop.sh linux   0.2.0   # 可执行文件 + tar.gz + .deb（需 dpkg-deb）
+bash scripts/package-desktop.sh macos   0.3.0   # 通用架构 .app + .dmg
+bash scripts/package-desktop.sh windows 0.3.0   # .exe + zip + NSIS 安装包（需 go-winres、makensis）
+bash scripts/package-desktop.sh linux   0.3.0   # 可执行文件 + tar.gz + .deb（需 dpkg-deb）
 ```
 
 桌面 App 是**单个自包含的可执行文件**：Go 服务端、HTTP / WebSocket / MCP、SQLite 与
@@ -559,8 +576,8 @@ cd chrome-extension && npm ci && npm run build      # 生成 defuddle bundle
 打包由 GitHub Actions 完成，工作流见 `.github/workflows/release.yml`：
 
 ```bash
-git tag v0.2.0
-git push origin v0.2.0
+git tag v0.3.0
+git push origin v0.3.0
 ```
 
 推送 `v*` tag 后会自动：

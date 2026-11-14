@@ -16,8 +16,16 @@
   function dateStr(d) { return d.getFullYear() + "-" + pad(d.getMonth() + 1) + "-" + pad(d.getDate()); }
 
   var initialView = params.get("view");
+  function storedLayout() {
+    try {
+      var stored = localStorage.getItem("grabby_layout");
+      if (stored === "list" || stored === "grid") return stored;
+    } catch (e) { /* storage may be unavailable */ }
+    return params.get("layout") === "list" ? "list" : "grid";
+  }
   var state = {
     view: initialView && TITLES[initialView] ? initialView : "today",
+    layout: storedLayout(),
     query: "",
     filter: "all",
     category: "",
@@ -36,7 +44,10 @@
     tokenEnabled: params.get("auth") === "1",
     external: params.get("external") === "1",
     error: "",
-    busy: false
+    busy: false,
+    reader: { open: false, id: null, item: null, analysis: null, loading: false, error: "" },
+    readerLastFocus: null,
+    readerSeq: 0
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -154,25 +165,71 @@
     return [];
   }
 
-  function card(item, lead) {
+  // itemVisual derives the gradient monogram used by both layouts. The hue is
+  // stable per source so the same publication keeps the same colour.
+  function itemVisual(item) {
     var label = item.origin_source || item.source_category || item.category || "GRABBY";
     var h = hue(label);
-    var cover = "linear-gradient(135deg, hsl(" + h + ",58%,52%), hsl(" + ((h + 48) % 360) + ",62%,38%))";
-    var letter = (label || "G").trim().charAt(0).toUpperCase();
-    var score = item.quality_score != null ? Number(item.quality_score) : null;
-    return '<div class="card' + (lead ? " lead" : "") + '" data-action="detail" data-id="' + attr(item.id) + '">' +
-      '<div class="card-cover" style="background:' + cover + '"><span>' + esc(letter) + "</span>" +
-      (score != null ? '<span class="score-chip">' + esc(score.toFixed(1)) + "</span>" : "") + "</div>" +
+    return {
+      label: label,
+      letter: (label || "G").trim().charAt(0).toUpperCase(),
+      cover: "linear-gradient(135deg, hsl(" + h + ",58%,52%), hsl(" + ((h + 48) % 360) + ",62%,38%))",
+      score: item.quality_score != null && item.quality_score !== "" ? Number(item.quality_score) : null
+    };
+  }
+
+  function unreadDot(item) {
+    return Number(item.read_status) === 0 ? '<span class="unread-dot" aria-label="未读"></span>' : "";
+  }
+
+  function card(item, lead) {
+    var v = itemVisual(item);
+    var read = Number(item.read_status) === 1;
+    var active = String(state.reader.id) === String(item.id);
+    return '<button type="button" class="card' + (lead ? " lead" : "") + (read ? " is-read" : "") +
+      (active ? " is-active" : "") + '" data-action="detail" data-id="' + attr(item.id) + '"' +
+      ' aria-label="阅读：' + attr(item.title || "未命名内容") + '">' +
+      '<div class="card-cover" style="background:' + v.cover + '"><span class="cover-letter">' + esc(v.letter) + "</span>" +
+      (v.score != null ? '<span class="score-chip">' + esc(v.score.toFixed(1)) + "</span>" : "") + "</div>" +
       '<div class="card-body">' +
-        '<div class="card-kicker">' + esc(label) + "</div>" +
+        '<div class="card-kicker">' + unreadDot(item) + esc(v.label) + "</div>" +
         '<div class="card-title">' + esc(item.title || "未命名内容") + "</div>" +
         '<div class="card-summary">' + esc(item.ai_summary || item.summary || "") + "</div>" +
         '<div class="card-meta">' + esc(fmtDate(item.published_at || item.fetched_at)) +
         (item.category ? " · " + esc(item.category) : "") + "</div>" +
-      "</div></div>";
+      "</div></button>";
   }
-  function cards(items, leadFirst) {
+
+  // listRow is a first-class editorial row, not a data table: monogram cover,
+  // kicker, title, summary, and a quiet date / score column.
+  function listRow(item) {
+    var v = itemVisual(item);
+    var read = Number(item.read_status) === 1;
+    var active = String(state.reader.id) === String(item.id);
+    return '<button type="button" class="item-row' + (read ? " is-read" : "") + (active ? " is-active" : "") +
+      '" data-action="detail" data-id="' + attr(item.id) + '"' +
+      ' aria-label="阅读：' + attr(item.title || "未命名内容") + '">' +
+      '<span class="item-cover" style="background:' + v.cover + '"><span class="cover-letter">' + esc(v.letter) + "</span></span>" +
+      '<span class="item-main">' +
+        '<span class="item-kicker">' + unreadDot(item) +
+          '<span class="item-kicker-text">' + esc(v.label) +
+            (item.category ? " · " + esc(item.category) : "") + "</span></span>" +
+        '<span class="item-title">' + esc(item.title || "未命名内容") + "</span>" +
+        (item.ai_summary || item.summary
+          ? '<span class="item-summary">' + esc(item.ai_summary || item.summary) + "</span>"
+          : "") +
+      "</span>" +
+      '<span class="item-side">' +
+        '<span class="item-date">' + esc(fmtDate(item.published_at || item.fetched_at)) + "</span>" +
+        (v.score != null ? '<span class="item-score">' + esc(v.score.toFixed(1)) + "</span>" : "") +
+      "</span></button>";
+  }
+
+  function feed(items, leadFirst) {
     if (!items || !items.length) return empty("还没有内容", "添加 RSS 源或连接浏览器扩展后，抓取的内容会显示在这里。");
+    if (state.layout === "list") {
+      return '<div class="item-list">' + items.map(listRow).join("") + "</div>";
+    }
     return '<div class="card-grid">' + items.map(function (it, i) {
       return card(it, leadFirst && i === 0);
     }).join("") + "</div>";
@@ -377,7 +434,7 @@
 
     if (report) html += todayReportCard(report);
 
-    html += '<h2 class="section-title">最新内容</h2>' + cards(state.items.slice(0, 12), true);
+    html += '<h2 class="section-title">最新内容</h2>' + feed(state.items.slice(0, 12), true);
     return html;
   }
 
@@ -466,7 +523,7 @@
       html += '<div class="filter-row"><span class="filter-label">' + (quality ? "AI 分类" : "类型") + "</span>" +
         chips(cats, quality ? state.aiCategory : state.category, quality ? "quality-category" : "category", "value") + "</div>";
     }
-    html += '<div style="height:16px"></div>' + cards(state.items, false);
+    html += '<div style="height:16px"></div>' + feed(state.items, false);
     if (state.itemsCursor) {
       html += '<div class="load-more"><button class="btn" data-action="load-more" type="button">加载更多</button></div>';
     }
@@ -900,7 +957,8 @@
     }
     if (!state.aiItems.length) html += empty("暂无优质内容", "AI 分析完成后，评分达到阈值的条目会显示在这里。");
     else html += '<div class="ai-list">' + state.aiItems.map(function (it) {
-      return '<div class="ai-row" data-action="detail" data-id="' + attr(it.id) + '">' +
+      return '<div class="ai-row' + (String(state.reader.id) === String(it.id) ? " is-active" : "") +
+        '" data-action="detail" data-id="' + attr(it.id) + '" role="button" tabindex="0" aria-label="阅读：' + attr(it.title || "未命名内容") + '">' +
         '<div class="ai-score">' + esc(it.quality_score == null ? "—" : Number(it.quality_score).toFixed(1)) + "</div>" +
         '<div class="ai-main"><div class="ai-title">' + esc(it.title || "未命名内容") + "</div>" +
         '<div class="ai-summary">' + esc(it.ai_summary || it.summary || "") + "</div>" +
@@ -1281,13 +1339,27 @@
     return html;
   }
 
-  function render() {
-    var titles = TITLES;
-    $("topbar-title").textContent = titles[state.view] || "Grabby";
-    $("search-wrap").hidden = state.view !== "library";
-    $("search-input").placeholder = state.view === "library" ? "搜索标题、摘要、来源" : "搜索内容";
+  function syncViewChrome() {
+    $("topbar-title").textContent = TITLES[state.view] || "Grabby";
+    var isLibrary = state.view === "library";
+    $("search-wrap").hidden = !isLibrary;
+    $("search-input").placeholder = isLibrary ? "搜索标题、摘要、来源" : "搜索内容";
+    var showLayout = state.view === "today" || isLibrary;
+    $("view-switch").hidden = !showLayout;
+    var btns = document.querySelectorAll(".view-switch-btn");
+    for (var i = 0; i < btns.length; i++) {
+      var on = btns[i].dataset.layout === state.layout;
+      btns[i].classList.toggle("is-active", on);
+      btns[i].setAttribute("aria-pressed", on ? "true" : "false");
+    }
+  }
+
+  function render(options) {
+    syncViewChrome();
     var nav = document.querySelectorAll(".nav-item");
     for (var i = 0; i < nav.length; i++) nav[i].classList.toggle("is-active", nav[i].dataset.view === state.view);
+    var keepScroll = !!(options && options.keepScroll);
+    var scrollTop = keepScroll ? $("content").scrollTop : 0;
     var html;
     try {
       var fn = {
@@ -1300,7 +1372,16 @@
       html = '<div class="empty"><div class="empty-title">渲染失败</div>' + esc(e.message) + "</div>";
     }
     $("content").innerHTML = html;
-    $("content").scrollTop = 0;
+    $("content").scrollTop = scrollTop;
+  }
+
+  function setLayout(layout) {
+    if (layout !== "grid" && layout !== "list") return;
+    if (state.layout === layout) return;
+    state.layout = layout;
+    try { localStorage.setItem("grabby_layout", layout); } catch (e) { /* ignore */ }
+    syncViewChrome();
+    render({ keepScroll: true });
   }
 
   function syncStatus() {
@@ -1368,30 +1449,371 @@
     return doc.body.innerHTML;
   }
 
-  async function openDetail(id) {
-    var d = await fetchAll({ item: api("/open/api/items/" + encodeURIComponent(id)), analysis: api("/open/api/ai/analysis/" + encodeURIComponent(id)) });
-    var it = (d.item && d.item.item) || null;
-    if (!it) { toast("无法读取该条目", true); return; }
-    var an = (d.analysis && d.analysis.analysis) || {};
-    var body = '<div class="detail-kicker">' + esc(it.origin_source || it.source_category || "GRABBY") + "</div>" +
-      '<h3 class="detail-title">' + esc(it.title || "未命名内容") + "</h3>" +
-      '<div class="detail-meta">' + esc(fmtTime(it.published_at || it.fetched_at)) +
-      (it.category ? " · " + esc(it.category) : "") + "</div>" +
-      (an.quality_score != null ? '<div class="detail-ai"><span class="badge ok">AI 评分 ' + esc(Number(an.quality_score).toFixed(1)) + "</span>" +
-        (an.ai_category ? badge(an.ai_category, false) : "") +
-        (an.ai_summary ? '<p>' + esc(an.ai_summary) + "</p>" : "") +
-        (an.ai_comment ? '<p class="detail-comment">' + esc(an.ai_comment) + "</p>" : "") +
-        '<p class="detail-analysis-meta">分析于 ' + esc(fmtTime(an.processed_at)) +
-          (an.model_used ? " · 模型 " + esc(an.model_used) : "") + "</p></div>" : "") +
-      (it.summary ? '<div class="detail-summary">' + safeHtml(d.item.summary_html || esc(it.summary)) + "</div>" : "") +
-      '<div class="detail-content">' + safeHtml(d.item.html_content || "") + "</div>";
-    var footer = (it.url ? '<a class="btn primary" href="' + attr(it.url) + '" target="_blank" rel="noopener">打开原文</a>' : "") +
-      '<button class="btn" data-action="star" data-id="' + attr(it.id) + '" data-starred="' + attr(it.starred || 0) + '" type="button">' +
-      (it.starred == 1 ? "取消收藏" : "收藏") + "</button>" +
-      '<button class="btn" data-action="read" data-id="' + attr(it.id) + '" type="button">标记已读</button>' +
-      '<button class="btn" data-action="reanalyze" data-id="' + attr(it.id) + '" type="button">重新分析</button>';
-    openDialog("内容详情", body, footer, true);
+  /* ---------------- In-app reader ---------------- */
+
+  function findItemById(id) {
+    var key = String(id);
+    var i;
+    for (i = 0; i < state.items.length; i++) if (String(state.items[i].id) === key) return state.items[i];
+    for (i = 0; i < state.aiItems.length; i++) if (String(state.aiItems[i].id) === key) return state.aiItems[i];
+    if (state.reader.item && String(state.reader.item.id) === key) return state.reader.item;
+    return null;
   }
+
+  function readerList() {
+    var key = String(state.reader.id || "");
+    var i;
+    for (i = 0; i < state.items.length; i++) if (String(state.items[i].id) === key) return state.items;
+    for (i = 0; i < state.aiItems.length; i++) if (String(state.aiItems[i].id) === key) return state.aiItems;
+    return state.reader.item ? [state.reader.item] : [];
+  }
+
+  function plainText(html) {
+    var raw = String(html == null ? "" : html);
+    if (!raw) return "";
+    try {
+      return new DOMParser().parseFromString(raw, "text/html").body.textContent || "";
+    } catch (e) {
+      return raw.replace(/<[^>]*>/g, " ");
+    }
+  }
+
+  function richText(value) {
+    var s = String(value == null ? "" : value).trim();
+    if (!s) return "";
+    if (/<[a-z][\s\S]*>/i.test(s)) return safeHtml(s);
+    return "<p>" + esc(s) + "</p>";
+  }
+
+  function readingMinutes(html) {
+    var text = plainText(html).replace(/&[a-z#0-9]+;/gi, " ");
+    var cjk = (text.match(/[㐀-鿿぀-ヿ가-힯]/g) || []).length;
+    var words = text.replace(/[㐀-鿿぀-ヿ가-힯]/g, " ").trim().split(/\s+/).filter(Boolean).length;
+    return Math.max(1, Math.round(cjk / 430 + words / 220));
+  }
+
+  function fmtReaderDate(value) {
+    if (!value) return "时间未知";
+    var d = new Date(value);
+    if (isNaN(d.getTime())) return String(value).slice(0, 16);
+    return d.toLocaleString("zh-CN", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function readerSkeleton(item) {
+    var header = '<div class="sk-line sm"></div><div class="sk-line xl"></div><div class="sk-line lg"></div>';
+    if (item && item.title) {
+      var v = itemVisual(item);
+      header = '<div class="reader-kicker">' +
+        '<span class="source-mark" style="background:' + v.cover + '">' + esc(v.letter) + "</span>" +
+        esc(v.label) + "</div>" +
+        '<h1 class="reader-title">' + esc(item.title) + "</h1>" +
+        '<div class="reader-meta"><span>' + esc(fmtReaderDate(item.published_at || item.fetched_at)) + "</span></div>";
+    }
+    return '<div class="reader-skeleton">' + header +
+      '<div class="sk-block"></div>' +
+      '<div class="sk-line w90"></div><div class="sk-line w80"></div><div class="sk-line w70"></div>' +
+      '<div class="sk-line w90"></div><div class="sk-line w60"></div>' +
+      '<div class="sk-block" style="height:64px"></div>' +
+      '<div class="sk-line w80"></div><div class="sk-line w70"></div></div>';
+  }
+
+  function readerHeaderHTML(it, an, score) {
+    var v = itemVisual(it);
+    var meta = "";
+    var time = it.published_at || it.fetched_at;
+    if (time) meta += "<span>" + esc(fmtReaderDate(time)) + "</span>";
+    if (score != null) {
+      meta += (meta ? '<span class="dot"></span>' : "") + "<span>AI 评分 " + esc(score.toFixed(1)) + "</span>";
+    }
+    var chips = "";
+    if (it.category) chips += '<span class="chip-cat">' + esc(it.category) + "</span>";
+    if (it.ai_category) {
+      chips += '<span class="chip-cat">' + esc(it.ai_category) +
+        (it.ai_subcategory ? " · " + esc(it.ai_subcategory) : "") + "</span>";
+    }
+    return '<header class="reader-header">' +
+      '<div class="reader-kicker">' +
+        '<span class="source-mark" style="background:' + v.cover + '">' + esc(v.letter) + "</span>" +
+        '<span>' + esc(v.label) + "</span>" + chips +
+      "</div>" +
+      '<h1 class="reader-title">' + esc(it.title || "未命名内容") + "</h1>" +
+      '<div class="reader-meta">' + meta +
+        (meta ? '<span class="dot"></span>' : "") +
+        "<span>约 " + esc(readingMinutes(it._html || it.content || it.summary)) + " 分钟阅读</span>" +
+      "</div></header>";
+  }
+
+  function readerAnalysisHTML(it, an, score) {
+    if (!an || (an.quality_score == null && !an.ai_summary && !an.ai_comment)) return "";
+    var tags = String(an.ai_tags || "").split(/[,，]/).map(function (t) { return t.trim(); }).filter(Boolean);
+    return '<section class="reader-ai">' +
+      '<div class="reader-ai-head">' +
+        '<div class="reader-ai-label">' +
+          '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.6l1.7 4.3 4.5.4-3.4 2.9 1 4.4-3.8-2.3-3.8 2.3 1-4.4L3.8 7.3l4.5-.4z"/></svg>' +
+          "AI 精读</div>" +
+        (score != null ? '<div class="reader-score" style="--score:' + esc(score) + '"><b>' + esc(score.toFixed(1)) + "</b></div>" : "") +
+      "</div>" +
+      (an.ai_summary ? '<p class="reader-ai-summary">' + esc(an.ai_summary) + "</p>" : "") +
+      (an.ai_comment ? '<p class="reader-ai-comment">' + esc(an.ai_comment) + "</p>" : "") +
+      (tags.length ? '<div class="reader-tags">' + tags.map(function (t) {
+        return '<span class="reader-tag">' + esc(t) + "</span>";
+      }).join("") + "</div>" : "") +
+      (an.model_used || an.processed_at
+        ? '<div class="reader-ai-foot">' + (an.model_used ? "分析模型 " + esc(an.model_used) : "") +
+          (an.processed_at ? (an.model_used ? " · " : "") + "分析于 " + esc(fmtTime(an.processed_at)) : "") + "</div>"
+        : "") +
+      "</section>";
+  }
+
+  function readerHTML(it, an) {
+    var scoreRaw = an && an.quality_score != null ? Number(an.quality_score)
+      : (it.quality_score != null ? Number(it.quality_score) : null);
+    var score = scoreRaw != null && !isNaN(scoreRaw) ? scoreRaw : null;
+    var v = itemVisual(it);
+    var contentHTML = safeHtml(it._html || "");
+    var contentText = plainText(contentHTML).replace(/\s+/g, " ").trim();
+    var summaryHTML = richText(it._summaryHtml || it.summary || "");
+    var summaryText = plainText(summaryHTML).replace(/\s+/g, " ").trim();
+    var showSummary = !!summaryText && !(an && an.ai_summary);
+
+    var body;
+    if (contentText && summaryText && contentText === summaryText) {
+      body = '<div class="reader-content">' + contentHTML + "</div>";
+      summaryHTML = "";
+      showSummary = false;
+    } else if (contentText) {
+      body = '<div class="reader-content">' + contentHTML + "</div>";
+    } else {
+      body = '<div class="reader-fallback"><strong>这篇内容还没有抓取到正文</strong>' +
+        "Grabby 保存了摘要和来源链接。你可以在浏览器中打开原始页面查看完整内容。" +
+        (it.url ? '<div style="margin-top:9px"><a href="' + attr(it.url) + '" target="_blank" rel="noopener">在浏览器打开原文</a></div>' : "") +
+        "</div>";
+    }
+
+    return '<article class="reader-article">' +
+      readerHeaderHTML(it, an, score) +
+      readerAnalysisHTML(it, an, score) +
+      (showSummary ? '<div class="reader-summary">' + summaryHTML + "</div>" : "") +
+      (contentText ? '<div class="reader-divider">正文</div>' : "") +
+      body +
+      '<footer class="reader-footer">' +
+        '<span class="reader-footer-source">来源 ' + esc(v.label) +
+          (it.fetched_at ? " · 收录于 " + esc(fmtTime(it.fetched_at)) : "") + "</span>" +
+        (it.url
+          ? '<a href="' + attr(it.url) + '" target="_blank" rel="noopener">在浏览器打开' +
+            '<svg viewBox="0 0 20 20" aria-hidden="true"><path d="M8 4H4.5A1.5 1.5 0 0 0 3 5.5v10A1.5 1.5 0 0 0 4.5 17h10a1.5 1.5 0 0 0 1.5-1.5V12M11 3h6v6M17 3l-8 8"/></svg></a>'
+          : "") +
+      "</footer></article>";
+  }
+
+  function updateReaderStar() {
+    var btn = $("reader-star");
+    var it = state.reader.item;
+    var on = it && Number(it.starred) === 1;
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.setAttribute("aria-label", on ? "取消收藏" : "收藏");
+    btn.title = on ? "取消收藏" : "收藏";
+  }
+
+  function updateReaderNav() {
+    var list = readerList();
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(state.reader.id)) { idx = i; break; }
+    $("reader-prev").disabled = idx <= 0;
+    $("reader-next").disabled = idx < 0 || idx >= list.length - 1;
+  }
+
+  function updateReaderProgress() {
+    var scroll = $("reader-scroll");
+    var max = scroll.scrollHeight - scroll.clientHeight;
+    var pct = max > 0 ? Math.min(100, Math.max(0, (scroll.scrollTop / max) * 100)) : 0;
+    $("reader-progress-bar").style.width = pct.toFixed(2) + "%";
+    $("reader-bar").classList.toggle("is-scrolled", scroll.scrollTop > 4);
+  }
+
+  function markActiveInFeed(id) {
+    var nodes = $("content").querySelectorAll('[data-action="detail"]');
+    for (var i = 0; i < nodes.length; i++) {
+      var on = String(nodes[i].dataset.id) === String(id);
+      nodes[i].classList.toggle("is-active", on);
+      if (on) nodes[i].setAttribute("aria-current", "true");
+      else nodes[i].removeAttribute("aria-current");
+    }
+  }
+
+  function updateFeedItemState(id) {
+    var it = findItemById(id);
+    if (!it) return;
+    var read = Number(it.read_status) === 1;
+    var nodes = $("content").querySelectorAll('[data-action="detail"]');
+    for (var i = 0; i < nodes.length; i++) {
+      if (String(nodes[i].dataset.id) !== String(id)) continue;
+      nodes[i].classList.toggle("is-read", read);
+      if (read) {
+        var dot = nodes[i].querySelector(".unread-dot");
+        if (dot && dot.parentNode) dot.parentNode.removeChild(dot);
+      }
+    }
+  }
+
+  function markReaderItemRead(it) {
+    if (!it || Number(it.read_status) === 1) return;
+    it.read_status = 1;
+    var local = findItemById(it.id);
+    if (local && local !== it) local.read_status = 1;
+    if (state.stats && state.stats.unread_count > 0) state.stats.unread_count -= 1;
+    updateFeedItemState(it.id);
+    post("/api/items/" + encodeURIComponent(it.id) + "/read", { read_status: 1 }).catch(function () { /* non-critical */ });
+  }
+
+  function renderReader() {
+    var it = state.reader.item;
+    if (!it) return;
+    var an = state.reader.analysis || null;
+    $("reader-kicker").textContent = it.origin_source || it.source_category || "阅读";
+    $("reader-body").innerHTML = readerHTML(it, an);
+    $("reader-scroll").scrollTop = 0;
+    updateReaderStar();
+    updateReaderNav();
+    updateReaderProgress();
+  }
+
+  function renderReaderError(message) {
+    $("reader-body").innerHTML = '<div class="reader-error"><h3>无法载入这篇内容</h3>' +
+      "<p>" + esc(message || "服务暂时没有响应，请稍后重试。") + "</p>" +
+      '<button class="btn primary" data-action="reader-retry" data-id="' + attr(state.reader.id) + '" type="button">重试</button></div>';
+    updateReaderNav();
+  }
+
+  async function openReader(id, trigger) {
+    if (id == null) return;
+    var key = String(id);
+    if (trigger) state.readerLastFocus = trigger;
+    else if (!state.reader.open) state.readerLastFocus = document.activeElement;
+
+    var known = findItemById(key);
+    state.reader.id = key;
+    state.reader.item = known || null;
+    state.reader.analysis = null;
+    state.reader.loading = true;
+    state.reader.error = "";
+    state.reader.open = true;
+    var seq = ++state.readerSeq;
+
+    $("workspace").classList.add("is-reading");
+    $("reader").setAttribute("aria-hidden", "false");
+    $("reader-progress-bar").style.width = "0";
+    $("reader-kicker").textContent = known ? (known.origin_source || known.source_category || "阅读") : "阅读";
+    $("reader-body").innerHTML = readerSkeleton(known);
+    updateReaderStar();
+    updateReaderNav();
+    markActiveInFeed(key);
+    try { $("reader").focus({ preventScroll: true }); } catch (e) { $("reader").focus(); }
+
+    try {
+      var d = await fetchAll({
+        item: api("/open/api/items/" + encodeURIComponent(key)),
+        analysis: api("/open/api/ai/analysis/" + encodeURIComponent(key))
+      });
+      if (seq !== state.readerSeq) return;
+      var it = (d.item && d.item.item) || null;
+      if (!it) throw new Error("这个条目可能已被删除。");
+      it._html = (d.item && d.item.html_content) || "";
+      it._summaryHtml = (d.item && d.item.summary_html) || "";
+      state.reader.item = it;
+      state.reader.analysis = (d.analysis && d.analysis.analysis) || null;
+      state.reader.loading = false;
+      var local = findItemById(it.id);
+      if (local && local !== it) {
+        local.starred = it.starred;
+        local.read_status = it.read_status;
+      }
+      renderReader();
+      markReaderItemRead(it);
+    } catch (err) {
+      if (seq !== state.readerSeq) return;
+      state.reader.loading = false;
+      state.reader.error = (err && err.message) || "无法读取该条目";
+      renderReaderError(state.reader.error);
+    }
+  }
+
+  function navigateReader(delta) {
+    var list = readerList();
+    if (!list.length) return;
+    var idx = -1;
+    for (var i = 0; i < list.length; i++) if (String(list[i].id) === String(state.reader.id)) { idx = i; break; }
+    var next = idx + delta;
+    if (next < 0 || next >= list.length) return;
+    openReader(list[next].id);
+  }
+
+  function closeReader(options) {
+    options = options || {};
+    if (!state.reader.open) return;
+    var lastId = state.reader.id;
+    var lastFocus = state.readerLastFocus;
+    state.reader.open = false;
+    state.reader.id = null;
+    state.reader.item = null;
+    state.reader.analysis = null;
+    state.reader.error = "";
+    state.reader.loading = false;
+    state.readerLastFocus = null;
+    state.readerSeq++;
+
+    $("workspace").classList.remove("is-reading");
+    $("reader").setAttribute("aria-hidden", "true");
+    var active = $("content").querySelectorAll('[aria-current="true"]');
+    for (var i = 0; i < active.length; i++) {
+      active[i].classList.remove("is-active");
+      active[i].removeAttribute("aria-current");
+    }
+
+    if (options.restoreFocus) {
+      var target = lastFocus && document.contains(lastFocus) ? lastFocus : null;
+      if (!target && lastId != null) {
+        target = $("content").querySelector('[data-action="detail"][data-id="' + lastId + '"]');
+      }
+      if (target) {
+        try { target.focus({ preventScroll: true }); } catch (e) { target.focus(); }
+      }
+    }
+
+    // Keep the article visible during the closing animation, then release it.
+    window.setTimeout(function () {
+      if (!state.reader.open) {
+        $("reader-body").innerHTML = "";
+        $("reader-progress-bar").style.width = "0";
+        $("reader-kicker").textContent = "阅读";
+      }
+    }, 620);
+  }
+
+  $("reader-close").addEventListener("click", function () { closeReader({ restoreFocus: true }); });
+  $("reader-scrim").addEventListener("click", function () { closeReader({ restoreFocus: true }); });
+  $("reader-prev").addEventListener("click", function () { navigateReader(-1); });
+  $("reader-next").addEventListener("click", function () { navigateReader(1); });
+  $("reader-scroll").addEventListener("scroll", updateReaderProgress, { passive: true });
+  $("reader-star").addEventListener("click", async function () {
+    var it = state.reader.item;
+    if (!it) return;
+    var next = Number(it.starred) === 1 ? 0 : 1;
+    it.starred = next;
+    var local = findItemById(it.id);
+    if (local && local !== it) local.starred = next;
+    updateReaderStar();
+    try {
+      var res = await post("/api/items/" + encodeURIComponent(it.id) + "/star", { starred: next });
+      if (res && res.error && res.error !== "") throw new Error(res.error);
+      toast(next ? "已收藏" : "已取消收藏");
+    } catch (err) {
+      it.starred = next ? 0 : 1;
+      if (local && local !== it) local.starred = it.starred;
+      updateReaderStar();
+      toast("操作失败，请重试", true);
+    }
+  });
 
   async function openLogs(id) {
     var d = await api("/api/logs?source_id=" + encodeURIComponent(id));
@@ -1454,6 +1876,7 @@
   /* ---------------- Actions ---------------- */
 
   function goto(view) {
+    closeReader({ restoreFocus: false });
     state.view = view;
     render();
     loadView(view);
@@ -1849,7 +2272,9 @@
         }
         return;
       }
-      if (action === "detail") { await openDetail(id); return; }
+      if (action === "layout") { setLayout(target.dataset.layout); return; }
+      if (action === "detail") { await openReader(id, target); return; }
+      if (action === "reader-retry") { await openReader(id || state.reader.id); return; }
       if (action === "filter") { state.filter = target.dataset.value; await reloadItems(); return; }
       if (action === "load-more") { await loadMoreItems(); return; }
       if (action === "category") {
@@ -1981,6 +2406,41 @@
       }
     } catch (err) {
       if (err.message !== "unauthorized") toast("操作失败：" + err.message, true);
+    }
+  });
+
+  // Keyboard reading controls. Ignore typing contexts so J/K remain printable
+  // characters inside forms and search.
+  document.addEventListener("keydown", function (e) {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    var el = e.target;
+    if (el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable)) return;
+    var dialogOpen = !$("dialog-modal").classList.contains("hidden");
+
+    if (e.key === "Escape") {
+      if (state.reader.open) { e.preventDefault(); closeReader({ restoreFocus: true }); return; }
+      if (dialogOpen) { closeDialog(); return; }
+      return;
+    }
+    if (dialogOpen) return;
+
+    if (state.reader.open && (e.key === "j" || e.key === "J")) { e.preventDefault(); navigateReader(1); return; }
+    if (state.reader.open && (e.key === "k" || e.key === "K")) { e.preventDefault(); navigateReader(-1); return; }
+    if (e.key === "v" || e.key === "V") {
+      if (state.view === "today" || state.view === "library") {
+        e.preventDefault();
+        setLayout(state.layout === "grid" ? "list" : "grid");
+      }
+      return;
+    }
+    if (e.key === "/" && state.view === "library") {
+      e.preventDefault();
+      $("search-input").focus();
+      return;
+    }
+    if ((e.key === "Enter" || e.key === " ") && el && el.closest) {
+      var row = el.closest('[data-action="detail"][role="button"]');
+      if (row) { e.preventDefault(); row.click(); }
     }
   });
 

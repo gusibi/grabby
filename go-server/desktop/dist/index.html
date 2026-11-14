@@ -69,7 +69,14 @@
       </div>
       <div class="service-sub" id="service-sub">本地 API 服务</div>
     </div>
-    <div class="sidebar-footer" id="sidebar-footer">Grabby Desktop</div>
+    <footer class="sidebar-footer" id="sidebar-footer">
+      <nav class="sidebar-links" aria-label="Grabby 相关链接">
+        <a href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab" target="_blank" rel="noopener" title="安装浏览器插件">浏览器插件</a>
+        <a href="https://grabby.eztoolab.com" target="_blank" rel="noopener" title="打开项目网站">项目网站</a>
+        <a href="https://github.com/gusibi/grabby/releases" target="_blank" rel="noopener" title="查看版本更新">Releases</a>
+      </nav>
+      <div>Grabby Desktop</div>
+    </footer>
   </aside>
 
   <main class="main">
@@ -78,6 +85,16 @@
       <div class="topbar-inner">
         <div class="topbar-title" id="topbar-title">Grabby</div>
         <div class="topbar-actions">
+          <div class="view-switch" id="view-switch" role="group" aria-label="展示方式" hidden>
+            <button class="view-switch-btn is-active" data-action="layout" data-layout="grid" type="button"
+              aria-label="卡片视图" aria-pressed="true" title="卡片视图 · V">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><rect x="2.5" y="2.5" width="6.4" height="6.4" rx="1.6"/><rect x="11.1" y="2.5" width="6.4" height="6.4" rx="1.6"/><rect x="2.5" y="11.1" width="6.4" height="6.4" rx="1.6"/><rect x="11.1" y="11.1" width="6.4" height="6.4" rx="1.6"/></svg>
+            </button>
+            <button class="view-switch-btn" data-action="layout" data-layout="list" type="button"
+              aria-label="列表视图" aria-pressed="false" title="列表视图 · V">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5.2h14M3 10h14M3 14.8h9"/></svg>
+            </button>
+          </div>
           <div class="search" id="search-wrap" hidden>
             <svg viewBox="0 0 20 20" aria-hidden="true"><circle cx="9" cy="9" r="5.5"/><path d="m13.2 13.2 3.6 3.6"/></svg>
             <input id="search-input" type="search" placeholder="搜索内容" autocomplete="off">
@@ -88,7 +105,38 @@
         </div>
       </div>
     </header>
-    <div class="content" id="content"></div>
+
+    <div class="workspace" id="workspace">
+      <div class="content" id="content"></div>
+      <div class="reader-scrim" id="reader-scrim"></div>
+      <aside class="reader" id="reader" role="region" aria-label="文章阅读" aria-hidden="true" tabindex="-1">
+        <div class="reader-progress" aria-hidden="true"><span id="reader-progress-bar"></span></div>
+        <div class="reader-shell" id="reader-shell">
+          <header class="reader-bar" id="reader-bar">
+            <button class="reader-nav-btn" id="reader-close" type="button" aria-label="关闭阅读面板（Esc）" title="关闭 · Esc">
+              <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg>
+            </button>
+            <div class="reader-bar-label" id="reader-kicker">阅读</div>
+            <div class="reader-bar-actions">
+              <div class="reader-pager">
+                <button class="reader-nav-btn" id="reader-prev" type="button" aria-label="上一篇（K）" title="上一篇 · K">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 12.5 10 7l5 5.5"/></svg>
+                </button>
+                <button class="reader-nav-btn" id="reader-next" type="button" aria-label="下一篇（J）" title="下一篇 · J">
+                  <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M5 7.5 10 13l5-5.5"/></svg>
+                </button>
+              </div>
+              <button class="reader-star" id="reader-star" type="button" aria-label="收藏" aria-pressed="false" title="收藏">
+                <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M10 2.9l2.2 4.6 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L2.8 8.2l5-.7z"/></svg>
+              </button>
+            </div>
+          </header>
+          <div class="reader-scroll" id="reader-scroll">
+            <div class="reader-body" id="reader-body"></div>
+          </div>
+        </div>
+      </aside>
+    </div>
   </main>
 </div>
 
