@@ -7,7 +7,7 @@
   document.documentElement.dataset.platform = platform;
 
   var TITLES = {
-    today: "Grabby", library: "内容库", sources: "RSS 源", news: "新闻源",
+    today: "今天", library: "全部内容", sources: "RSS 源", news: "新闻源与采集",
     ai: "AI 分析", daily: "AI 日报", devices: "浏览器设备", apihub: "API 接入",
     settings: "设置"
   };
@@ -140,10 +140,19 @@
     if (isNaN(d.getTime())) return String(value);
     return d.toLocaleString("zh-CN", { month: "numeric", day: "numeric", hour: "2-digit", minute: "2-digit" });
   }
-  function head(eyebrow, title, desc) {
-    return '<div class="page-head"><div class="eyebrow">' + esc(eyebrow) + "</div>" +
-      '<h1 class="page-title">' + esc(title) + "</h1>" +
-      (desc ? '<div class="page-desc">' + esc(desc) + "</div>" : "") + "</div>";
+  function head(desc) {
+    return desc ? '<div class="page-desc">' + esc(desc) + "</div>" : "";
+  }
+  function todayLabel() {
+    return new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
+  }
+  function syncTopbarHead() {
+    var el = $("topbar-head");
+    if (!el) return;
+    var meta = state.view === "today"
+      ? '<span class="today-desc">' + esc(todayLabel()) + " · 你的浏览器采集概览</span>"
+      : "";
+    el.innerHTML = '<h1 class="page-title">' + esc(TITLES[state.view] || "Grabby") + "</h1>" + meta;
   }
   function stat(value, label) {
     return '<div class="stat"><div class="stat-value">' + esc(value) + '</div>' +
@@ -399,13 +408,10 @@
 
   function renderToday() {
     var s = state.stats || {}, h = state.health || {};
-    var date = new Intl.DateTimeFormat("zh-CN", { month: "long", day: "numeric", weekday: "long" }).format(new Date());
     var connected = !!h.browser_connected;
     var report = latestReportForDate(state.dailyList, dateStr(new Date()));
 
-    var html = '<div class="page-head today-head"><div class="eyebrow">GRABBY</div>' +
-      '<div class="today-head-line"><h1 class="today-title">今天</h1>' +
-      '<span class="today-desc">' + esc(date) + " · 你的浏览器采集概览</span></div></div>";
+    var html = "";
 
     // One compact strip instead of four oversized cards.
     html += '<div class="today-stats">' + [
@@ -494,7 +500,7 @@
     var desc = filtered
       ? "当前显示 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集"
       : "共 " + total + " 条 · 来自 RSS、新闻源与浏览器采集";
-    var html = head("内容库", "全部内容", desc);
+    var html = head(desc);
     html += '<div class="toolbar">' +
       '<div class="segmented">' +
         '<button class="seg' + (state.filter === "all" ? " is-active" : "") + '" data-action="filter" data-value="all" type="button">全部</button>' +
@@ -554,7 +560,7 @@
     var enabled = list.filter(function (s) { return s.enabled == 1; }).length;
     var groups = {};
     list.forEach(function (s) { var g = s.category || "未分组"; groups[g] = (groups[g] || 0) + 1; });
-    var html = head("订阅源", "RSS 源", "管理 RSS / API / 网页抓取源，抓取结果会自动进入内容库并触发 AI 分析");
+    var html = head("管理 RSS / API / 网页抓取源，抓取结果会自动进入内容库并触发 AI 分析");
     html += statGrid([
       [list.length, "全部订阅源"], [enabled, "已启用"], [list.length - enabled, "已停用"], [Object.keys(groups).length, "分组"]
     ]);
@@ -602,7 +608,7 @@
         if (name && !groups[name]) groups[name] = [];
       });
     }
-    var html = head("新闻源", "新闻源与采集", "按话题分组查看来源，并通过浏览器扩展实时采集平台内容");
+    var html = head("按话题分组查看来源，并通过浏览器扩展实时采集平台内容");
     html += '<div class="panel"><h3>来源分组</h3>';
     var names = Object.keys(groups);
     html += names.length
@@ -911,7 +917,7 @@
     var s = state.aiSettings || {};
     var st = state.aiStats || {};
     var tab = state.aiTab === "overview" ? "overview" : "items";
-    var html = head("智能", "AI 分析", "每条新内容自动进入分析队列，按质量评分筛选优质内容与日报素材");
+    var html = head("每条新内容自动进入分析队列，按质量评分筛选优质内容与日报素材");
     html += '<div class="toolbar"><div class="segmented">' +
       '<button class="seg' + (tab === "items" ? " is-active" : "") + '" data-action="ai-tab" data-value="items" type="button">优质内容</button>' +
       '<button class="seg' + (tab === "overview" ? " is-active" : "") + '" data-action="ai-tab" data-value="overview" type="button">概览与配置</button>' +
@@ -995,7 +1001,7 @@
 
   function renderDaily() {
     var d = state.daily || {};
-    var html = head("智能", "AI 日报", "按日期查看自动生成的每日总结、早报与晚报");
+    var html = head("按日期查看自动生成的每日总结、早报与晚报");
     html += '<div class="toolbar daily-toolbar">' +
       '<input class="date-input" type="date" id="daily-date" value="' + attr(state.dailyDate) + '">' +
       '<select class="select-input" id="daily-type">' +
@@ -1079,7 +1085,7 @@
 
   function renderDevices() {
     var list = state.browsers || [];
-    var html = head("浏览器设备", "浏览器设备", "扩展在真实浏览器里带登录态执行抓取，服务端只负责调度");
+    var html = head("扩展在真实浏览器里带登录态执行抓取，服务端只负责调度");
     html += '<div class="panel"><h3>已注册设备</h3>';
     if (!list.length) html += empty("暂无设备", "在扩展设置中填写 WebSocket 地址并连接。");
     else html += list.map(function (b) {
@@ -1106,7 +1112,7 @@
     var tokenHeader = state.tokenEnabled ? ' \\\n  -H "X-API-Key: <YOUR_TOKEN>"' : "";
     var extract = "curl -X POST " + base + "/api/extract" + tokenHeader + ' \\\n  -H "Content-Type: application/json" \\\n  -d \'{"url":"https://example.com"}\'';
     var twitter = "curl -X POST " + base + "/api/twitter/search" + tokenHeader + ' \\\n  -H "Content-Type: application/json" \\\n  -d \'{"query":"grabby","limit":20}\'';
-    var html = head("API 接入", "API 接入", "这个 APP 本身就是中转服务：外部请求进来，由它经 WebSocket 下发给浏览器扩展");
+    var html = head("这个 APP 本身就是中转服务：外部请求进来，由它经 WebSocket 下发给浏览器扩展");
     html += '<div class="panel"><h3>服务地址</h3>' +
       '<div class="row"><span class="row-label">Base URL</span><span class="row-value mono">' + esc(base) + "</span></div>" +
       '<div class="row"><span class="row-label">MCP</span><span class="row-value mono">' + esc(base) + "/mcp</span></div>" +
@@ -1180,7 +1186,7 @@
     var modelValues = effectiveModels.map(stripModelRef).join(", ");
     var discoveredHTML = renderDiscoveredModelsHTML(state.discoveredModels || [], effectiveModels);
 
-    var html = head("偏好", "设置", "模型、提示词、日报定时与本地服务都在这里，保存后立即生效");
+    var html = head("模型、提示词、日报定时与本地服务都在这里，保存后立即生效");
 
     html += settingNav([
       ["01", "服务状态"], ["02", "AI 模型"], ["03", "提示词"],
@@ -1340,7 +1346,6 @@
   }
 
   function syncViewChrome() {
-    $("topbar-title").textContent = TITLES[state.view] || "Grabby";
     var isLibrary = state.view === "library";
     $("search-wrap").hidden = !isLibrary;
     $("search-input").placeholder = isLibrary ? "搜索标题、摘要、来源" : "搜索内容";
@@ -1356,6 +1361,7 @@
 
   function render(options) {
     syncViewChrome();
+    syncTopbarHead();
     var nav = document.querySelectorAll(".nav-item");
     for (var i = 0; i < nav.length; i++) nav[i].classList.toggle("is-active", nav[i].dataset.view === state.view);
     var keepScroll = !!(options && options.keepScroll);

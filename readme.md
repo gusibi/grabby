@@ -551,9 +551,9 @@ make package-macos-app   # 生成 dist/Grabby.app（本机架构，未签名）
 发布产物使用统一脚本构建（CI 也调用它）：
 
 ```bash
-bash scripts/package-desktop.sh macos   0.3.0   # 通用架构 .app + .dmg
-bash scripts/package-desktop.sh windows 0.3.0   # .exe + zip + NSIS 安装包（需 go-winres、makensis）
-bash scripts/package-desktop.sh linux   0.3.0   # 可执行文件 + tar.gz + .deb（需 dpkg-deb）
+bash scripts/package-desktop.sh macos   0.3.1   # 通用架构 .app + .dmg
+bash scripts/package-desktop.sh windows 0.3.1   # .exe + zip + NSIS 安装包（需 go-winres、makensis）
+bash scripts/package-desktop.sh linux   0.3.1   # 可执行文件 + tar.gz + .deb（需 dpkg-deb）
 ```
 
 桌面 App 是**单个自包含的可执行文件**：Go 服务端、HTTP / WebSocket / MCP、SQLite 与
@@ -576,8 +576,8 @@ cd chrome-extension && npm ci && npm run build      # 生成 defuddle bundle
 打包由 GitHub Actions 完成，工作流见 `.github/workflows/release.yml`：
 
 ```bash
-git tag v0.3.0
-git push origin v0.3.0
+git tag v0.3.1
+git push origin v0.3.1
 ```
 
 推送 `v*` tag 后会自动：
