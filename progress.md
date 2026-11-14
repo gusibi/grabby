@@ -77,6 +77,26 @@
 - Verified: `npm run build` succeeds; WebKit audit of both languages has no page errors and no
   missing translation keys; scrolled screenshots of every section reviewed.
 
+### Follow-up — header cleanup
+- **Status:** complete
+- Removed the duplicated gray topbar title (it repeated the current page name on every view) and
+  the red eyebrow above every page heading (`GRABBY`, `内容库`, `智能`, `偏好`…). Card-level
+  labels such as `今日日报` / `DAILY BRIEF` are kept.
+- Moved every page title up: topbar row reduced to 36px, content top padding removed, page-head
+  top margin 8px → 2px, title margins zeroed. The title now starts ~2px below the toolbar.
+- Verified today / library / AI / settings at 1180 and 1440, Windows platform variant, and the
+  split reader (title 77px, topbar bottom 75px, reader 776px); no console errors.
+
+### Follow-up — title into the toolbar
+- **Status:** complete
+- Page titles now live in the topbar row itself (`#topbar-head`), left of the actions, so the
+  title starts at the content area's top edge (y≈44) instead of below the toolbar. Descriptions
+  remain at the top of the scrollable content.
+- Titles use the theme accent red (`var(--accent)`); date meta on 今天 stays inline.
+- Topbar row is 44px, `space-between`, actions `flex: none`; long titles ellipsize.
+- Verified today / library / news / AI / settings at 1180 and 1440, minimum 900 width, dark mode,
+  and the split reader; no console errors.
+
 ## Files changed
 - `go-server/desktop/dist/index.html`
 - `go-server/desktop/dist/app.css`
