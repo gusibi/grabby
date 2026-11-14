@@ -18,25 +18,41 @@ function hlJson(json: string) {
 }
 
 function hlShell(cmd: string) {
-  return cmd.replace(
-    /^(#.*)$/gm,
-    '<span class="text-[#8b949e]">$1</span>'
-  ).replace(
-    /("(?:[^"\\]|\\.)*")/g,
-    '<span class="text-[#a5d6ff]">$1</span>'
-  ).replace(
-    /('(?:[^'\\]|\\.)*')/g,
-    '<span class="text-[#a5d6ff]">$1</span>'
-  );
+  return cmd
+    .split('\n')
+    .map((line) => {
+      if (/^\s*#/.test(line)) {
+        return `<span class="text-[#8b949e]">${line}</span>`;
+      }
+      return line
+        .replace(
+          /("(?:[^"\\]|\\.)*")/g,
+          '<span class="text-[#a5d6ff]">$1</span>'
+        )
+        .replace(
+          /('(?:[^'\\]|\\.)*')/g,
+          '<span class="text-[#a5d6ff]">$1</span>'
+        );
+    })
+    .join('\n');
+}
+
+function hlMixed(text: string) {
+  return text
+    .split('\n')
+    .map((line) => {
+      if (/^\s*#/.test(line)) return hlShell(line);
+      if (/^\s*\{/.test(line)) return hlJson(line);
+      return hlShell(line);
+    })
+    .join('\n');
 }
 
 const healthRaw = `curl http://localhost:5040/api/health
 
 # 预期响应
 {"status":"ok","browser_connected":true,"timestamp":"..."}`;
-const healthResp = hlShell(healthRaw.replace(
-  /\{.*\}/s, (m) => hlJson(m)
-));
+const healthResp = hlMixed(healthRaw);
 
 const extractRaw = `curl -X POST http://localhost:5040/api/extract \\
   -H "Content-Type: application/json" \\
@@ -44,11 +60,7 @@ const extractRaw = `curl -X POST http://localhost:5040/api/extract \\
 
 # 预期响应
 {"success":true,"url":"https://example.com","title":"Example Domain","markdown":"# Example Domain\\n\\n..."}`;
-const extractResp = hlShell(extractRaw.replace(
-  /\{"success".*\}/s, (m) => hlJson(m)
-)).replace(
-  /\{"status".*\}/s, (m) => hlJson(m)
-);
+const extractResp = hlMixed(extractRaw);
 
 const claudeConfig = hlJson(`{
   "mcpServers": {
@@ -62,7 +74,7 @@ const jsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "Article",
   "headline": "Grabby Setup Guide",
-  "description": "Complete installation and configuration guide for Grabby — Chrome extension, backend server, and MCP integration.",
+  "description": "Complete installation and configuration guide for Grabby — desktop app, Chrome extension, Go server, and MCP integration.",
   "author": { "@type": "Person", "name": "gusibi" }
 });
 ---
@@ -84,24 +96,86 @@ const jsonLd = JSON.stringify({
           <ul class="space-y-3 text-mute dark:text-[#888]">
             <li class="flex items-start gap-3">
               <span class="text-accent mt-0.5">-</span>
-              <span data-i18n="setup.reqChrome"><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Chrome 浏览器</strong>（或基于 Chromium 的浏览器）</span>
+              <span data-i18n="setup.reqOs">macOS 12+ / Windows 10+ / Linux — 桌面 App 运行环境</span>
             </li>
             <li class="flex items-start gap-3">
               <span class="text-accent mt-0.5">-</span>
-              <span data-i18n="setup.reqNode"><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Node.js</strong> — 用于构建浏览器扩展</span>
+              <span data-i18n="setup.reqChrome">Chrome 浏览器（或 Chromium 内核浏览器）— 运行扩展、采集真实网页</span>
             </li>
             <li class="flex items-start gap-3">
               <span class="text-accent mt-0.5">-</span>
-              <span data-i18n="setup.reqPython"><strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Python 3.13+</strong> 或 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Go 1.23+</strong> — 后端运行环境（二选一）</span>
+              <span data-i18n="setup.reqNode">Node.js 22+ — 仅从源码构建时需要（安装版无需）</span>
             </li>
           </ul>
         </div>
       </section>
 
-      <!-- Step 1: Clone -->
+      <!-- Step 1: Desktop App -->
       <section class="fade-in mb-20">
-        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step1">1. 克隆项目</h2>
-        <pre><code set:html={hlShell(`git clone https://github.com/gusibi/grabby.git\ncd grabby`)} /></pre>
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step1">1. 安装桌面 App</h2>
+
+        <div class="space-y-6">
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.downloadDesc">
+              从 GitHub Releases 下载对应平台的安装包。它是单个自包含的可执行文件：Go 服务、HTTP / WebSocket / MCP、SQLite 数据库和桌面界面全部打包在一起，不需要再安装 Go、Node 或数据库。
+            </p>
+            <a
+              href="https://github.com/gusibi/grabby/releases"
+              class="inline-flex items-center gap-2 px-5 py-2.5 bg-accent text-white rounded-lg font-mono text-sm font-semibold hover:bg-accent-hover transition-all"
+              target="_blank" rel="noopener"
+              data-i18n="setup.downloadBtn"
+            >
+              下载最新版本
+            </a>
+          </div>
+
+          <div class="grid gap-4 sm:grid-cols-3">
+            <div class="p-5 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+              <h3 class="font-mono font-semibold mb-2" data-i18n="setup.macTitle">macOS</h3>
+              <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="setup.macDesc">
+                下载 Grabby-&lt;版本&gt;-macOS-universal.dmg，双击打开，把 Grabby 拖进 Applications。安装包未经过 Apple 公证：首次打开请在 Finder 中右键点击 Grabby →「打开」，或到「系统设置 → 隐私与安全性」点「仍要打开」。
+              </p>
+            </div>
+            <div class="p-5 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+              <h3 class="font-mono font-semibold mb-2" data-i18n="setup.winTitle">Windows</h3>
+              <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="setup.winDesc">
+                下载 Grabby-&lt;版本&gt;-Windows-amd64-setup.exe（ARM 设备选 arm64）。SmartScreen 提示时点「更多信息 → 仍要运行」。也可以下载免安装 zip，解压后运行 Grabby.exe。
+              </p>
+            </div>
+            <div class="p-5 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+              <h3 class="font-mono font-semibold mb-2" data-i18n="setup.linuxTitle">Linux</h3>
+              <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="setup.linuxDesc">
+                Debian / Ubuntu 使用 sudo apt install ./grabby_&lt;版本&gt;_amd64.deb；其他发行版解压 tar.gz 后运行 ./grabby，需要 GTK3 与 WebKitGTK 4.1。
+              </p>
+            </div>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.firstRun">首次启动</h3>
+            <ul class="list-disc list-inside space-y-2 text-mute dark:text-[#888]">
+              <li data-i18n="setup.firstRun1">内置服务自动监听 127.0.0.1:5040；端口被占用时自动顺延到 5041、5042…，实际端口见「设置 → 服务状态」。</li>
+              <li data-i18n="setup.firstRun2">数据默认只保存在本机 SQLite：macOS 为 ~/Library/Application Support/Grabby，Windows 为 %AppData%\Grabby，Linux 为 ~/.config/Grabby。</li>
+              <li data-i18n="setup.firstRun3">关闭窗口后 App 驻留托盘，服务继续运行；不需要终端，也不需要额外启动后端。</li>
+            </ul>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.readingTitle">阅读体验</h3>
+            <ul class="list-disc list-inside space-y-2 text-mute dark:text-[#888]">
+              <li data-i18n="setup.read1">卡片 / 列表两种展示方式，工具栏或快捷键 V 切换，选择会记住。</li>
+              <li data-i18n="setup.read2">点击文章在右侧打开应用内阅读面板，显示清洗后的全文、AI 精读、阅读进度与时长，不再跳出浏览器。</li>
+              <li data-i18n="setup.read3">阅读面板打开时，左侧列表自动进入 420px 紧凑模式，面板占满剩余宽度；窗口窄于 1120px 时切换为全宽覆盖。</li>
+              <li data-i18n="setup.read4">快捷键：Esc 关闭，J / K 下一篇 / 上一篇，/ 聚焦搜索；侧栏底部可直达浏览器插件、项目网站与 Releases。</li>
+              <li data-i18n="setup.read5">没抓取到正文的文章仍会显示摘要、AI 分析与来源，并提供「在浏览器打开」兜底。</li>
+            </ul>
+          </div>
+
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.srcTitle">从源码构建（可选）</h3>
+            <p class="text-sm text-mute dark:text-[#888] mb-3" data-i18n="setup.srcDesc">需要 Go 1.27.3+；构建 Web 界面时需要 Node.js 22+。</p>
+            <pre><code set:html={hlShell(`git clone https://github.com/gusibi/grabby.git\ncd grabby\n\nmake app            # 构建 → 打包 dist/Grabby.app → 启动\nmake run-desktop    # 前台运行，终端看日志`)} /></pre>
+          </div>
+        </div>
       </section>
 
       <!-- Step 2: Chrome Extension -->
@@ -126,111 +200,22 @@ const jsonLd = JSON.stringify({
             <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.method2">方式二：开发模式加载</h3>
             <p class="text-mute dark:text-[#888] mb-3" data-i18n="setup.method2Desc">如果你需要修改源码或进行开发调试：</p>
             <ol class="list-decimal list-inside space-y-2 text-mute dark:text-[#888]">
-              <li data-i18n="setup.dev1">打开 Chrome，访问 <code>chrome://extensions</code></li>
-              <li>开启右上角 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]" data-i18n="setup.dev2">"开发者模式"</strong></li>
-              <li>点击 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]" data-i18n="setup.dev3">"加载已解压的扩展程序"</strong></li>
-              <li data-i18n="setup.dev4">选择项目中的 <code>chrome-extension/</code> 目录</li>
+              <li data-i18n="setup.dev1">打开 Chrome，访问 chrome://extensions</li>
+              <li data-i18n="setup.dev2">开启右上角 "开发者模式"</li>
+              <li data-i18n="setup.dev3">点击 "加载已解压的扩展程序"</li>
+              <li data-i18n="setup.dev4">选择项目中的 chrome-extension/ 目录（或 Release 里 grabby-extension-&lt;版本&gt;.zip 解压后的目录）</li>
             </ol>
           </div>
         </div>
       </section>
 
-      <!-- Step 3: Backend Server -->
+      <!-- Step 3: Configure Extension -->
       <section class="fade-in mb-20">
-        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step3">3. 安装后端服务</h2>
-
-        <div class="space-y-6">
-          <!-- Python -->
-          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.pythonTitle">Python 后端（推荐新手）</h3>
-            <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.pythonDesc">使用 uv 包管理器一键运行，自动处理虚拟环境和依赖安装：</p>
-
-            <h4 class="font-mono font-semibold text-sm mb-2 text-accent">1) 安装 uv（如未安装）</h4>
-            <pre><code set:html={hlShell(`curl -LsSf https://astral.sh/uv/install.sh | sh`)} /></pre>
-
-            <h4 class="font-mono font-semibold text-sm mb-2 mt-5 text-accent">2) 配置环境变量</h4>
-            <pre><code set:html={hlShell(`cd python-server\ncp .env.example .env`)} /></pre>
-            <p class="text-sm text-mute dark:text-[#888] mt-3 mb-2">编辑 <code>.env</code> 文件，按需修改以下配置：</p>
-            <div class="overflow-x-auto">
-              <table class="w-full text-sm text-left text-mute dark:text-[#888] border-collapse">
-                <thead>
-                  <tr class="border-b border-bord dark:border-[#333]">
-                    <th class="py-2 pr-4 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">配置项</th>
-                    <th class="py-2 pr-4 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">默认值</th>
-                    <th class="py-2 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">说明</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">HOST</td>
-                    <td class="py-2 pr-4 font-mono">0.0.0.0</td>
-                    <td class="py-2">服务器监听地址</td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">PORT</td>
-                    <td class="py-2 pr-4 font-mono">5040</td>
-                    <td class="py-2">服务器监听端口</td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">CONNECT_ID</td>
-                    <td class="py-2 pr-4 font-mono">browser-tools</td>
-                    <td class="py-2">浏览器扩展连接 ID，<strong>两端必须一致</strong></td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">API_KEY</td>
-                    <td class="py-2 pr-4 font-mono">（空）</td>
-                    <td class="py-2">HTTP/WebSocket 端点保护密钥，留空表示关闭校验</td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">DEBUG</td>
-                    <td class="py-2 pr-4 font-mono">false</td>
-                    <td class="py-2">调试模式，开启后输出更多日志</td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">WEBSOCKET_TIMEOUT</td>
-                    <td class="py-2 pr-4 font-mono">5.0</td>
-                    <td class="py-2">WebSocket 请求超时（秒）</td>
-                  </tr>
-                  <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">API_EXTRACT_TIMEOUT</td>
-                    <td class="py-2 pr-4 font-mono">60.0</td>
-                    <td class="py-2">HTTP API extract 端点超时（秒）</td>
-                  </tr>
-                  <tr>
-                    <td class="py-2 pr-4 font-mono">DEFAULT_BROWSER</td>
-                    <td class="py-2 pr-4 font-mono">（空）</td>
-                    <td class="py-2">默认浏览器名称，留空使用第一个连接的浏览器</td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-            <p class="text-xs text-mute dark:text-[#666] mt-3">配置优先级：系统环境变量 &gt; .env 文件 &gt; 代码默认值</p>
-
-            <h4 class="font-mono font-semibold text-sm mb-2 mt-5 text-accent">3) 启动服务</h4>
-            <pre><code set:html={hlShell(`# 方式一：使用 uv 直接运行（推荐）\nuv run python main.py\n\n# 方式二：使用启动脚本（自动检测 Python/Go 后端）\ncd ..\n./start.sh`)} /></pre>
-            <p class="text-sm text-mute dark:text-[#888] mt-3 mb-2">服务启动后，控制台会输出可用端点：</p>
-            <pre><code set:html={hlShell(`HTTP API:\n  POST http://localhost:5040/api/extract    - 提取网页 Markdown\n  GET  http://localhost:5040/api/health     - 健康检查\n  GET  http://localhost:5040/api/browsers   - 已连接浏览器列表\n\nWebSocket:\n  ws://localhost:5040/ws_browser  - 浏览器扩展连接\n\nMCP Server:\n  http://localhost:5040/mcp/sse`)} /></pre>
-          </div>
-
-          <!-- Go -->
-          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="setup.goTitle">Go 后端（推荐资源受限环境）</h3>
-            <pre><code set:html={hlShell(`cd go-server\ncp .env.example .env\n# 编辑 .env 按需修改配置（配置项与 Python 后端一致）\n\ngo build -o go-server .\n./go-server`)} /></pre>
-            <p class="text-sm text-mute dark:text-[#888] mt-3">Go 后端支持交叉编译：</p>
-            <pre><code set:html={hlShell(`# macOS ARM64\nGOOS=darwin GOARCH=arm64 go build -o go-server-darwin .\n\n# Linux AMD64\nGOOS=linux GOARCH=amd64 go build -o go-server-linux .\n\n# Windows\nGOOS=windows GOARCH=amd64 go build -o go-server.exe .`)} /></pre>
-          </div>
-        </div>
-      </section>
-
-      <!-- Step 4: Configuration -->
-      <section class="fade-in mb-20">
-        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step4">4. 配置扩展</h2>
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step3">3. 配置并连接扩展</h2>
         <div class="space-y-6">
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-            <h3 class="font-mono font-semibold text-sm mb-3 text-accent">打开设置页面</h3>
-            <p class="text-mute dark:text-[#888] mb-3">右键点击 Chrome 工具栏中的 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">Grabby 图标</strong> → <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">选项 / Options</strong></p>
+            <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.cfgIntro">右键点击 Chrome 工具栏中的 Grabby 图标 →「选项」，填写连接信息：</p>
 
-            <h3 class="font-mono font-semibold text-sm mb-3 mt-5 text-accent">填写连接信息</h3>
             <div class="overflow-x-auto">
               <table class="w-full text-sm text-left text-mute dark:text-[#888] border-collapse">
                 <thead>
@@ -242,48 +227,144 @@ const jsonLd = JSON.stringify({
                 </thead>
                 <tbody>
                   <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">WebSocket 服务器地址</td>
+                    <td class="py-2 pr-4 font-mono" data-i18n="setup.cfgWs">WebSocket 服务器地址</td>
                     <td class="py-2 pr-4 font-mono text-xs">ws://localhost:5040/ws_browser</td>
-                    <td class="py-2">后端 WebSocket 端点，与服务端 <code>HOST</code>:<code>PORT</code> 对应</td>
+                    <td class="py-2" data-i18n="setup.cfgWsDesc">与内置服务的监听端口一致</td>
                   </tr>
                   <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">API 密钥</td>
+                    <td class="py-2 pr-4 font-mono" data-i18n="setup.cfgKey">API 密钥</td>
                     <td class="py-2 pr-4 font-mono">browser-tools</td>
-                    <td class="py-2">必须与服务端 <code>.env</code> 中的 <code>CONNECT_ID</code> 一致</td>
+                    <td class="py-2" data-i18n="setup.cfgKeyDesc">与服务端 CONNECT_ID 一致，默认 browser-tools</td>
                   </tr>
                   <tr class="border-b border-bord dark:border-[#222]">
-                    <td class="py-2 pr-4 font-mono">浏览器名称</td>
+                    <td class="py-2 pr-4 font-mono" data-i18n="setup.cfgName">浏览器名称</td>
                     <td class="py-2 pr-4 font-mono">chrome-office</td>
-                    <td class="py-2">多浏览器场景下的标识名称（可选，单浏览器留空）</td>
+                    <td class="py-2" data-i18n="setup.cfgNameDesc">多浏览器场景下的标识（可选），如 chrome-office</td>
                   </tr>
                   <tr>
-                    <td class="py-2 pr-4 font-mono">启动时自动连接</td>
+                    <td class="py-2 pr-4 font-mono" data-i18n="setup.cfgAuto">启动时自动连接</td>
                     <td class="py-2 pr-4 font-mono">勾选</td>
-                    <td class="py-2">推荐开启，Chrome 启动后自动连接后端服务</td>
+                    <td class="py-2" data-i18n="setup.cfgAutoDesc">推荐开启，Chrome 启动后自动连回 App</td>
                   </tr>
                 </tbody>
               </table>
             </div>
 
-            <h3 class="font-mono font-semibold text-sm mb-3 mt-5 text-accent">认证原理</h3>
-            <p class="text-mute dark:text-[#888] mb-3">扩展连接时，会将 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">API 密钥</strong> 作为 <code>conn_id</code> 参数附加到 WebSocket URL：</p>
+            <h3 class="font-mono font-semibold text-sm mb-3 mt-6 text-accent" data-i18n="setup.authTitle">认证原理</h3>
+            <p class="text-mute dark:text-[#888] mb-3" data-i18n="setup.authDesc">扩展把 API 密钥作为 conn_id 附加在 WebSocket URL 上，服务端校验它是否等于 CONNECT_ID，不一致则拒绝连接（403）。因此扩展里的 API 密钥必须与服务端的 CONNECT_ID 保持一致。</p>
             <pre><code set:html={hlShell(`ws://localhost:5040/ws_browser?conn_id=browser-tools`)} /></pre>
-            <p class="text-mute dark:text-[#888] mt-3 text-sm">服务端验证 <code>conn_id</code> 是否与 <code>.env</code> 中的 <code>CONNECT_ID</code> 匹配。不一致则拒绝连接（返回 403）。因此<strong>扩展的 API 密钥必须与服务端的 CONNECT_ID 保持一致</strong>。</p>
 
-            <h3 class="font-mono font-semibold text-sm mb-3 mt-5 text-accent">保存并连接</h3>
+            <h3 class="font-mono font-semibold text-sm mb-3 mt-6 text-accent" data-i18n="setup.cfgOk">保存并连接</h3>
             <ol class="list-decimal list-inside space-y-2 text-mute dark:text-[#888]">
-              <li>填写上述字段</li>
-              <li>点击页面底部的 <strong class="text-[#1a1a1a] dark:text-[#e0e0e0]">保存设置</strong></li>
-              <li>扩展自动尝试连接后端服务</li>
-              <li>看到 <strong class="text-[#059669]">"连接状态：已连接"</strong> 即表示成功</li>
+              <li data-i18n="setup.cfgOk1">填写后点击页面底部的「保存设置」</li>
+              <li data-i18n="setup.cfgOk2">选项页显示「连接状态：已连接」</li>
+              <li data-i18n="setup.cfgOk3">App 侧栏底部显示在线设备数，「今天」页显示「扩展已连接」</li>
             </ol>
+            <p class="text-sm text-mute dark:text-[#888] mt-4" data-i18n="setup.cfgPort">桌面 App 的端口可能顺延，扩展里的地址要跟着改；以「设置 → 服务状态」显示的 WebSocket 地址为准。</p>
           </div>
         </div>
       </section>
 
-      <!-- Step 5: Verify -->
+      <!-- Step 4: AI -->
       <section class="fade-in mb-20">
-        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step5">5. 验证安装</h2>
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step4">4. 配置 AI 模型</h2>
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <p class="text-mute dark:text-[#888] mb-3" data-i18n="setup.aiDesc">打开 App →「设置 → AI 模型」：</p>
+          <ol class="list-decimal list-inside space-y-2 text-mute dark:text-[#888]">
+            <li data-i18n="setup.ai1">选择服务商预设（OpenAI / Anthropic / DeepSeek / Gemini / OpenRouter / Ollama / 自定义等），填写 API Key、Base URL 与模型名称；模型可用逗号分隔填写多个。</li>
+            <li data-i18n="setup.ai2">点击「测试模型连通性」确认可用后保存，新任务立即生效。</li>
+            <li data-i18n="setup.ai3">可在「提示词」调整分析与日报提示词，在「日报定时」开关早报和晚报。</li>
+          </ol>
+          <p class="text-sm text-mute dark:text-[#666] mt-4" data-i18n="setup.aiNote">没有配置 AI 也能采集和阅读，只是不会有评分、分类与日报。</p>
+        </div>
+      </section>
+
+      <!-- Step 5: Server only (optional) -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step5">5. 只运行服务端（可选）</h2>
+        <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+          <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.srvDesc">不启动桌面 App 时，也可以直接运行 Go 服务，通过浏览器使用 Web 管理界面，或把它当作纯 API / MCP 服务。两者共用同一套接口与 SQLite 数据。</p>
+
+          <pre><code set:html={hlShell(`cd go-server\ncp .env.example .env\n# 编辑 .env 按需修改配置\n\ngo run .\n# 或编译后运行\ngo build -o go-server . && ./go-server`)} /></pre>
+          <p class="text-sm text-mute dark:text-[#888] mt-3 mb-2">Web 管理界面：<code>http://localhost:5040</code></p>
+
+          <h3 class="font-mono font-semibold text-sm mb-3 mt-6 text-accent" data-i18n="setup.srvEnv">环境变量</h3>
+          <div class="overflow-x-auto">
+            <table class="w-full text-sm text-left text-mute dark:text-[#888] border-collapse">
+              <thead>
+                <tr class="border-b border-bord dark:border-[#333]">
+                  <th class="py-2 pr-4 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">配置项</th>
+                  <th class="py-2 pr-4 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">默认值</th>
+                  <th class="py-2 font-mono font-semibold text-[#1a1a1a] dark:text-[#e0e0e0]">说明</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">HOST</td>
+                  <td class="py-2 pr-4 font-mono">0.0.0.0</td>
+                  <td class="py-2">服务器监听地址（桌面内嵌服务固定 127.0.0.1）</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">PORT</td>
+                  <td class="py-2 pr-4 font-mono">5040</td>
+                  <td class="py-2">服务器监听端口</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">CONNECT_ID</td>
+                  <td class="py-2 pr-4 font-mono">browser-tools</td>
+                  <td class="py-2">扩展连接 ID，<strong>两端必须一致</strong></td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">DEFAULT_BROWSER</td>
+                  <td class="py-2 pr-4 font-mono">（空）</td>
+                  <td class="py-2">多浏览器默认路由，留空使用第一个连接的浏览器</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">DEBUG</td>
+                  <td class="py-2 pr-4 font-mono">false</td>
+                  <td class="py-2">调试模式，输出更多日志</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">WEBSOCKET_TIMEOUT</td>
+                  <td class="py-2 pr-4 font-mono">5.0</td>
+                  <td class="py-2">WebSocket 请求超时（秒）</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">API_EXTRACT_TIMEOUT</td>
+                  <td class="py-2 pr-4 font-mono">60.0</td>
+                  <td class="py-2">HTTP API extract 端点超时（秒）</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">GRABBY_ADMIN_KEY</td>
+                  <td class="py-2 pr-4 font-mono">（空）</td>
+                  <td class="py-2">Web 管理后台登录密钥，留空表示不需登录</td>
+                </tr>
+                <tr class="border-b border-bord dark:border-[#222]">
+                  <td class="py-2 pr-4 font-mono">GRABBY_API_TOKEN</td>
+                  <td class="py-2 pr-4 font-mono">（空）</td>
+                  <td class="py-2">API / MCP 访问 token，留空表示不鉴权</td>
+                </tr>
+                <tr>
+                  <td class="py-2 pr-4 font-mono">AI_ENABLED / AI_PROVIDER / AI_MODEL / AI_API_KEY / AI_BASE_URL / AI_QUALITY_THRESHOLD</td>
+                  <td class="py-2 pr-4 font-mono">false / gemini / …</td>
+                  <td class="py-2">AI 引擎配置，也可在 App 或 Web 设置页填写</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="text-xs text-mute dark:text-[#666] mt-3" data-i18n="setup.srvEnvNote">配置优先级：系统环境变量 &gt; .env 文件 &gt; 代码默认值。桌面 App 内置服务不读取 .env 里的桌面专用变量。</p>
+
+          <p class="text-sm text-mute dark:text-[#888] mt-5 mb-2">服务启动后，控制台会输出可用端点：</p>
+          <pre><code set:html={hlShell(`HTTP API:\n  POST http://localhost:5040/api/extract    - 提取网页 Markdown\n  GET  http://localhost:5040/api/health     - 健康检查\n  GET  http://localhost:5040/api/browsers   - 已连接浏览器列表\n\nWebSocket:\n  ws://localhost:5040/ws_browser  - 浏览器扩展连接\n\nMCP Server:\n  http://localhost:5040/mcp/sse`)} /></pre>
+
+          <p class="text-sm text-mute dark:text-[#888] mt-5 mb-2">Go 后端支持交叉编译：</p>
+          <pre><code set:html={hlShell(`# macOS ARM64\nGOOS=darwin GOARCH=arm64 go build -o go-server-darwin .\n\n# Linux AMD64\nGOOS=linux GOARCH=amd64 go build -o go-server-linux .\n\n# Windows\nGOOS=windows GOARCH=amd64 go build -o go-server.exe .`)} /></pre>
+        </div>
+      </section>
+
+      <!-- Step 6: Verify -->
+      <section class="fade-in mb-20">
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step6">6. 验证安装</h2>
         <div class="space-y-4">
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <h3 class="font-mono font-semibold text-sm mb-3 text-accent" data-i18n="setup.health">健康检查</h3>
@@ -299,7 +380,7 @@ const jsonLd = JSON.stringify({
 
       <!-- MCP Config -->
       <section class="fade-in mb-20">
-        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step6">6. 配置 Claude Desktop</h2>
+        <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step7">7. 配置 Claude Desktop</h2>
         <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.claudeDesc">在 Claude Desktop 的配置文件中添加 Grabby MCP Server：</p>
         <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
           <pre><code set:html={claudeConfig} /></pre>
@@ -316,19 +397,27 @@ const jsonLd = JSON.stringify({
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <h3 class="font-mono font-semibold mb-2" data-i18n="setup.ts1Title">扩展无法连接服务器</h3>
             <ol class="list-decimal list-inside space-y-1 text-mute dark:text-[#888] text-sm">
-              <li data-i18n="setup.ts1">确认后端服务已启动</li>
-              <li data-i18n="setup.ts2">检查 WebSocket 地址和端口是否正确</li>
-              <li data-i18n="setup.ts3">确认 API 密钥与服务器 <code>.env</code> 中的配置一致</li>
+              <li data-i18n="setup.ts1">确认 App 或后端服务已启动</li>
+              <li data-i18n="setup.ts2">检查 WebSocket 地址与端口：桌面 App 端口被占用时会顺延，以「设置 → 服务状态」为准</li>
+              <li data-i18n="setup.ts3">确认 API 密钥与服务端 CONNECT_ID 一致（默认 browser-tools）</li>
               <li data-i18n="setup.ts4">检查防火墙是否放行端口</li>
             </ol>
           </div>
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-            <h3 class="font-mono font-semibold mb-2" data-i18n="setup.ts2Title">Python 依赖安装失败</h3>
-            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.ts2Desc">推荐使用 <code>uv</code> 替代 <code>pip</code>，uv 会自动创建虚拟环境并解析依赖。</p>
+            <h3 class="font-mono font-semibold mb-2" data-i18n="setup.tsMacTitle">macOS 提示无法验证开发者</h3>
+            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.tsMacDesc">在 Finder 中右键点击 Grabby →「打开」；或到「系统设置 → 隐私与安全性」点「仍要打开」；也可以执行 xattr -dr com.apple.quarantine /Applications/Grabby.app。</p>
+          </div>
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold mb-2" data-i18n="setup.tsWinTitle">Windows 提示已保护你的电脑</h3>
+            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.tsWinDesc">点「更多信息 → 仍要运行」。如果窗口空白，安装 Microsoft Edge WebView2 Runtime。</p>
           </div>
           <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
             <h3 class="font-mono font-semibold mb-2" data-i18n="setup.ts3Title">Go 编译失败</h3>
-            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.ts3Desc">确保 Go 版本 &gt;= 1.23。如果模块下载失败，设置代理：<code>go env -w GOPROXY=https://goproxy.cn,direct</code></p>
+            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.ts3Desc">确保 Go 版本 &gt;= 1.27.3。模块下载失败时设置代理：go env -w GOPROXY=https://goproxy.cn,direct</p>
+          </div>
+          <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
+            <h3 class="font-mono font-semibold mb-2" data-i18n="setup.ts4Title">端口被占用</h3>
+            <p class="text-mute dark:text-[#888] text-sm" data-i18n="setup.ts4Desc">桌面 App 会自动顺延到 5041、5042…；手动运行的 Go 服务请修改 .env 中的 PORT，并同步修改扩展里的 WebSocket 地址。</p>
           </div>
         </div>
       </section>
