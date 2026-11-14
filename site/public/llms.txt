@@ -1,6 +1,6 @@
 # Grabby
 
-Grabby is a distributed web content capture system that converts any webpage into clean Markdown using a Chrome extension and backend server. It supports MCP (Model Context Protocol) for AI agent integration.
+Grabby is a local-first content desk for the desktop. It captures any webpage as clean Markdown using a real Chrome browser, collects RSS feeds and platforms (X, Reddit, Xiaohongshu), and uses AI to score, summarize, categorize and turn everything into a daily briefing. Data is stored locally in SQLite. It also supports MCP (Model Context Protocol) for AI agent integration.
 
 ## Pages
 - Home: https://grabby.eztoolab.com/
@@ -8,8 +8,11 @@ Grabby is a distributed web content capture system that converts any webpage int
 - API Reference: https://grabby.eztoolab.com/api
 
 ## Key Features
-- Extract any webpage to Markdown via real browser rendering
+- Extract any webpage to clean Markdown via real browser rendering, with login sessions preserved
 - Full-page screenshots
+- RSS / API / web source subscriptions with scheduled collection
+- Platform collection for X, Reddit and Xiaohongshu
+- AI scoring, categorization, summaries and tags
+- Scheduled AI morning / evening daily briefings
 - MCP protocol support for AI agents
-- Dual backend (Python FastAPI / Go)
-- Automatic tab management
+- Self-contained Go desktop app with local SQLite storage

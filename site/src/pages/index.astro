@@ -32,11 +32,19 @@ const jsonLdApp = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "SoftwareApplication",
   "name": "Grabby",
-  "description": "Grabby is a web content capture tool that converts any URL to clean Markdown using a real Chrome browser. Supports MCP protocol for AI agent integration.",
+  "description": "Grabby is a local-first content desk: capture any page to clean Markdown with a real Chrome browser, collect RSS feeds and platforms, then let AI score, summarize and turn everything into a daily briefing. Includes MCP support and local SQLite storage.",
   "applicationCategory": "DeveloperApplication",
-  "operatingSystem": "All",
+  "operatingSystem": "macOS, Windows, Linux",
   "url": "https://grabby.eztoolab.com",
   "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
+  "featureList": [
+    "Real-browser web capture to clean Markdown",
+    "RSS and platform feed collection",
+    "AI scoring, categorization and summaries",
+    "AI morning / evening daily briefing",
+    "HTTP API, MCP tools and WebSocket protocol",
+    "Local SQLite storage"
+  ],
   "author": { "@type": "Person", "name": "gusibi", "url": "https://github.com/gusibi" }
 });
 
@@ -45,14 +53,14 @@ const jsonLdSite = JSON.stringify({
   "@type": "WebSite",
   "name": "Grabby",
   "url": "https://grabby.eztoolab.com",
-  "description": "Grabby — URL to Markdown, powered by real browser"
+  "description": "Grabby — web capture, RSS and AI reading in one local-first desktop app"
 });
 ---
 
 <BaseLayout page="home">
   <main>
     <!-- Hero -->
-    <section class="pt-40 pb-24 relative overflow-hidden">
+    <section class="pt-40 pb-16 relative overflow-hidden">
       <div class="absolute inset-0 pointer-events-none">
         <div
           class="absolute -top-1/2 -left-[20%] w-[140%] h-[200%] bg-[radial-gradient(ellipse_at_30%_20%,rgba(99,102,241,0.12)_0%,transparent_50%),radial-gradient(ellipse_at_70%_80%,rgba(129,140,248,0.06)_0%,transparent_50%)]"
@@ -65,34 +73,35 @@ const jsonLdSite = JSON.stringify({
               class="inline-flex items-center gap-2 px-4 py-1.5 bg-white dark:bg-[#161616] border border-bord dark:border-[#2a2a2a] rounded-full font-mono text-xs text-accent mb-6"
             >
               <span class="w-1.5 h-1.5 bg-accent rounded-full animate-pulse"></span>
-              <span data-i18n="home.badge">v1.0.0 — Chrome Extension + MCP Server</span>
+              <span data-i18n="home.badge">本地优先 · Chrome 扩展 + 桌面 App + AI 阅读</span>
             </div>
             <h1
-              class="font-mono font-semibold text-5xl sm:text-6xl lg:text-7xl leading-none tracking-tight mb-6"
+              class="font-mono font-semibold text-5xl sm:text-6xl leading-none tracking-tight mb-6"
             >
-              <span data-i18n="home.heroLine1">URL</span><br />
-              <span class="text-accent" data-i18n="home.heroLine2">to Markdown</span><br />
-              <span class="text-mute dark:text-[#888]" data-i18n="home.heroLine3">in seconds.</span>
+              <span class="text-accent" data-i18n="home.heroLine1">抓网页</span><br />
+              <span data-i18n="home.heroLine2">收 RSS 和平台</span><br />
+              <span class="text-mute dark:text-[#888]" data-i18n="home.heroLine3">AI 帮你读完。</span>
             </h1>
             <p
               class="text-lg text-mute dark:text-[#888] max-w-xl mb-10 leading-relaxed"
               data-i18n="home.heroDesc"
             >
-              Grabby 通过真实 Chrome 浏览器将任意网页转换为干净的 Markdown。支持 JavaScript 渲染、需要登录的页面、全页截图、AI Agent MCP 协议集成。
+              Grabby 用真实 Chrome 浏览器抓取任意网页，保留登录态；也能订阅 RSS、采集 X / Reddit / 小红书等平台内容。
+              AI 负责评分、分类、摘要和日报，数据默认只留在本机。
             </p>
             <div class="flex gap-4 flex-wrap">
               <a
-                href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+                href="https://github.com/gusibi/grabby/releases"
                 class="inline-flex items-center gap-2 px-8 py-3.5 bg-accent text-white rounded-lg font-mono font-semibold hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(99,102,241,0.25)] transition-all"
                 target="_blank" rel="noopener"
-                data-i18n="home.install"
+                data-i18n="home.download"
               >
                 <svg class="w-4.5 h-4.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
                   <polyline points="7 10 12 15 17 10" />
                   <line x1="12" y1="15" x2="12" y2="3" />
                 </svg>
-                安装扩展
+                下载桌面 App
               </a>
               <a
                 href="/setup"
@@ -103,25 +112,64 @@ const jsonLdSite = JSON.stringify({
               </a>
             </div>
           </div>
-          <div
-            class="rounded-2xl overflow-hidden border border-[#30363d] bg-[#0d1117] shadow-sm"
-          >
-            <div class="p-6 font-mono text-sm">
-              <div class="flex items-center gap-2 mb-4 pb-4 border-b border-[#30363d]">
-                <span class="text-[#ff7b72]">POST</span>
-                <span class="text-[#8b949e]">/api/extract</span>
-              </div>
-              <div class="text-sm leading-relaxed">
-                <pre class="!p-0 !border-0 !bg-transparent !shadow-none"><code set:html={heroReq} /></pre>
-              </div>
-              <div class="mt-4 flex items-center gap-2 text-[#3fb950]">
-                → 200 OK
-              </div>
-              <div class="mt-2 text-sm leading-relaxed">
-                <pre class="!p-0 !border-0 !bg-transparent !shadow-none"><code set:html={heroResp} /></pre>
+          <div>
+            <div
+              class="rounded-2xl overflow-hidden border border-[#30363d] bg-[#0d1117] shadow-sm"
+            >
+              <div class="p-6 font-mono text-sm">
+                <div class="flex items-center gap-2 mb-4 pb-4 border-b border-[#30363d]">
+                  <span class="text-[#ff7b72]">POST</span>
+                  <span class="text-[#8b949e]">/api/extract</span>
+                </div>
+                <div class="text-sm leading-relaxed">
+                  <pre class="!p-0 !border-0 !bg-transparent !shadow-none"><code set:html={heroReq} /></pre>
+                </div>
+                <div class="mt-4 flex items-center gap-2 text-[#3fb950]">
+                  → 200 OK
+                </div>
+                <div class="mt-2 text-sm leading-relaxed">
+                  <pre class="!p-0 !border-0 !bg-transparent !shadow-none"><code set:html={heroResp} /></pre>
+                </div>
               </div>
             </div>
+            <p
+              class="mt-3 text-center font-mono text-[11px] text-mute-dim dark:text-[#666]"
+              data-i18n="home.apiCaption"
+            >
+              同一个服务，也是抓取 API 与 MCP 工具
+            </p>
           </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Product Preview -->
+    <section id="preview" class="pb-24">
+      <div class="max-w-6xl mx-auto px-8">
+        <div class="fade-in relative">
+          <div
+            class="absolute -inset-6 bg-[radial-gradient(ellipse_at_50%_0%,rgba(99,102,241,0.14)_0%,transparent_70%)] pointer-events-none"
+          ></div>
+          <figure
+            class="relative rounded-2xl overflow-hidden border border-bord dark:border-[#2a2a2a] bg-white dark:bg-[#161616] shadow-[0_24px_80px_rgba(0,0,0,0.10)] dark:shadow-[0_24px_80px_rgba(0,0,0,0.55)]"
+          >
+            <img
+              src="/screenshot.png"
+              width="2364"
+              height="1940"
+              loading="eager"
+              decoding="async"
+              class="w-full h-auto"
+              alt="Grabby 桌面端「今天」页面：今日统计、AI 晚报与最新内容"
+              data-i18n-alt="home.previewAlt"
+            />
+            <figcaption
+              class="px-4 py-3 border-t border-bord dark:border-[#222] text-center font-mono text-xs text-mute-dim dark:text-[#666]"
+              data-i18n="home.previewCaption"
+            >
+              桌面端 · 今天 / 最新内容 / AI 晚报
+            </figcaption>
+          </figure>
         </div>
       </div>
     </section>
@@ -136,10 +184,10 @@ const jsonLdSite = JSON.stringify({
           >Features</span
           >
           <h2 class="font-mono font-semibold text-3xl sm:text-4xl mb-4" data-i18n="home.featuresTitle">
-            为什么选择 Grabby
+            以网页抓取为核心
           </h2>
           <p class="text-mute dark:text-[#888] max-w-xl mx-auto" data-i18n="home.featuresDesc">
-            与简单的 HTTP 请求不同，Grabby 使用真实浏览器渲染页面，无惧 JS 动态内容和登录墙。
+            真实浏览器负责抓全、抓深；RSS 与平台订阅补齐来源；AI 负责筛选、总结和归档——三者共用一个本地数据库。
           </p>
         </div>
 
@@ -153,9 +201,9 @@ const jsonLdSite = JSON.stringify({
                 <rect x="2" y="3" width="20" height="14" rx="2" /><line x1="8" y1="21" x2="16" y2="21" /><line x1="12" y1="17" x2="12" y2="21" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f1Title">真实浏览器渲染</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f1Title">真实浏览器抓取</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f1Desc">
-              在 Chrome 中实际加载页面，JS 渲染、SPA 应用、懒加载内容全都能拿到。不是简单的 HTTP 抓取。
+              在 Chrome 中实际加载页面，JS 渲染、SPA、懒加载内容全都能拿到；保留登录态，支持整页截图。
             </p>
           </div>
 
@@ -168,9 +216,9 @@ const jsonLdSite = JSON.stringify({
                 <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" /><polyline points="14 2 14 8 20 8" /><line x1="16" y1="13" x2="8" y2="13" /><line x1="16" y1="17" x2="8" y2="17" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f2Title">智能内容解析</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f2Title">干净的 Markdown</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f2Desc">
-              基于 defuddle 引擎自动识别文章主内容区域，过滤广告和导航，输出干净的 Markdown，支持代码块、表格、数学公式。
+              自动识别文章正文，过滤广告和导航，输出可直接阅读或交给 AI 的 Markdown，支持代码块、表格和公式。
             </p>
           </div>
 
@@ -180,12 +228,12 @@ const jsonLdSite = JSON.stringify({
           >
             <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
               <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <rect x="3" y="3" width="18" height="18" rx="2" /><circle cx="8.5" cy="8.5" r="1.5" /><polyline points="21 15 16 10 5 21" />
+                <path d="M4 11a9 9 0 0 1 9 9" /><path d="M4 4a16 16 0 0 1 16 16" /><circle cx="5" cy="19" r="1" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f3Title">全页截图</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f3Title">RSS 与平台订阅</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f3Desc">
-              支持可见区域、完整滚动页面、指定区域截图。输出 Base64 PNG，直接可用。
+              RSS / API / 网页源定时采集，X、Reddit、小红书按关键词或板块追踪，统一收进内容库。
             </p>
           </div>
 
@@ -195,12 +243,12 @@ const jsonLdSite = JSON.stringify({
           >
             <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
               <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2z" /><path d="M2 12h20" /><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                <path d="M12 3l1.9 5.1L19 10l-5.1 1.9L12 17l-1.9-5.1L5 10l5.1-1.9L12 3z" /><path d="M19 15l.9 2.1L22 18l-2.1.9L19 21l-.9-2.1L16 18l2.1-.9L19 15z" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f4Title">AI Agent 集成</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f4Title">AI 自动分析</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f4Desc">
-              原生 MCP 协议支持。Claude、Cursor 等 AI 工具可直接调用 <code>extract</code> 和 <code>screenshot</code> 工具获取网页内容。
+              新内容自动评分、分类、生成摘要与点评，按阈值筛出「AI 优质」；支持多家模型和故障转移。
             </p>
           </div>
 
@@ -210,12 +258,12 @@ const jsonLdSite = JSON.stringify({
           >
             <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
               <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M16 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2" /><circle cx="8.5" cy="7" r="4" /><polyline points="17 11 19 13 23 9" />
+                <rect x="3" y="4" width="18" height="18" rx="2" /><line x1="16" y1="2" x2="16" y2="6" /><line x1="8" y1="2" x2="8" y2="6" /><line x1="3" y1="10" x2="21" y2="10" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f5Title">复用浏览器登录态</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f5Title">AI 日报</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f5Desc">
-              扩展使用你浏览器的 Cookie 和 Session，需要登录的页面直接就能抓。无需配置 Cookie。
+              早报 / 晚报定时生成，把当天值得读的内容整理成一页；支持回看、补生成和 RSS 订阅。
             </p>
           </div>
 
@@ -225,12 +273,12 @@ const jsonLdSite = JSON.stringify({
           >
             <div class="w-12 h-12 flex items-center justify-center bg-accent/10 rounded-xl mb-5 text-accent">
               <svg class="w-6 h-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <polyline points="16 18 22 12 16 6" /><polyline points="8 6 2 12 8 18" />
+                <ellipse cx="12" cy="5" rx="9" ry="3" /><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3" /><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5" />
               </svg>
             </div>
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f6Title">一体化 Go 服务</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f6Title">本地优先 + API / MCP</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f6Desc">
-              Go 服务端内置 HTTP / WebSocket / MCP、AI 分析与 SQLite，单个自包含二进制即可运行，无需额外数据库或运行时。
+              Go 单二进制内置 HTTP / WebSocket / MCP 和 SQLite，桌面 App 打开即用；数据默认不出本机。
             </p>
           </div>
         </div>
@@ -258,9 +306,9 @@ const jsonLdSite = JSON.stringify({
               class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
               >01</span
             >
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s1Title">安装扩展</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s1Title">安装桌面 App</h3>
             <p class="text-sm text-mute dark:text-[#888]" data-i18n="home.s1Desc">
-              Chrome Web Store 一键安装，或开发模式加载。配置服务器地址即可。
+              下载安装包，Go 服务、SQLite 和界面都在一个文件里，打开即用。
             </p>
           </div>
           <div class="text-center relative z-10">
@@ -268,9 +316,9 @@ const jsonLdSite = JSON.stringify({
               class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
               >02</span
             >
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s2Title">启动服务</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s2Title">连接浏览器扩展</h3>
             <p class="text-sm text-mute dark:text-[#888]" data-i18n="home.s2Desc">
-              Go 单二进制启动，桌面 App 内自动运行。服务端做消息路由，解析在浏览器端完成。
+              Chrome 安装扩展，填入 WebSocket 地址；多个浏览器可分别命名接入。
             </p>
           </div>
           <div class="text-center relative z-10">
@@ -278,9 +326,9 @@ const jsonLdSite = JSON.stringify({
               class="inline-flex items-center justify-center w-16 h-16 rounded-full border-2 border-accent bg-white dark:bg-[#161616] font-mono text-2xl font-bold text-accent mb-6"
               >03</span
             >
-            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s3Title">抓取内容</h3>
+            <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.s3Title">采集与阅读</h3>
             <p class="text-sm text-mute dark:text-[#888]" data-i18n="home.s3Desc">
-              通过 HTTP API 或 MCP 工具调用，浏览器自动打开页面、解析内容、返回 Markdown。
+              网页、RSS、平台内容自动入库，AI 分析后生成日报，在应用内直接读完。
             </p>
           </div>
         </div>
@@ -289,17 +337,25 @@ const jsonLdSite = JSON.stringify({
 
     <!-- CTA -->
     <section class="py-24">
-      <div class="max-w-xl mx-auto px-8 text-center fade-in">
+      <div class="max-w-4xl mx-auto px-8 text-center fade-in">
         <h2 class="font-mono font-semibold text-3xl sm:text-4xl mb-4" data-i18n="home.ctaTitle">
           开始使用 Grabby
         </h2>
-        <p class="text-mute dark:text-[#888] mb-10" data-i18n="home.ctaDesc">
-          开源免费，MIT 协议。支持 macOS / Windows / Linux，Chrome 浏览器即可。
+        <p class="text-mute dark:text-[#888] max-w-xl mx-auto mb-10" data-i18n="home.ctaDesc">
+          开源免费，MIT 协议。网页抓取、RSS 订阅与 AI 分析都在本地运行，支持 macOS / Windows / Linux。
         </p>
         <div class="flex justify-center gap-4 flex-wrap mb-10">
           <a
-            href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+            href="https://github.com/gusibi/grabby/releases"
             class="inline-flex items-center gap-2 px-8 py-3.5 bg-accent text-white rounded-lg font-mono font-semibold hover:bg-accent-hover hover:-translate-y-0.5 hover:shadow-[0_8px_30px_rgba(99,102,241,0.25)] transition-all"
+            target="_blank" rel="noopener"
+            data-i18n="home.ctaDownload"
+          >
+            下载桌面 App
+          </a>
+          <a
+            href="https://chromewebstore.google.com/detail/mcp-%E7%BD%91%E9%A1%B5%E5%86%85%E5%AE%B9%E9%87%87%E9%9B%86%E5%B7%A5%E5%85%B7/hfimnafeekedoeeflppddlkbhcbbnfab"
+            class="inline-flex items-center gap-2 px-8 py-3.5 bg-white dark:bg-[#161616] border border-bord dark:border-[#2a2a2a] rounded-lg font-mono font-semibold hover:border-accent hover:-translate-y-0.5 transition-all"
             target="_blank" rel="noopener"
             data-i18n="home.ctaInstall"
           >
@@ -320,7 +376,7 @@ const jsonLdSite = JSON.stringify({
         <div class="flex justify-center gap-8 font-mono text-xs text-mute-dim dark:text-[#555] flex-wrap">
           <span data-i18n="home.meta1">MIT License</span>
           <span data-i18n="home.meta2">Go + SQLite</span>
-          <span data-i18n="home.meta3">Chrome Extension</span>
+          <span data-i18n="home.meta3">网页 / RSS / AI</span>
         </div>
       </div>
     </section>

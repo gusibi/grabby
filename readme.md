@@ -15,6 +15,10 @@ Chrome 扩展负责在带登录态的浏览器中抓取内容，Go 服务负责�
 同一个进程同时提供 HTTP / WebSocket / MCP 服务，所以它既是桌面 App，也是一个
 **浏览器自动化 API 中转站**：外部请求进来后，由它转发给 Chrome 扩展在真实浏览器里执行。
 
+<p align="center">
+  <img src="assets/Screenshot.png" width="880" alt="Grabby 桌面端：今天页面的统计、AI 晚报与最新内容">
+</p>
+
 ## 功能
 
 ### 采集
