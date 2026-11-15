@@ -1,0 +1,66 @@
+Grabby Source-Available Non-Commercial License
+Copyright (c) 2024-2026 gusibi <czongxiao@gmail.com>
+
+==============================================================================
+                              许可协议（中文说明）
+==============================================================================
+
+本软件采用源码可用（Source-Available）非商业许可协议。
+
+【允许的权利】
+1. 个人与非商业使用：任何个人均可免费下载、安装、运行本软件，用于个人日常使用、学习和非商业性研究。
+2. 源码查阅与学习：您可以自由查阅本仓库的源代码、提交 Issue 或发起 Pull Request。
+
+【明确禁止的行为】
+1. 严禁商业用途：严禁在未经原作者书面授权的情况下，将本软件的全部或部分源代码、编译产物、设计或文档用于任何商业目的（包括但不限于：直接或间接出售、付费订阅、捆绑销售、作为收费服务/API 提供、商业广告变现或企业商业运营）。
+2. 严禁抄袭与二次发表：严禁在未经原作者明确书面许可的情况下，擅自复制代码并以自身名义公开发表、重新上传（如伪装成独立开源项目、发布到第三方应用市场、代码托管平台、自媒体平台或软件下载站）。
+3. 严禁闭源分发与移除署名：任何允许的衍生使用均必须完整保留原作者的版权声明、署名及本协议文本。
+
+如需商业使用或特殊授权，请联系原作者：czongxiao@gmail.com
+
+==============================================================================
+                        TERMS AND CONDITIONS (ENGLISH)
+==============================================================================
+
+Permission is hereby granted to any person obtaining a copy of this software
+and associated documentation files (the "Software"), to inspect the source code,
+download, install, and execute the Software, subject to the following conditions:
+
+1. NON-COMMERCIAL USE ONLY
+   The Software is licensed solely for personal, educational, research, and
+   non-commercial purposes. You may NOT use the Software, or any part thereof,
+   for any commercial purpose whatsoever, including but not limited to selling,
+   licensing, sublicensing, leasing, offering as a paid service, SaaS, or using
+   it within a commercial enterprise to generate revenue, without the express
+   prior written consent of the copyright holder.
+
+2. NO UNAUTHORIZED REPUBLICATION OR REDISTRIBUTION
+   You may NOT copy, replicate, publish, republish, distribute, repackage, or
+   mirror the Software or its source code, in whole or in part, under your own
+   name, trademark, or brand on any public repository, package manager, app
+   store, or content-sharing platform without prior written permission from the
+   copyright holder.
+
+3. MODIFICATIONS AND CONTRIBUTIONS
+   You may make modifications to the Software strictly for your own private,
+   personal, non-commercial use. If you wish to contribute improvements back to
+   the project, you may submit Pull Requests to the original repository.
+   Redistributing modified copies to third parties without prior written consent
+   is prohibited.
+
+4. ATTRIBUTION AND NOTICES
+   The above copyright notice and this permission notice shall be included in
+   all copies or substantial portions of the Software.
+
+5. TERMINATION
+   Any use of the Software in violation of these terms immediately and
+   automatically terminates your rights under this license.
+
+6. DISCLAIMER OF WARRANTY
+   THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+   AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+   LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+   OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+   SOFTWARE.
