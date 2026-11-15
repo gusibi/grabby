@@ -740,4 +740,10 @@ SQLite（scraped_items）
 
 ## 许可证
 
-本项目采用 MIT 许可证。
+本项目采用 **非商业许可协议（Source-Available Non-Commercial License）**：
+
+- **允许**：所有人均可免费下载、安装和运行本软件，用于个人日常使用、学习或非商业研究。
+- **禁止商用**：未经原作者书面授权，严禁用于任何商业目的（包括出售、付费服务、商业运营等）。
+- **禁止未经授权的二次发表**：严禁擅自复制代码、改名或打包并重新公开发表到其他平台。
+
+详细条款请参阅 [LICENSE](file:///Users/gusi/Github/grabby/LICENSE)。商业合作或授权请联系：czongxiao@gmail.com。
