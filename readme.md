@@ -178,14 +178,23 @@ make app          # 构建 → 打包 dist/Grabby.app → 启动
 
 - 在「RSS 源」添加订阅源（RSS / API / 网页），或到「新闻源」做一次平台采集；
 - 新内容会自动进入 AI 队列，「AI 分析」页查看评分、分类与优质内容；
-- 「今天」查看当日概览和今日日报，「内容库」按来源 / 类型 / AI 分类筛选阅读；
+- 「今天」和「内容库」各自独立按来源 / 类型 / AI 分类筛选，互不影响；「今天」还会显示当日概览和今日日报；
 - 「AI 日报」按日期与类型查看历史日报，或补生成近 7 天。
 
 ### 其他运行方式
 
 - **Web 管理界面**：`./start.sh`（macOS/Linux）或 `python start.py`，然后打开 `http://localhost:5040`。
   也可以 `make run-go` 先构建前端再启动。
-- **CLI**：`go-cli/`（Go）或 `python-cli/`（Python），通过本地服务抓取网页。
+- **CLI**：`go-cli/`（Go），通过本地服务抓取网页。安装最新版：
+  ```bash
+  curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash
+  # Windows PowerShell
+  irm https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.ps1 | iex
+  ```
+  安装后可运行 `grabby health`、`grabby extract <url>`、`grabby screenshot <url>`；
+  每次发布都会重新构建 CLI 并随 Release 上传，不依赖仓库里的旧二进制。
+  默认连本机 `http://localhost:5040`，无需配置 Token；只有连局域网内开启了 Token 的服务时，才需要设置
+  `GRABBY_SERVER_URL` 与 `GRABBY_API_TOKEN`。
 - **只要 API / MCP**：不启动桌面 App，直接运行 Go 服务即可（见下文「Web 服务」）。
 
 ## Web 服务（无桌面 App 时）
@@ -640,7 +649,8 @@ Token 与对外访问**不读环境变量，也不读 `.env`**，只在 APP 的�
   首次启动的处理方式（右键打开 / 「仍要运行」）见上文「安装桌面 App」。
 - Chrome 扩展仍需单独安装（登录态在真实浏览器里），APP 不会替你安装。
 - **对外监听时 HTTP 与 WebSocket 都会校验 Token**：远端 HTTP 请求带 `X-API-Key`（或 `Authorization: Bearer`），
-  远端 WS 握手带 `?token=`。本机 loopback 请求始终免密，所以 Chrome 扩展、CLI、MCP 客户端与 APP 自身不受影响，
+  远端 WS 握手带 `?token=`。Chrome 扩展在填写 Token 后会自动同时用于注册请求和 WS 握手，因此局域网连接可以直接用。
+  本机 loopback 请求始终免密，所以本机上的 Chrome 扩展、CLI、MCP 客户端与 APP 自身不受影响，
   Web 版的鉴权行为也没有变化。`CheckOrigin` 仍为允许，不要把 Token 长期暴露在不可信网络里。
 
 ## 项目架构

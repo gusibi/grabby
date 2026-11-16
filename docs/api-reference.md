@@ -1198,7 +1198,9 @@ MCP Server 挂载在 HTTP 端口上，提供两种传输：
 
 **2. 注册接口认证**
 
-浏览器扩展建立 WebSocket 前会调用 `/api/browsers/register` 注册实例；该注册接口使用 `/api` middleware，支持 cookie 或 `GRABBY_API_TOKEN`。
+浏览器扩展建立 WebSocket 前会调用 `/api/browsers/register` 注册实例。本机（loopback）调用免认证；
+桌面 APP 开启局域网访问并设置 Token 后，远端调用必须带 `X-Grabby-Token`（或 `X-API-Key` / `Authorization: Bearer`）。
+headless 服务保持原有行为：`/api/browsers/register` 不要求登录。
 
 ### 命令一览
 

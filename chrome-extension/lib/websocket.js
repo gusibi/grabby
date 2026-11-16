@@ -197,10 +197,15 @@ class WebSocketManager {
             await this.registerBrowser();
             if (generation !== this.connectionGeneration || !this.autoReconnect) return;
 
-            // 创建WebSocket连接，将conn_id、name和api_key作为查询参数附加到URL
+            // 创建WebSocket连接，将conn_id、name和token作为查询参数附加到URL。
+            // 浏览器 WebSocket API 不能自定义请求头，局域网访问时服务端只能
+            // 从 query 里读取 Token。
             const urlWithConnId = new URL(this.serverUrl);
             urlWithConnId.searchParams.append('conn_id', this.connId);
             urlWithConnId.searchParams.append('name', this.browserName);
+            if (this.apiToken) {
+                urlWithConnId.searchParams.append('token', this.apiToken);
+            }
 
             this.socket = new WebSocket(urlWithConnId.toString());
 

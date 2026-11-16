@@ -470,3 +470,17 @@ input[type="range"]::-webkit-slider-thumb:hover {
   gap: 10px;
   margin-top: 20px;
 }
+.test-result {
+  margin-top: 8px;
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.test-result.ok {
+  color: var(--success-text);
+}
+
+.test-result.error {
+  color: var(--danger-text);
+}

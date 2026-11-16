@@ -30,6 +30,39 @@ func TestAdminAuthMiddlewareRejectsMissingSession(t *testing.T) {
 	}
 }
 
+func TestBrowserRegistrationAllowed(t *testing.T) {
+	const remoteAddr = "192.0.2.1:1234"
+	tokenSettings := &config.Settings{DesktopMode: true, APIToken: "secret"}
+
+	tests := []struct {
+		name     string
+		settings *config.Settings
+		remote   string
+		token    string
+		want     bool
+	}{
+		{"headless keeps register public", &config.Settings{APIToken: "secret"}, remoteAddr, "", true},
+		{"desktop loopback bypasses token", tokenSettings, "127.0.0.1:1234", "", true},
+		{"desktop remote without token", tokenSettings, remoteAddr, "", false},
+		{"desktop remote with valid token", tokenSettings, remoteAddr, "secret", true},
+		{"desktop remote with wrong token", tokenSettings, remoteAddr, "nope", false},
+		{"desktop remote without configured token", &config.Settings{DesktopMode: true}, remoteAddr, "", true},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPost, "/api/browsers/register", nil)
+			req.RemoteAddr = tc.remote
+			if tc.token != "" {
+				req.Header.Set("X-Grabby-Token", tc.token)
+			}
+			if got := newAdminAuth(tc.settings).browserRegistrationAllowed(req); got != tc.want {
+				t.Fatalf("browserRegistrationAllowed = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestAdminAuthLoginSetsUsableSessionCookie(t *testing.T) {
 	settings := &config.Settings{AdminKey: "secret"}
 	e := echo.New()

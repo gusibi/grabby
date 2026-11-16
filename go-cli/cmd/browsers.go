@@ -10,9 +10,17 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// browserInfo matches the object returned by GET /api/browsers.
+type browserInfo struct {
+	ConnID string `json:"conn_id"`
+	Name   string `json:"name"`
+	Online bool   `json:"online"`
+	Banned bool   `json:"banned"`
+}
+
 type browserListResponse struct {
-	Browsers []string `json:"browsers"`
-	Count    int      `json:"count"`
+	Browsers []browserInfo `json:"browsers"`
+	Count    int           `json:"count"`
 }
 
 type browserRegisterRequest struct {
@@ -29,7 +37,7 @@ var browsersListCmd = &cobra.Command{
 	Use:   "list",
 	Short: "列出已连接的浏览器",
 	Run: func(_ *cobra.Command, _ []string) {
-		resp, err := http.Get(getServerURL() + "/api/browsers")
+		resp, err := doAPI(http.MethodGet, "/api/browsers", nil)
 		if err != nil {
 			output := map[string]any{"error": "服务未运行", "exit_code": 1}
 			json.NewEncoder(os.Stdout).Encode(output)
@@ -63,7 +71,7 @@ var browsersRegisterCmd = &cobra.Command{
 		}
 		body, _ := json.Marshal(payload)
 
-		resp, err := http.Post(getServerURL()+"/api/browsers/register", "application/json", bytes.NewReader(body))
+		resp, err := doAPI(http.MethodPost, "/api/browsers/register", bytes.NewReader(body))
 		if err != nil {
 			output := map[string]any{"error": "服务未运行", "exit_code": 1}
 			json.NewEncoder(os.Stdout).Encode(output)

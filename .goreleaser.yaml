@@ -5,7 +5,7 @@ project_name: grabby
 
 before:
   hooks:
-    - go mod tidy
+    - bash -c "cd go-cli && go mod tidy"
 
 builds:
   - id: grabby
@@ -40,7 +40,7 @@ archives:
       {{- else }}{{ .Arch }}{{ end }}
     files:
       - LICENSE
-      - README.md
+      - readme.md
 
 checksum:
   name_template: "checksums.txt"

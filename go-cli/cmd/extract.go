@@ -16,9 +16,9 @@ type extractRequest struct {
 }
 
 type extractResponse struct {
-	Success bool   `json:"success"`
-	URL     string `json:"url"`
-	Title   string `json:"title"`
+	Success  bool   `json:"success"`
+	URL      string `json:"url"`
+	Title    string `json:"title"`
 	Markdown string `json:"markdown"`
 }
 
@@ -34,7 +34,7 @@ var extractCmd = &cobra.Command{
 		payload := extractRequest{URL: url, Browser: extractBrowser}
 		body, _ := json.Marshal(payload)
 
-		resp, err := http.Post(getServerURL()+"/api/extract", "application/json", bytes.NewReader(body))
+		resp, err := doAPI(http.MethodPost, "/api/extract", bytes.NewReader(body))
 		if err != nil {
 			output := map[string]any{"error": "服务未运行", "exit_code": 1}
 			json.NewEncoder(os.Stdout).Encode(output)

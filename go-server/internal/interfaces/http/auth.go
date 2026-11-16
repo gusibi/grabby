@@ -66,6 +66,21 @@ func (a adminAuth) desktopLocal(r *http.Request) bool {
 	return isLoopbackAddr(r.RemoteAddr)
 }
 
+// browserRegistrationAllowed reports whether the browser-facing register
+// endpoint may proceed. Only the desktop build ever binds beyond loopback, so
+// remote registrations must present the same token the extension sends with
+// the WebSocket handshake. The headless server keeps its historical behavior of
+// accepting registrations without credentials.
+func (a adminAuth) browserRegistrationAllowed(r *http.Request) bool {
+	if a.settings == nil || !a.settings.DesktopMode {
+		return true
+	}
+	if !a.enabled() || a.desktopLocal(r) {
+		return true
+	}
+	return a.hasValidToken(r)
+}
+
 func isLoopbackAddr(remote string) bool {
 	host, _, err := net.SplitHostPort(remote)
 	if err != nil {

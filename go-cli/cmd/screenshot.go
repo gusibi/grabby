@@ -28,7 +28,7 @@ var screenshotCmd = &cobra.Command{
 		payload := screenshotRequest{URL: url, Browser: screenshotBrowser}
 		body, _ := json.Marshal(payload)
 
-		resp, err := http.Post(getServerURL()+"/api/screenshot", "application/json", bytes.NewReader(body))
+		resp, err := doAPI(http.MethodPost, "/api/screenshot", bytes.NewReader(body))
 		if err != nil {
 			output := map[string]any{"error": "服务未运行", "exit_code": 1}
 			json.NewEncoder(os.Stdout).Encode(output)

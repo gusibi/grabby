@@ -34,8 +34,10 @@
 
         <div class="form-group">
           <label for="apiToken">API Token</label>
-          <input type="password" id="apiToken" placeholder="与服务端 GRABBY_API_TOKEN 保持一致">
-          <small>服务端启用 API Token 后，浏览器注册会使用此 Token 认证</small>
+          <input type="password" id="apiToken" placeholder="与服务端设置里的 Token 保持一致">
+          <small>本机连接（localhost）无需填写。仅当服务端开启「允许局域网访问」并设置了 Token 时才需要，此时连接和注册都会带上它。</small>
+          <button id="testConnectionBtn" class="btn secondary" type="button" style="margin-top:8px">测试连接</button>
+          <div id="testResult" class="test-result"></div>
         </div>
 
         <div class="form-group">

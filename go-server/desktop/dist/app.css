@@ -440,6 +440,46 @@ code, pre, .mono { font-family: "SF Mono", "Cascadia Mono", Consolas, monospace;
 .filter-label { flex: 0 0 auto; min-width: 44px; padding-top: 6px; font-size: 11.5px; color: var(--faint); }
 .chip-count { margin-left: 3px; font-size: 10px; opacity: 0.75; }
 .chip.is-active .chip-count { opacity: 0.9; }
+.filter-toolbar { margin-bottom: 14px; }
+
+/* ---------- Added: first-run onboarding (browser devices) ---------- */
+.onboard-steps { margin: 16px 0 0; padding: 0; list-style: none; counter-reset: onboard-step; }
+.onboard-steps > li { position: relative; padding: 0 0 20px 38px; }
+.onboard-steps > li:last-child { padding-bottom: 0; }
+.onboard-steps > li::before {
+  counter-increment: onboard-step;
+  content: counter(onboard-step);
+  position: absolute; left: 0; top: -1px;
+  display: grid; place-items: center;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 12px; font-weight: 700;
+}
+.onboard-step-title { font-size: 14px; font-weight: 650; color: var(--text); }
+.onboard-step-body { margin-top: 4px; font-size: 12.5px; line-height: 1.65; color: var(--muted); }
+.onboard-kv { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 7px; }
+.onboard-kv > span:first-child { min-width: 92px; color: var(--faint); font-size: 12px; }
+.onboard-kv code, .onboard-faq code, .panel p code, .hint code {
+  padding: 1px 5px; border-radius: 5px;
+  background: var(--surface-alt); color: var(--text);
+  font-size: 11.5px;
+}
+.onboard-note { color: var(--faint); font-size: 11.5px; }
+.onboard-faq {
+  margin-top: 18px; padding-top: 14px;
+  border-top: 1px solid var(--border);
+  font-size: 12px; color: var(--muted);
+}
+.onboard-faq b { color: var(--text); font-size: 12.5px; }
+.onboard-faq ul { margin: 6px 0 0; padding-left: 18px; }
+.onboard-faq li { margin-top: 5px; line-height: 1.6; }
+.text-link { color: var(--accent); text-decoration: none; font-weight: 600; }
+.text-link:hover { text-decoration: underline; }
+.cli-block { margin-top: 16px; }
+.cli-block:first-of-type { margin-top: 14px; }
+.cli-label { margin-bottom: 6px; font-size: 12px; font-weight: 650; color: var(--text); }
+.cli-block .code-block { font-size: 11.5px; }
 
 /* ---------- Added: forms ---------- */
 input, textarea, select { user-select: text; }

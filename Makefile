@@ -2,11 +2,12 @@
 
 EXTENSION_DIR := chrome-extension
 GO_SERVER_DIR := go-server
+GO_CLI_DIR := go-cli
 DIST_DIR := dist
 VERSION := $(shell cat $(EXTENSION_DIR)/manifest.json | grep '"version"' | sed 's/.*"version": "\([^"]*\)".*/\1/')
 PACKAGE_NAME := grabby-v$(VERSION).zip
 
-.PHONY: all build package clean install dev build-go run-go clean-go build-frontend run build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop
+.PHONY: all build package clean install dev build-go run-go clean-go build-frontend run build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop build-cli clean-cli
 
 # ==================== Chrome Extension ====================
 
@@ -104,6 +105,19 @@ clean-go:
 	@echo "==> 清理 Go 构建产物..."
 	@rm -f $(GO_SERVER_DIR)/go-server
 	@echo "==> Go 构建产物清理完成"
+
+# ==================== CLI ====================
+
+# 构建命令行工具（产物 go-cli/grabby，已在 .gitignore 中忽略）
+build-cli:
+	@echo "==> 构建 Grabby CLI..."
+	cd $(GO_CLI_DIR) && go build -o grabby .
+	@echo "==> CLI 构建完成: $(GO_CLI_DIR)/grabby"
+
+clean-cli:
+	@echo "==> 清理 CLI 构建产物..."
+	@rm -f $(GO_CLI_DIR)/grabby $(GO_CLI_DIR)/grabby.exe
+	@echo "==> CLI 清理完成"
 
 # ==================== Desktop App (MyGO) ====================
 
@@ -210,6 +224,10 @@ help:
 	@echo "  make run-go         - 构建并运行 Go MCP Server"
 	@echo "  make run            - 先编译前端，再编译 Go，最后运行"
 	@echo "  make clean-go       - 清理 Go 构建产物"
+	@echo ""
+	@echo "=== CLI ==="
+	@echo "  make build-cli      - 构建命令行工具 go-cli/grabby"
+	@echo "  make clean-cli      - 清理 CLI 构建产物"
 	@echo ""
 	@echo "=== Desktop App (MyGO) ==="
 	@echo "  make app                - 一条命令启动 APP（APP 内自带 server）"

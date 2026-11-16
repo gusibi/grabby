@@ -9,18 +9,18 @@ import (
 )
 
 type healthResponse struct {
-	Status           string   `json:"status"`
-	BrowserConnected bool     `json:"browser_connected"`
-	BrowserCount     int      `json:"browser_count"`
-	Browsers         []string `json:"browsers"`
-	Timestamp        string   `json:"timestamp"`
+	Status           string        `json:"status"`
+	BrowserConnected bool          `json:"browser_connected"`
+	BrowserCount     int           `json:"browser_count"`
+	Browsers         []browserInfo `json:"browsers"`
+	Timestamp        string        `json:"timestamp"`
 }
 
 var healthCmd = &cobra.Command{
 	Use:   "health",
 	Short: "检查 Grabby 服务状态和浏览器连接",
 	Run: func(_ *cobra.Command, _ []string) {
-		resp, err := http.Get(getServerURL() + "/api/health")
+		resp, err := doAPI(http.MethodGet, "/open/api/health", nil)
 		if err != nil {
 			output := map[string]any{"error": "服务未运行", "exit_code": 1}
 			json.NewEncoder(os.Stdout).Encode(output)

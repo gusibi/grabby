@@ -120,6 +120,10 @@ func (h *browserHandlers) list(c echo.Context) error {
 }
 
 func (h *browserHandlers) register(c echo.Context) error {
+	if !newAdminAuth(h.deps.Settings).browserRegistrationAllowed(c.Request()) {
+		return detailErr(c, http.StatusUnauthorized, "missing or invalid API token")
+	}
+
 	var req dto.BrowserRegisterRequest
 	if err := c.Bind(&req); err != nil {
 		return detailErr(c, http.StatusBadRequest, "Invalid request body")

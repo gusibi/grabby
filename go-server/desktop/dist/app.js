@@ -26,12 +26,16 @@
   var state = {
     view: initialView && TITLES[initialView] ? initialView : "today",
     layout: storedLayout(),
-    query: "",
-    filter: "all",
-    category: "",
-    sourceCategory: "",
-    aiCategory: "",
+    // Each content view keeps its own filter state. Filtering 今天 must not
+    // change 内容库 (and vice versa), so these are never shared.
+    filters: {
+      today: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" },
+      library: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" },
+      ai: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" }
+    },
     health: null, stats: null, items: [], browsers: [], itemsCursor: "",
+    viewItems: { today: [], library: [] },
+    viewCursors: { today: "", library: "" },
     sources: [], sourceCategories: [], aiCategories: [], logs: [],
     aiSettings: null, aiStats: null, aiItems: [], aiCatalog: null, aiUsage: null,
     aiTab: "items",
@@ -244,20 +248,38 @@
     }).join("") + "</div>";
   }
 
-  function itemsUrl(cursor) {
+  function filtersFor(view) {
+    return state.filters[view || state.view] || state.filters.today;
+  }
+
+  function hasFilters(f) {
+    return !!f && (f.filter !== "all" || !!f.query || !!f.category || !!f.sourceCategory || !!f.aiCategory);
+  }
+
+  function clearFilters(f) {
+    if (!f) return;
+    f.filter = "all";
+    f.category = "";
+    f.sourceCategory = "";
+    f.aiCategory = "";
+    f.query = "";
+  }
+
+  function itemsUrl(cursor, view) {
+    var f = filtersFor(view);
     var p = ["limit=60"];
     var base;
-    if (state.filter === "quality") {
+    if (f.filter === "quality") {
       base = "/open/api/ai/items?";
       p.push("score_min=7");
-      if (state.aiCategory) p.push("category=" + encodeURIComponent(state.aiCategory));
-      if (state.sourceCategory) p.push("source_category=" + encodeURIComponent(state.sourceCategory));
+      if (f.aiCategory) p.push("category=" + encodeURIComponent(f.aiCategory));
+      if (f.sourceCategory) p.push("source_category=" + encodeURIComponent(f.sourceCategory));
     } else {
       base = "/open/api/items?";
-      if (state.filter === "starred") p.push("starred=1");
-      if (state.query) p.push("q=" + encodeURIComponent(state.query));
-      if (state.category) p.push("category=" + encodeURIComponent(state.category));
-      if (state.sourceCategory) p.push("source_category=" + encodeURIComponent(state.sourceCategory));
+      if (f.filter === "starred") p.push("starred=1");
+      if (f.query) p.push("q=" + encodeURIComponent(f.query));
+      if (f.category) p.push("category=" + encodeURIComponent(f.category));
+      if (f.sourceCategory) p.push("source_category=" + encodeURIComponent(f.sourceCategory));
     }
     if (cursor) p.push("cursor=" + encodeURIComponent(cursor));
     return base + p.join("&");
@@ -278,7 +300,7 @@
     if (view === "today" || view === "library") {
       d = await fetchAll({
         health: api("/open/api/health"), stats: api("/open/api/stats"),
-        items: api(itemsUrl()), browsers: api("/api/browsers"),
+        items: api(itemsUrl("", view)), browsers: api("/api/browsers"),
         aiCategories: api("/open/api/ai/categories"),
         // Only the newest two reports are needed to preview today's latest one,
         // and this keeps the 今天 page from downloading the whole archive.
@@ -296,7 +318,7 @@
         aiCategories: api("/open/api/ai/categories"),
         aiUsage: api("/api/ai/usage?days=7"),
         aiItems: api("/open/api/ai/items?limit=24&score_min=7" +
-          (state.aiCategory ? "&category=" + encodeURIComponent(state.aiCategory) : ""))
+          (filtersFor("ai").aiCategory ? "&category=" + encodeURIComponent(filtersFor("ai").aiCategory) : ""))
       });
     } else if (view === "daily") {
       d = await fetchAll({
@@ -323,15 +345,21 @@
     }
     if (d.stats) { state.stats = d.stats; state.sourceCategories = asNames(d.stats.source_categories); }
     if (d.items) {
+      var f = filtersFor(view);
       var list = d.items.items || [];
-      if (state.filter === "quality" && state.query) {
-        var q = state.query.toLowerCase();
+      if (f.filter === "quality" && f.query) {
+        var q = f.query.toLowerCase();
         list = list.filter(function (it) {
           return ((it.title || "") + " " + (it.ai_summary || it.summary || "")).toLowerCase().indexOf(q) >= 0;
         });
       }
+      var cursor = d.items.cursor || d.items.next_cursor || "";
       state.items = list;
-      state.itemsCursor = d.items.cursor || d.items.next_cursor || "";
+      state.itemsCursor = cursor;
+      if (view === "today" || view === "library") {
+        state.viewItems[view] = list;
+        state.viewCursors[view] = cursor;
+      }
     }
     if (d.browsers) state.browsers = d.browsers.browsers || [];
     if (d.aiCategories) state.aiCategories = d.aiCategories.categories || [];
@@ -371,35 +399,54 @@
     }
   }
 
-  async function reloadItems() {
-    var d = await fetchAll({ items: api(itemsUrl("")) });
+  async function reloadItems(view) {
+    view = view || state.view;
+    var seq = ++loadSeq;
+    var d = await fetchAll({ items: api(itemsUrl("", view)) });
+    if (seq !== loadSeq || state.view !== view) return;
     if (d.items) {
+      var f = filtersFor(view);
       var list = d.items.items || [];
-      if (state.filter === "quality" && state.query) {
-        var q = state.query.toLowerCase();
+      if (f.filter === "quality" && f.query) {
+        var q = f.query.toLowerCase();
         list = list.filter(function (it) {
           return ((it.title || "") + " " + (it.ai_summary || it.summary || "")).toLowerCase().indexOf(q) >= 0;
         });
       }
+      var cursor = d.items.cursor || d.items.next_cursor || "";
       state.items = list;
-      state.itemsCursor = d.items.cursor || d.items.next_cursor || "";
+      state.itemsCursor = cursor;
+      if (view === "today" || view === "library") {
+        state.viewItems[view] = list;
+        state.viewCursors[view] = cursor;
+      }
       render();
     }
   }
 
-  async function loadMoreItems() {
+  async function loadMoreItems(view) {
+    view = view || state.view;
     if (!state.itemsCursor) return;
+    var seq = loadSeq;
     var scroll = $("content").scrollTop;
-    var d = await api(itemsUrl(state.itemsCursor));
+    var d = await api(itemsUrl(state.itemsCursor, view));
+    if (seq !== loadSeq || state.view !== view) return;
     var more = d.items || [];
-    if (state.filter === "quality" && state.query) {
-      var q = state.query.toLowerCase();
+    var f = filtersFor(view);
+    if (f.filter === "quality" && f.query) {
+      var q = f.query.toLowerCase();
       more = more.filter(function (it) {
         return ((it.title || "") + " " + (it.ai_summary || it.summary || "")).toLowerCase().indexOf(q) >= 0;
       });
     }
-    state.items = state.items.concat(more);
-    state.itemsCursor = d.cursor || d.next_cursor || "";
+    var items = state.items.concat(more);
+    var cursor = d.cursor || d.next_cursor || "";
+    state.items = items;
+    state.itemsCursor = cursor;
+    if (view === "today" || view === "library") {
+      state.viewItems[view] = items;
+      state.viewCursors[view] = cursor;
+    }
     render();
     $("content").scrollTop = scroll;
   }
@@ -432,6 +479,9 @@
         badge(connected ? "在线" : "离线", connected) +
       "</div>" +
       '<div class="today-links">' +
+        (connected
+          ? '<button class="mini" data-action="goto" data-view="devices" type="button">浏览器设备</button>'
+          : '<button class="mini" data-action="goto" data-view="devices" type="button">连接说明</button>') +
         '<button class="mini" data-action="goto" data-view="sources" type="button">订阅源 ' +
           esc(state.sources.length || asNames(s.source_categories).length) + "</button>" +
         '<button class="mini" data-action="goto" data-view="news" type="button">新闻源</button>' +
@@ -440,7 +490,12 @@
 
     if (report) html += todayReportCard(report);
 
-    html += '<h2 class="section-title">最新内容</h2>' + feed(state.items.slice(0, 12), true);
+    var todayFiltered = hasFilters(filtersFor("today"));
+    html += '<h2 class="section-title">最新内容</h2>';
+    html += renderFilterBar({ view: "today", count: todayFiltered ? state.items.length : null });
+    html += todayFiltered && !state.items.length
+      ? empty("没有符合筛选条件的内容", "换个来源或分类，或点「清除筛选」。")
+      : feed(state.items.slice(0, 12), true);
     return html;
   }
 
@@ -491,22 +546,21 @@
     }).join("") + "</div>";
   }
 
-  function renderLibrary() {
+  function renderFilterBar(opts) {
+    var view = opts && opts.view ? opts.view : state.view;
+    var f = filtersFor(view);
     var s = state.stats || {};
-    var filtered = state.filter !== "all" || !!state.query || !!state.category || !!state.sourceCategory;
-    // state.items only holds the current page, so fall back to the library
-    // totals for the unfiltered view instead of showing "共 60 条".
-    var total = !filtered && s.total_count != null ? s.total_count : state.items.length;
-    var desc = filtered
-      ? "当前显示 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集"
-      : "共 " + total + " 条 · 来自 RSS、新闻源与浏览器采集";
-    var html = head(desc);
-    html += '<div class="toolbar">' +
+    var filtered = hasFilters(f);
+    var quality = f.filter === "quality";
+
+    var html = '<div class="toolbar filter-toolbar">' +
       '<div class="segmented">' +
-        '<button class="seg' + (state.filter === "all" ? " is-active" : "") + '" data-action="filter" data-value="all" type="button">全部</button>' +
-        '<button class="seg' + (state.filter === "starred" ? " is-active" : "") + '" data-action="filter" data-value="starred" type="button">已收藏</button>' +
-        '<button class="seg' + (state.filter === "quality" ? " is-active" : "") + '" data-action="filter" data-value="quality" type="button">AI 优质</button>' +
+        '<button class="seg' + (f.filter === "all" ? " is-active" : "") + '" data-action="filter" data-value="all" type="button">全部</button>' +
+        '<button class="seg' + (f.filter === "starred" ? " is-active" : "") + '" data-action="filter" data-value="starred" type="button">已收藏</button>' +
+        '<button class="seg' + (f.filter === "quality" ? " is-active" : "") + '" data-action="filter" data-value="quality" type="button">AI 优质</button>' +
       "</div>" +
+      (opts && opts.count != null ? '<span class="toolbar-note">当前 ' + esc(opts.count) + " 条</span>" : "") +
+      (filtered ? '<button class="mini" data-action="clear-filters" type="button">清除筛选</button>' : "") +
       "</div>";
 
     // Source groups (体育新闻 / 财经新闻 …) are the filter people reach for
@@ -515,21 +569,40 @@
     if (srcCats.length) {
       var srcUnread = s.source_category_unread || {};
       html += '<div class="filter-row"><span class="filter-label">来源</span><div class="chips">' +
-        '<button class="chip' + (!state.sourceCategory ? " is-active" : "") + '" data-action="source-all" type="button">全部</button>' +
+        '<button class="chip' + (!f.sourceCategory ? " is-active" : "") + '" data-action="source-all" type="button">全部</button>' +
         srcCats.map(function (name) {
-          return '<button class="chip' + (state.sourceCategory === name ? " is-active" : "") +
+          return '<button class="chip' + (f.sourceCategory === name ? " is-active" : "") +
             '" data-action="source-category" data-value="' + attr(name) + '" type="button">' + esc(name) +
             (srcUnread[name] != null ? ' <span class="chip-count">' + esc(srcUnread[name]) + "</span>" : "") + "</button>";
         }).join("") + "</div></div>";
     }
 
-    var quality = state.filter === "quality";
-    var cats = asNames(quality ? state.aiCategories : (state.stats && state.stats.categories));
+    var cats = asNames(quality ? state.aiCategories : (s.categories));
     if (cats.length) {
       html += '<div class="filter-row"><span class="filter-label">' + (quality ? "AI 分类" : "类型") + "</span>" +
-        chips(cats, quality ? state.aiCategory : state.category, quality ? "quality-category" : "category", "value") + "</div>";
+        chips(cats, quality ? f.aiCategory : f.category, quality ? "quality-category" : "category", "value") + "</div>";
     }
-    html += '<div style="height:16px"></div>' + feed(state.items, false);
+    return html;
+  }
+
+  function renderLibrary() {
+    var s = state.stats || {};
+    var f = filtersFor("library");
+    var filtered = hasFilters(f);
+    // state.items only holds the current page, so fall back to the library
+    // totals for the unfiltered view instead of showing "共 60 条".
+    var total = !filtered && s.total_count != null ? s.total_count : state.items.length;
+    var desc = filtered
+      ? "当前显示 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集"
+      : "共 " + total + " 条 · 来自 RSS、新闻源与浏览器采集";
+    var html = head(desc);
+    html += renderFilterBar({ view: "library" });
+    html += '<div style="height:16px"></div>';
+    if (filtered && !state.items.length) {
+      html += empty("没有符合筛选条件的内容", "换个来源或分类，或点「清除筛选」。");
+    } else {
+      html += feed(state.items, false);
+    }
     if (state.itemsCursor) {
       html += '<div class="load-more"><button class="btn" data-action="load-more" type="button">加载更多</button></div>';
     }
@@ -958,7 +1031,7 @@
     }
 
     if (state.aiCategories && state.aiCategories.length) {
-      html += chips(asNames(state.aiCategories), state.aiCategory, "ai-category", "value");
+      html += chips(asNames(state.aiCategories), filtersFor("ai").aiCategory, "ai-category", "value");
       html += '<div style="height:14px"></div>';
     }
     if (!state.aiItems.length) html += empty("暂无优质内容", "AI 分析完成后，评分达到阈值的条目会显示在这里。");
@@ -1085,25 +1158,87 @@
 
   function renderDevices() {
     var list = state.browsers || [];
+    var connected = !!(state.health && state.health.browser_connected);
+    var wsUrl = "ws://localhost:" + (location.port || "5040") + "/ws_browser";
+    var storeUrl = "https://chromewebstore.google.com/detail/hfimnafeekedoeeflppddlkbhcbbnfab";
+    var releaseUrl = "https://github.com/gusibi/grabby/releases";
+    var installSh = "curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash";
+    var installPs = "irm https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.ps1 | iex";
     var html = head("扩展在真实浏览器里带登录态执行抓取，服务端只负责调度");
-    html += '<div class="panel"><h3>已注册设备</h3>';
-    if (!list.length) html += empty("暂无设备", "在扩展设置中填写 WebSocket 地址并连接。");
-    else html += list.map(function (b) {
-      return '<div class="list-row"><div class="list-main">' +
-        '<div class="list-title">' + esc(b.name || "未命名") + " " + badge(b.banned ? "已禁用" : (b.online ? "在线" : "离线"), !b.banned && b.online) + "</div>" +
-        '<div class="list-sub mono">' + esc(b.conn_id || "") + "</div></div>" +
-        '<div class="list-actions">' +
-          '<button class="mini" data-action="device-kick" data-id="' + attr(b.conn_id) + '" type="button">断开</button>' +
-          (b.banned
-            ? '<button class="mini" data-action="device-unban" data-id="' + attr(b.conn_id) + '" type="button">解禁</button>'
-            : '<button class="mini danger" data-action="device-ban" data-id="' + attr(b.conn_id) + '" type="button">禁用</button>') +
-        "</div></div>";
-    }).join("");
+
+    if (!connected) {
+      html += '<div class="panel onboard">' +
+        '<h3>连接浏览器扩展</h3>' +
+        '<p>Grabby 通过 Chrome 扩展借用你已登录的真实浏览器抓取网页。扩展连上后，网页提取、截图和 X / Reddit / 小红书读取才会生效。</p>' +
+        '<ol class="onboard-steps">' +
+          '<li><div class="onboard-step-title">安装扩展</div>' +
+            '<div class="onboard-step-body">在 Chrome 应用商店搜索 <b>Grabby 2.0</b>，或直接打开 ' +
+              '<a class="text-link" href="' + attr(storeUrl) + '" target="_blank" rel="noopener">Chrome 应用商店安装页</a>。' +
+              '<div class="hint">商店标题：Grabby 2.0 - 浏览器数据助手。安装后点工具栏的拼图图标，把 Grabby 固定到工具栏。</div>' +
+            '</div></li>' +
+          '<li><div class="onboard-step-title">填写连接信息</div>' +
+            '<div class="onboard-step-body">点 Grabby 图标 → <b>⚙️ 设置</b>（或右键图标 →「选项」）：' +
+              '<div class="onboard-kv"><span>浏览器名称</span><code>chrome-home</code><span class="onboard-note">必填，多台浏览器用不同名字</span></div>' +
+              '<div class="onboard-kv"><span>WebSocket 地址</span><code class="mono">' + esc(wsUrl) + '</code><button class="copy-btn" data-copy="' + attr(wsUrl) + '" type="button">复制</button></div>' +
+              '<div class="onboard-kv"><span>连接标识</span><span class="onboard-note">点「随机生成」按钮，必填</span></div>' +
+              '<div class="onboard-kv"><span>API Token</span><span class="onboard-note">默认留空；APP 开启 Token 后才需要填</span></div>' +
+              '<div class="hint">勾选「启动时自动连接服务器」，然后点「保存设置」。</div>' +
+            '</div></li>' +
+          '<li><div class="onboard-step-title">连接并确认</div>' +
+            '<div class="onboard-step-body">点 Grabby 图标 →「连接服务器」，状态变成「已连接」。回到本页点右上角刷新，设备会出现在「已注册设备」里。</div></li>' +
+        '</ol>' +
+        '<div class="onboard-faq"><b>连不上时先看这几条</b><ul>' +
+          '<li>端口不是 5040：APP 端口被占用时会自动顺延，以「设置 → 服务状态」里的 WebSocket 地址为准，扩展里也要改成同一个端口。</li>' +
+          '<li>地址要用 <code>ws://</code>，不是 <code>http://</code>；浏览器名称和连接标识都必须填写。</li>' +
+          '<li>多浏览器：每台用不同的浏览器名称，连接标识分别点「随机生成」。</li>' +
+        '</ul></div>' +
+      '</div>';
+    }
+
+    html += '<div class="panel"><h3>已注册设备 ' +
+      (connected ? badge("扩展已连接", true) : badge("扩展未连接", false)) + "</h3>";
+    if (!list.length) {
+      html += empty("还没有设备", connected
+        ? "扩展已连接，但还没有注册设备；点右上角刷新试试。"
+        : "按上面的三步连接后，设备会出现在这里。");
+    } else {
+      html += list.map(function (b) {
+        return '<div class="list-row"><div class="list-main">' +
+          '<div class="list-title">' + esc(b.name || "未命名") + " " + badge(b.banned ? "已禁用" : (b.online ? "在线" : "离线"), !b.banned && b.online) + "</div>" +
+          '<div class="list-sub mono">' + esc(b.conn_id || "") + "</div></div>" +
+          '<div class="list-actions">' +
+            '<button class="mini" data-action="device-kick" data-id="' + attr(b.conn_id) + '" type="button">断开</button>' +
+            (b.banned
+              ? '<button class="mini" data-action="device-unban" data-id="' + attr(b.conn_id) + '" type="button">解禁</button>'
+              : '<button class="mini danger" data-action="device-ban" data-id="' + attr(b.conn_id) + '" type="button">禁用</button>') +
+          "</div></div>";
+      }).join("");
+    }
     html += "</div>";
+
     html += '<div class="panel"><h3>扩展连接信息</h3>' +
-      '<div class="row"><span class="row-label">WebSocket 地址</span><span class="row-value mono">ws://localhost:' + esc(location.port || "5040") + "/ws_browser</span></div>" +
+      '<div class="row"><span class="row-label">WebSocket 地址</span><div>' +
+        '<span class="row-value mono">' + esc(wsUrl) + '</span> ' +
+        '<button class="copy-btn" data-copy="' + attr(wsUrl) + '" type="button">复制</button></div></div>' +
       '<div class="row"><span class="row-label">注册接口</span><span class="row-value mono">/api/browsers/register</span></div>' +
       '<div class="row"><span class="row-label">登录态</span><span class="row-value">由浏览器侧保证，服务端不保存</span></div></div>';
+
+    html += '<div class="panel"><h3>命令行工具（CLI）</h3>' +
+      '<p>装好后可以直接在终端或脚本里调用 Grabby 的抓取能力。CLI 连接的是当前运行中的 APP；实际抓取仍由浏览器扩展执行，所以请先完成上面的连接。</p>' +
+      '<div class="cli-block"><div class="cli-label">macOS / Linux</div>' +
+        '<pre class="code-block">' + esc(installSh) + '</pre>' +
+        '<div style="margin-top:8px"><button class="copy-btn" data-copy="' + attr(installSh) + '" type="button">复制安装命令</button></div></div>' +
+      '<div class="cli-block"><div class="cli-label">Windows</div>' +
+        '<pre class="code-block">' + esc(installPs) + '</pre>' +
+        '<div style="margin-top:8px"><button class="copy-btn" data-copy="' + attr(installPs) + '" type="button">复制安装命令</button></div>' +
+        '<div class="hint">也可以从 <a class="text-link" href="' + attr(releaseUrl) + '" target="_blank" rel="noopener">Releases</a> 下载 ' +
+          '<code>grabby_Windows_x86_64.zip</code>（ARM 设备选 arm64），解压后把 <code>grabby.exe</code> 放到 PATH 中的目录。</div></div>' +
+      '<div class="cli-block"><div class="cli-label">验证</div>' +
+        '<pre class="code-block">' + esc("grabby health\ngrabby extract https://example.com\ngrabby screenshot https://example.com") + '</pre></div>' +
+      '<div class="hint">CLI 默认请求 <code>http://localhost:5040</code>；端口变了就设置 <code>GRABBY_SERVER_URL</code>。' +
+        'Claude Code 用户也可以直接用仓库里的 <code>skills/grabby/</code>。</div>' +
+    '</div>';
+
     return html;
   }
 
@@ -1346,11 +1481,14 @@
   }
 
   function syncViewChrome() {
-    var isLibrary = state.view === "library";
-    $("search-wrap").hidden = !isLibrary;
-    $("search-input").placeholder = isLibrary ? "搜索标题、摘要、来源" : "搜索内容";
-    var showLayout = state.view === "today" || isLibrary;
-    $("view-switch").hidden = !showLayout;
+    var searchable = state.view === "today" || state.view === "library";
+    $("search-wrap").hidden = !searchable;
+    if (searchable) {
+      $("search-input").placeholder = "搜索标题、摘要、来源";
+      var q = filtersFor(state.view).query || "";
+      if ($("search-input").value !== q) $("search-input").value = q;
+    }
+    $("view-switch").hidden = !searchable;
     var btns = document.querySelectorAll(".view-switch-btn");
     for (var i = 0; i < btns.length; i++) {
       var on = btns[i].dataset.layout === state.layout;
@@ -1883,6 +2021,12 @@
 
   function goto(view) {
     closeReader({ restoreFocus: false });
+    if (view === "today" || view === "library") {
+      // Swap in the target view's cached page so the filter bar and the list
+      // never show different views' state during the transition.
+      state.items = state.viewItems[view] || [];
+      state.itemsCursor = state.viewCursors[view] || "";
+    }
     state.view = view;
     render();
     loadView(view);
@@ -1902,10 +2046,11 @@
 
   var searchTimer = null;
   $("search-input").addEventListener("input", function (e) {
-    state.query = e.target.value;
+    var view = state.view;
+    filtersFor(view).query = e.target.value;
     clearTimeout(searchTimer);
     searchTimer = setTimeout(function () {
-      if (state.view === "library") reloadItems();
+      if (state.view === view) reloadItems(view);
     }, 300);
   });
 
@@ -2281,29 +2426,54 @@
       if (action === "layout") { setLayout(target.dataset.layout); return; }
       if (action === "detail") { await openReader(id, target); return; }
       if (action === "reader-retry") { await openReader(id || state.reader.id); return; }
-      if (action === "filter") { state.filter = target.dataset.value; await reloadItems(); return; }
-      if (action === "load-more") { await loadMoreItems(); return; }
+      if (action === "filter") {
+        filtersFor(state.view).filter = target.dataset.value;
+        await reloadItems(state.view); return;
+      }
+      if (action === "load-more") { await loadMoreItems(state.view); return; }
       if (action === "category") {
-        state.category = state.category === target.dataset.value ? "" : target.dataset.value;
-        await reloadItems(); return;
+        var cf = filtersFor(state.view);
+        cf.category = cf.category === target.dataset.value ? "" : target.dataset.value;
+        await reloadItems(state.view); return;
       }
       if (action === "news-group") {
-        state.sourceCategory = target.dataset.value;
-        state.category = ""; state.filter = "all";
-        state.view = "library"; render(); await reloadItems(); return;
+        var lf = state.filters.library;
+        lf.sourceCategory = target.dataset.value;
+        lf.category = ""; lf.filter = "all";
+        state.view = "library";
+        state.items = state.viewItems.library || [];
+        state.itemsCursor = state.viewCursors.library || "";
+        render(); await reloadItems("library"); return;
       }
-      if (action === "clear-group") { state.sourceCategory = ""; await reloadItems(); return; }
+      if (action === "clear-group") {
+        filtersFor(state.view).sourceCategory = "";
+        await reloadItems(state.view); return;
+      }
       if (action === "source-category") {
-        state.sourceCategory = state.sourceCategory === target.dataset.value ? "" : target.dataset.value;
-        await reloadItems(); return;
+        var sf = filtersFor(state.view);
+        sf.sourceCategory = sf.sourceCategory === target.dataset.value ? "" : target.dataset.value;
+        await reloadItems(state.view); return;
       }
-      if (action === "source-all") { state.sourceCategory = ""; await reloadItems(); return; }
+      if (action === "source-all") {
+        filtersFor(state.view).sourceCategory = "";
+        await reloadItems(state.view); return;
+      }
       if (action === "quality-category") {
-        state.aiCategory = state.aiCategory === target.dataset.value ? "" : target.dataset.value;
-        await reloadItems(); return;
+        var qf = filtersFor(state.view);
+        qf.aiCategory = qf.aiCategory === target.dataset.value ? "" : target.dataset.value;
+        await reloadItems(state.view); return;
+      }
+      if (action === "clear-filters") {
+        clearFilters(filtersFor(state.view));
+        $("search-input").value = "";
+        await reloadItems(state.view); return;
       }
       if (action === "ai-tab") { state.aiTab = target.dataset.value === "overview" ? "overview" : "items"; render(); return; }
-      if (action === "ai-category") { state.aiCategory = state.aiCategory === target.dataset.value ? "" : target.dataset.value; await loadView("ai"); return; }
+      if (action === "ai-category") {
+        var af = filtersFor("ai");
+        af.aiCategory = af.aiCategory === target.dataset.value ? "" : target.dataset.value;
+        await loadView("ai"); return;
+      }
       if (action === "star") {
         var next = target.dataset.starred == 1 ? 0 : 1;
         await post("/api/items/" + encodeURIComponent(id) + "/star", { starred: next });
@@ -2439,7 +2609,7 @@
       }
       return;
     }
-    if (e.key === "/" && state.view === "library") {
+    if (e.key === "/" && (state.view === "today" || state.view === "library")) {
       e.preventDefault();
       $("search-input").focus();
       return;
@@ -2480,6 +2650,10 @@
       var scroll = $("content").scrollTop;
       render();
       $("content").scrollTop = scroll;
+    } else if (changed && state.view === "devices") {
+      // Extension connected/disconnected: swap the onboarding for the live
+      // device list (or vice versa) without waiting for a manual refresh.
+      loadView("devices");
     }
   }
 

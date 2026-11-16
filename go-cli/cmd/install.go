@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"archive/zip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,42 +15,41 @@ import (
 	"github.com/spf13/cobra"
 )
 
+const releaseRepo = "gusibi/grabby"
+
 var installCmd = &cobra.Command{
 	Use:   "install",
-	Short: "从 GitHub 下载并安装 grabby 二进制到 ~/.local/bin",
+	Short: "从 GitHub 下载并安装最新的 grabby 二进制",
 	Long: `从 GitHub Releases 下载预编译的 grabby 二进制文件并安装。
 
-安装位置：~/.local/bin（可通过 GRABBY_INSTALL_DIR 环境变量自定义）
+默认安装位置：macOS / Linux 为 ~/.local/bin，Windows 为 %LOCALAPPDATA%\Programs\grabby。
+可通过 GRABBY_INSTALL_DIR 环境变量自定义。
 
 仅安装 Go 二进制版本，无需 Python 或其他依赖。`,
 	Run: func(_ *cobra.Command, _ []string) {
 		installDir := os.Getenv("GRABBY_INSTALL_DIR")
 		if installDir == "" {
-			home, err := os.UserHomeDir()
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "获取用户目录失败: %v\n", err)
-				os.Exit(1)
-			}
-			installDir = home + "/.local/bin"
+			installDir = defaultInstallDir()
 		}
 
-		// Determine OS and arch
 		osName, archName := platformNames()
-		filename := fmt.Sprintf("grabby_%s_%s.tar.gz", osName, archName)
+		ext := ".tar.gz"
+		if runtime.GOOS == "windows" {
+			ext = ".zip"
+		}
+		filename := fmt.Sprintf("grabby_%s_%s%s", osName, archName, ext)
 		downloadURL := fmt.Sprintf(
-			"https://github.com/gusibi/mcp-web-capture/releases/latest/download/%s",
-			filename,
+			"https://github.com/%s/releases/latest/download/%s",
+			releaseRepo, filename,
 		)
 
 		fmt.Fprintf(os.Stderr, "⬇️  下载 grabby (%s/%s)...\n", osName, archName)
 
-		// Create install directory
 		if err := os.MkdirAll(installDir, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "创建安装目录失败: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Download tarball
 		tmpDir, err := os.MkdirTemp("", "grabby-install")
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "创建临时目录失败: %v\n", err)
@@ -57,31 +57,51 @@ var installCmd = &cobra.Command{
 		}
 		defer os.RemoveAll(tmpDir)
 
-		tarball := filepath.Join(tmpDir, filename)
-		if err := downloadFile(downloadURL, tarball); err != nil {
+		archivePath := filepath.Join(tmpDir, filename)
+		if err := downloadFile(downloadURL, archivePath); err != nil {
 			fmt.Fprintf(os.Stderr, "下载失败: %v\n", err)
-			fmt.Fprintf(os.Stderr, "请确认 https://github.com/gusibi/mcp-web-capture/releases 是否有 release\n")
+			fmt.Fprintf(os.Stderr, "请确认 https://github.com/%s/releases 是否有 release\n", releaseRepo)
 			os.Exit(1)
 		}
 
-		// Extract
-		if err := extractTarball(tarball, tmpDir); err != nil {
+		if ext == ".zip" {
+			err = extractZip(archivePath, tmpDir)
+		} else {
+			err = extractTarball(archivePath, tmpDir)
+		}
+		if err != nil {
 			fmt.Fprintf(os.Stderr, "解压失败: %v\n", err)
 			os.Exit(1)
 		}
 
-		// Install binary
-		src := filepath.Join(tmpDir, "grabby")
-		dst := filepath.Join(installDir, "grabby")
+		binary := "grabby"
+		if runtime.GOOS == "windows" {
+			binary = "grabby.exe"
+		}
+		src := filepath.Join(tmpDir, binary)
+		dst := filepath.Join(installDir, binary)
 		input, err := os.ReadFile(src)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "读取二进制失败: %v\n", err)
 			os.Exit(1)
 		}
-		if err := os.WriteFile(dst, input, 0755); err != nil {
+		// Write to a sibling file and rename it into place. This avoids
+		// "text file busy" when `grabby install` is run from the very binary
+		// it is replacing (macOS/Linux allow rename over a running file).
+		tmpDst := dst + ".tmp"
+		if err := os.WriteFile(tmpDst, input, 0755); err != nil {
 			fmt.Fprintf(os.Stderr, "写入二进制失败: %v\n", err)
 			os.Exit(1)
 		}
+		_ = os.Chmod(tmpDst, 0755)
+		if err := os.Rename(tmpDst, dst); err != nil {
+			_ = os.Remove(tmpDst)
+			if err := os.WriteFile(dst, input, 0755); err != nil {
+				fmt.Fprintf(os.Stderr, "写入二进制失败: %v\n", err)
+				os.Exit(1)
+			}
+		}
+		_ = os.Chmod(dst, 0755)
 
 		// Init config directory
 		configDir, _ := grabbyConfigDir()
@@ -89,15 +109,37 @@ var installCmd = &cobra.Command{
 		output := map[string]any{
 			"message":    fmt.Sprintf("✅ 安装完成: %s", dst),
 			"version":    version,
+			"path":       dst,
 			"config_dir": configDir,
 		}
 		json.NewEncoder(os.Stdout).Encode(output)
 
 		// Check PATH
 		if !inPath(installDir) {
-			fmt.Fprintf(os.Stderr, "⚠️  %s 不在 PATH 中，请添加到 shell 配置:\n    export PATH=\"$PATH:%s\"\n", installDir, installDir)
+			printPathHint(installDir)
 		}
 	},
+}
+
+func defaultInstallDir() string {
+	if runtime.GOOS == "windows" {
+		if local := os.Getenv("LOCALAPPDATA"); local != "" {
+			return filepath.Join(local, "Programs", "grabby")
+		}
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "."
+	}
+	return filepath.Join(home, ".local", "bin")
+}
+
+func printPathHint(dir string) {
+	if runtime.GOOS == "windows" {
+		fmt.Fprintf(os.Stderr, "⚠️  %s 不在 PATH 中，请把它加入用户 PATH，然后重新打开终端。\n", dir)
+		return
+	}
+	fmt.Fprintf(os.Stderr, "⚠️  %s 不在 PATH 中，请添加到 shell 配置:\n    export PATH=\"$PATH:%s\"\n", dir, dir)
 }
 
 func platformNames() (osName, archName string) {
@@ -154,9 +196,50 @@ func extractTarball(tarball, dir string) error {
 	return nil
 }
 
+func extractZip(zipPath, dir string) error {
+	r, err := zip.OpenReader(zipPath)
+	if err != nil {
+		return err
+	}
+	defer r.Close()
+
+	for _, f := range r.File {
+		if f.FileInfo().IsDir() {
+			continue
+		}
+		// Release archives are flat; only extract the base name so a crafted
+		// archive cannot escape the temporary directory.
+		name := filepath.Base(f.Name)
+		if name == "." || name == string(filepath.Separator) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return err
+		}
+		outPath := filepath.Join(dir, name)
+		out, err := os.Create(outPath)
+		if err != nil {
+			rc.Close()
+			return err
+		}
+		_, copyErr := io.Copy(out, rc)
+		closeErr := out.Close()
+		rc.Close()
+		if copyErr != nil {
+			return copyErr
+		}
+		if closeErr != nil {
+			return closeErr
+		}
+	}
+	return nil
+}
+
 func inPath(dir string) bool {
-	for _, p := range strings.Split(os.Getenv("PATH"), ":") {
-		if p == dir {
+	target := filepath.Clean(dir)
+	for _, p := range strings.Split(os.Getenv("PATH"), string(os.PathListSeparator)) {
+		if p != "" && filepath.Clean(p) == target {
 			return true
 		}
 	}

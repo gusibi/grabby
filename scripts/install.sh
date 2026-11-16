@@ -1,37 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Grabby CLI Installer
+# Grabby CLI installer (macOS / Linux; Windows users should use install.ps1)
 # Usage: curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash
 #
-# 安装 grabby 二进制到 ~/.local/bin/grabby
-# 配置文件目录: ~/.grabby/
+# 安装最新 Release 里的 grabby 二进制。
+# 默认安装到 ~/.local/bin/grabby；配置文件目录 ~/.grabby/。
 
 REPO="gusibi/grabby"
 BINARY="grabby"
-INSTALL_DIR="${GRABBY_INSTALL_DIR:-${HOME}/.local/bin}"
 CONFIG_DIR="${HOME}/.grabby"
-
-# 1. 如果是在本地克隆的仓库中执行，且有 python3，则直接委托给 install.py
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd || true)"
-if [ -f "${SCRIPT_DIR}/install.py" ] && command -v python3 &>/dev/null; then
-  echo "🚀 检测到本地安装脚本，正在通过 python3 scripts/install.py 安装..."
-  exec python3 "${SCRIPT_DIR}/install.py" "$@"
-fi
-
-# 2. 如果是 curl|bash 执行，提示用户克隆仓库是更好的选择
-echo "💡 提示：运行 Grabby 服务需要项目源码（go-server/）。"
-echo "   推荐先克隆项目，然后在项目目录内运行：python3 scripts/install.py"
-echo "   克隆命令：git clone https://github.com/${REPO}.git"
-echo ""
 
 # Detect OS and ARCH
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
 case "$OS" in
-  darwin)  OS="Darwin" ;;
-  linux)   OS="Linux" ;;
+  darwin) OS="Darwin" ;;
+  linux)  OS="Linux" ;;
   mingw*|msys*|cygwin*) OS="Windows" ;;
   *)
     echo "❌ 不支持的操作系统: $OS"
@@ -48,57 +34,65 @@ case "$ARCH" in
     ;;
 esac
 
-echo "📡 获取最新版本..."
+if [ "$OS" = "Windows" ]; then
+  EXT="zip"
+  BINARY_NAME="grabby.exe"
+  INSTALL_DIR="${GRABBY_INSTALL_DIR:-${LOCALAPPDATA:-$HOME/AppData/Local}/Programs/grabby}"
+else
+  EXT="tar.gz"
+  BINARY_NAME="grabby"
+  INSTALL_DIR="${GRABBY_INSTALL_DIR:-$HOME/.local/bin}"
+fi
+
 if ! command -v curl &>/dev/null; then
   echo "❌ 需要 curl，请先安装"
   exit 1
 fi
 
-LATEST_RELEASE=$(curl -fsSL "https://api.github.com/repos/${REPO}/releases/latest" | grep '"tag_name"' | cut -d'"' -f4)
+FILENAME="${BINARY}_${OS}_${ARCH}.${EXT}"
+DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${FILENAME}"
 
-if [ -z "$LATEST_RELEASE" ]; then
-  echo "❌ 无法获取最新版本号"
-  echo "   请确认 https://github.com/${REPO}/releases 有 release"
-  exit 1
-fi
-
-VERSION="${LATEST_RELEASE#grabby-v}"
-
-# Build filename
-FILENAME="${BINARY}_${OS}_${ARCH}.tar.gz"
-DOWNLOAD_URL="https://github.com/${REPO}/releases/download/${LATEST_RELEASE}/${FILENAME}"
-
-# Create install dir
 echo "📁 创建目录..."
 mkdir -p "$INSTALL_DIR"
 mkdir -p "$CONFIG_DIR"
 
-# Download and extract
-echo "⬇️  下载 ${BINARY} v${VERSION} (${OS}/${ARCH})..."
+echo "⬇️  下载最新版 ${BINARY} (${OS}/${ARCH})..."
 TMP_DIR=$(mktemp -d)
 trap 'rm -rf "$TMP_DIR"' EXIT
 
 curl -fsSL "$DOWNLOAD_URL" -o "${TMP_DIR}/${FILENAME}"
 
 echo "📦 解压中..."
-tar -xzf "${TMP_DIR}/${FILENAME}" -C "$TMP_DIR"
-chmod +x "${TMP_DIR}/${BINARY}"
+if [ "$EXT" = "zip" ]; then
+  if ! command -v unzip &>/dev/null; then
+    echo "❌ Windows 上需要 unzip 才能安装；也可以改用 PowerShell 安装脚本："
+    echo "   irm https://raw.githubusercontent.com/${REPO}/main/scripts/install.ps1 | iex"
+    exit 1
+  fi
+  unzip -q "${TMP_DIR}/${FILENAME}" -d "$TMP_DIR"
+else
+  tar -xzf "${TMP_DIR}/${FILENAME}" -C "$TMP_DIR"
+fi
+
+chmod +x "${TMP_DIR}/${BINARY_NAME}"
 
 # Install
-cp "${TMP_DIR}/${BINARY}" "${INSTALL_DIR}/${BINARY}"
-echo "✅ 安装完成: ${INSTALL_DIR}/${BINARY}"
+cp "${TMP_DIR}/${BINARY_NAME}" "${INSTALL_DIR}/${BINARY_NAME}"
+echo "✅ 安装完成: ${INSTALL_DIR}/${BINARY_NAME}"
 
 # Check PATH
-if ! echo "$PATH" | tr ':' '\n' | grep -q "${INSTALL_DIR}"; then
-  echo ""
-  echo "⚠️  ${INSTALL_DIR} 不在 PATH 中，请将以下内容添加到 shell 配置 (~/.zshrc / ~/.bashrc)："
-  echo ""
-  echo "    export PATH=\"\$PATH:${INSTALL_DIR}\""
-  echo ""
-fi
+case ":$PATH:" in
+  *":${INSTALL_DIR}:"*) ;;
+  *)
+    echo ""
+    echo "⚠️  ${INSTALL_DIR} 不在 PATH 中，请将以下内容添加到 shell 配置 (~/.zshrc / ~/.bashrc)："
+    echo ""
+    echo "    export PATH=\"\$PATH:${INSTALL_DIR}\""
+    echo ""
+    ;;
+esac
 
 echo ""
 echo "📝 配置文件目录: ${CONFIG_DIR}"
-echo "   将配置放入 ${CONFIG_DIR}/.env"
 echo ""
-echo "🚀 运行 grabby --version 验证安装"
+echo "🚀 运行 ${BINARY_NAME} --version 验证安装"

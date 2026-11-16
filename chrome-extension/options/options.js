@@ -20,6 +20,8 @@ const saveNotification = document.getElementById('saveNotification');
 const manageRulesBtn = document.getElementById('manageRulesBtn');
 const browserConnectIdInput = document.getElementById('browserConnectId');
 const generateConnectIdBtn = document.getElementById('generateConnectIdBtn');
+const testConnectionBtn = document.getElementById('testConnectionBtn');
+const testResult = document.getElementById('testResult');
 
 // 规则管理对话框元素
 const rulesDialog = document.getElementById('rulesDialog');
@@ -140,6 +142,92 @@ function setupEventListeners() {
     generateConnectIdBtn.addEventListener('click', () => {
         browserConnectIdInput.value = crypto.randomUUID();
     });
+
+    // 测试当前填写的服务器地址 / 名称 / 连接标识 / Token 是否可用
+    testConnectionBtn.addEventListener('click', testConnection);
+}
+
+function setTestResult(message, status) {
+    testResult.textContent = message;
+    testResult.className = 'test-result' + (status ? ' ' + status : '');
+}
+
+// 用注册接口验证配置：本机直连会免密通过；局域网连接由服务端校验 Token。
+// 该接口对同一 (connect_id, name) 是幂等的，不会产生重复设备。
+async function testConnection() {
+    const serverUrl = serverUrlInput.value.trim();
+    const browserName = browserNameInput.value.trim();
+    const connectId = browserConnectIdInput.value.trim();
+    const apiToken = apiTokenInput.value.trim();
+
+    if (!serverUrl) {
+        setTestResult('请先填写 WebSocket 服务器地址。', 'error');
+        return;
+    }
+    if (!browserName) {
+        setTestResult('请先填写浏览器名称。', 'error');
+        return;
+    }
+    if (!connectId) {
+        setTestResult('请先点击「随机生成」生成浏览器连接标识。', 'error');
+        return;
+    }
+
+    let registerUrl;
+    try {
+        const url = new URL(serverUrl);
+        if (!['ws:', 'wss:'].includes(url.protocol)) {
+            throw new Error('地址需以 ws:// 或 wss:// 开头');
+        }
+        url.protocol = url.protocol === 'wss:' ? 'https:' : 'http:';
+        url.pathname = '/api/browsers/register';
+        url.search = '';
+        registerUrl = url.toString();
+    } catch (error) {
+        setTestResult('服务器地址无效：' + error.message, 'error');
+        return;
+    }
+
+    testConnectionBtn.disabled = true;
+    setTestResult('正在测试…', '');
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (apiToken) headers['X-Grabby-Token'] = apiToken;
+
+    const abort = new AbortController();
+    const timer = setTimeout(() => abort.abort(), 8000);
+    try {
+        const response = await fetch(registerUrl, {
+            method: 'POST',
+            headers,
+            signal: abort.signal,
+            body: JSON.stringify({ connect_id: connectId, name: browserName })
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            const detail = data.detail || data.error || response.statusText || '请求被拒绝';
+            if (response.status === 401) {
+                setTestResult('❌ Token 校验失败：' + detail + '。请确认与服务端「API 与安全」里的 Token 一致。', 'error');
+            } else if (response.status === 409) {
+                setTestResult('❌ ' + detail + '。连接标识或浏览器名称已被其他实例占用。', 'error');
+            } else {
+                setTestResult('❌ ' + detail, 'error');
+            }
+            return;
+        }
+
+        setTestResult(
+            '✅ 服务器可达，名称与连接标识可用' + (apiToken ? '，Token 校验通过。' : '（本机连接无需 Token）。'),
+            'ok'
+        );
+    } catch (error) {
+        const reason = error.name === 'AbortError' ? '请求超时' : error.message;
+        setTestResult('❌ 无法连接：' + reason + '。请确认服务端已启动且地址正确。', 'error');
+    } finally {
+        clearTimeout(timer);
+        testConnectionBtn.disabled = false;
+    }
 }
 
 // 更新质量值显示
