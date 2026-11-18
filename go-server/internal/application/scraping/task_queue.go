@@ -3,6 +3,7 @@ package scraping
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,7 +19,9 @@ import (
 type ScrapeTask struct {
 	SourceID string
 	URL      string
-	LogID    int64 // logs task details to fetch_logs
+	LogID    int64  // logs task details to fetch_logs
+	ItemID   int64  // non-zero when backfilling full content for an existing item
+	Category string // optional override category
 }
 
 type TaskQueue struct {
@@ -134,6 +137,7 @@ func (tq *TaskQueue) processTask(ctx context.Context, task ScrapeTask) error {
 		Action:  "mcp_request",
 		Command: "extract",
 		URL:     task.URL,
+		Visible: false,
 	}, browserConnID)
 
 	if err != nil {
@@ -145,14 +149,32 @@ func (tq *TaskQueue) processTask(ctx context.Context, task ScrapeTask) error {
 	}
 
 	// Extract markdown
-	markdown := resp.Result.Content.MarkdownContent()
+	markdown := strings.TrimSpace(resp.Result.Content.MarkdownContent())
+	if markdown == "" {
+		return fmt.Errorf("browser extracted empty markdown for %s", task.URL)
+	}
+
+	if task.ItemID > 0 {
+		if err := tq.db.UpdateScrapedItemContent(task.ItemID, markdown, ""); err != nil {
+			return fmt.Errorf("failed to backfill item %d content: %w", task.ItemID, err)
+		}
+		tq.logger.Info("Successfully backfilled item content", zap.Int64("item_id", task.ItemID), zap.String("url", task.URL))
+		if tq.aiEngine != nil {
+			tq.aiEngine.Enqueue(task.ItemID)
+		}
+		return nil
+	}
+
 	title := firstNonEmpty(resp.Result.Title, resp.Result.Content.Title)
 	if title == "" {
 		title = "Untitled scraped page"
 	}
 
 	classifier := NewClassifier()
-	category := classifier.Classify(task.URL, "")
+	category := task.Category
+	if category == "" {
+		category = classifier.Classify(task.URL, "")
+	}
 	origin := classifier.ExtractOrigin(task.URL, resp.Result.Content.Site)
 
 	// Create scraped item structure
@@ -170,16 +192,18 @@ func (tq *TaskQueue) processTask(ctx context.Context, task ScrapeTask) error {
 		scrapedItem.Tags = resp.Result.Content.Author
 	}
 
-	id, err := tq.db.InsertScrapedItem(scrapedItem)
+	id, created, err := tq.db.UpsertScrapedItem(scrapedItem)
 	if err != nil {
 		return fmt.Errorf("failed to save scraped item: %w", err)
 	}
 
-	tq.logger.Info("Successfully processed task", zap.String("url", task.URL), zap.Int64("inserted_id", id))
+	tq.logger.Info("Successfully processed task", zap.String("url", task.URL), zap.Int64("item_id", id), zap.Bool("created", created))
 
 	var added int64 = 0
-	if id > 0 {
+	if created && id > 0 {
 		added = 1
+	}
+	if id > 0 && tq.aiEngine != nil {
 		tq.aiEngine.Enqueue(id)
 	}
 

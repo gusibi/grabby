@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
+	aiapp "go-server/internal/application/ai"
+	"go-server/internal/application/scraping"
 	"go-server/internal/domain/item"
 	"go-server/internal/infrastructure/sqlite"
 	"go-server/internal/interfaces/dto"
@@ -33,9 +37,8 @@ type itemSummary struct {
 }
 
 // registerLibraryTools exposes the server's own stored content (scraped items,
-// sources, AI daily digests). These need no browser connection — they read the
-// local database — so an agent can use them even when no browser is attached.
-func registerLibraryTools(mcpSvr *server.MCPServer, db *sqlite.Database, logger *zap.Logger) {
+// sources, AI daily digests) plus the unified feed adapter tools.
+func registerLibraryTools(mcpSvr *server.MCPServer, db *sqlite.Database, scraper *scraping.Scraper, aiEngine *aiapp.AIEngine, logger *zap.Logger) {
 	if db == nil {
 		return
 	}
@@ -196,6 +199,162 @@ func registerLibraryTools(mcpSvr *server.MCPServer, db *sqlite.Database, logger 
 			"by_source_category": bySourceCategory,
 		})
 	})
+
+	// feed_query
+	feedQueryTool := mcp.NewTool("feed_query",
+		mcp.WithDescription("Unified Agent feed adapter across all content types (news, blog, youtube, podcast, all). Returns full Markdown or audio/video transcripts along with AI scores and summaries."),
+		mcp.WithString("type", mcp.Description("Content type: all | news | blog | youtube | podcast (default all)")),
+		mcp.WithString("category", mcp.Description("Topic or AI category filter, e.g. AI, 科技新闻 (optional)")),
+		mcp.WithString("query", mcp.Description("Keyword search over title, summary, or transcript/content (optional)")),
+		mcp.WithNumber("score_min", mcp.Description("Minimum AI quality score 1-10 (optional)")),
+		mcp.WithNumber("days", mcp.Description("Only items from the last N days (optional)")),
+		mcp.WithNumber("limit", mcp.Description("Max items to return (default 20)")),
+		mcp.WithBoolean("include_content", mcp.Description("Include full Markdown/transcript body (default true)")),
+	)
+	mcpSvr.AddTool(feedQueryTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		params, err := dto.ParseArgs[dto.FeedQueryParams](req.Params.Arguments)
+		if err != nil {
+			return mcp.NewToolResultError("invalid arguments"), nil
+		}
+		if params.Type == "" {
+			params.Type = "all"
+		}
+		if params.Limit <= 0 {
+			params.Limit = 20
+		}
+		includeContent := true
+		if params.IncludeContent != nil {
+			includeContent = *params.IncludeContent
+		}
+
+		items, cursor, err := db.QueryUnifiedFeed(item.ItemsFilter{
+			ContentType: params.Type,
+			Category:    params.Category,
+			Q:           params.Query,
+			ScoreMin:    params.ScoreMin,
+			Days:        params.Days,
+			Limit:       params.Limit,
+		})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("feed_query failed: %s", err.Error())), nil
+		}
+		if !includeContent {
+			for i := range items {
+				items[i].Content = ""
+			}
+		}
+		return jsonResult(map[string]any{"success": true, "type": params.Type, "count": len(items), "items": items, "next_cursor": cursor})
+	})
+
+	// feed_daily_picks
+	picksTool := mcp.NewTool("feed_daily_picks",
+		mcp.WithDescription("Get Grabby's cross-type Daily Picks (news + blogs + YouTube + podcasts) ranked by AI quality score, together with today's AI daily report if generated."),
+		mcp.WithString("date", mcp.Description("YYYY-MM-DD (optional, defaults to today)")),
+		mcp.WithNumber("days", mcp.Description("Lookback window in days (default 1, relaxes to 3 if empty)")),
+		mcp.WithNumber("score_min", mcp.Description("Minimum AI score (optional)")),
+		mcp.WithNumber("limit", mcp.Description("Max picks to return (default 20)")),
+		mcp.WithBoolean("include_content", mcp.Description("Include full Markdown/transcript body (default true)")),
+	)
+	mcpSvr.AddTool(picksTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+		params, err := dto.ParseArgs[dto.FeedPicksParams](req.Params.Arguments)
+		if err != nil {
+			return mcp.NewToolResultError("invalid arguments"), nil
+		}
+		dateStr := strings.TrimSpace(params.Date)
+		if dateStr == "" {
+			dateStr = time.Now().Format("2006-01-02")
+		}
+		limit := params.Limit
+		if limit <= 0 {
+			limit = 20
+		}
+		days := params.Days
+		explicitDays := days > 0
+		if days <= 0 {
+			days = 1
+		}
+		scoreMin := 7
+		if aiEngine != nil && aiEngine.Settings().QualityThreshold > 0 {
+			scoreMin = aiEngine.Settings().QualityThreshold
+		}
+		explicitScore := false
+		if params.ScoreMin != nil {
+			scoreMin = *params.ScoreMin
+			explicitScore = true
+		}
+		includeContent := true
+		if params.IncludeContent != nil {
+			includeContent = *params.IncludeContent
+		}
+
+		items, _, err := db.QueryUnifiedFeed(item.ItemsFilter{ScoreMin: scoreMin, Days: days, Limit: 100})
+		if err != nil {
+			return mcp.NewToolResultError(fmt.Sprintf("feed_daily_picks failed: %s", err.Error())), nil
+		}
+		if len(items) == 0 && !explicitDays {
+			days = 3
+			items, _, _ = db.QueryUnifiedFeed(item.ItemsFilter{ScoreMin: scoreMin, Days: days, Limit: 100})
+		}
+		if len(items) == 0 && !explicitScore && scoreMin > 0 {
+			scoreMin = 0
+			items, _, _ = db.QueryUnifiedFeed(item.ItemsFilter{ScoreMin: 0, Days: days, Limit: 100})
+		}
+
+		sort.SliceStable(items, func(i, j int) bool {
+			return items[i].QualityScore > items[j].QualityScore
+		})
+		if len(items) > limit {
+			items = items[:limit]
+		}
+		if !includeContent {
+			for i := range items {
+				items[i].Content = ""
+			}
+		}
+
+		var dailyReport any
+		for _, rType := range []string{"daily", "morning", "evening"} {
+			if rpt, err := db.GetAIDailyReport(dateStr, rType); err == nil && rpt != nil {
+				dailyReport = rpt
+				break
+			}
+		}
+
+		return jsonResult(map[string]any{
+			"success":      true,
+			"date":         dateStr,
+			"days":         days,
+			"score_min":    scoreMin,
+			"count":        len(items),
+			"items":        items,
+			"daily_report": dailyReport,
+		})
+	})
+
+	// feed_ingest
+	if scraper != nil {
+		ingestTool := mcp.NewTool("feed_ingest",
+			mcp.WithDescription("Fetch any single YouTube video URL, podcast episode URL (Xiaoyuzhou/Apple/audio), or web article URL right now, extract full Markdown or transcript text, save to Grabby, and return it."),
+			mcp.WithString("url", mcp.Required(), mcp.Description("YouTube video URL, podcast episode URL, or webpage URL")),
+			mcp.WithString("type", mcp.Description("Optional hint: auto | youtube | podcast | blog | news (default auto)")),
+			mcp.WithBoolean("analyze", mcp.Description("Run AI summary & scoring if AI is enabled (default true)")),
+		)
+		mcpSvr.AddTool(ingestTool, func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			params, err := dto.ParseArgs[dto.FeedIngestParams](req.Params.Arguments)
+			if err != nil || strings.TrimSpace(params.URL) == "" {
+				return mcp.NewToolResultError("url is required"), nil
+			}
+			analyze := true
+			if params.Analyze != nil {
+				analyze = *params.Analyze
+			}
+			ingested, err := scraper.IngestURL(ctx, params.URL, params.Type, analyze)
+			if err != nil {
+				return mcp.NewToolResultError(fmt.Sprintf("feed_ingest failed: %s", err.Error())), nil
+			}
+			return jsonResult(map[string]any{"success": true, "item": ingested})
+		})
+	}
 }
 
 // jsonResult marshals v as the tool's text payload.

@@ -213,3 +213,26 @@ export interface SourceForm {
   config: string;
   category: string;
 }
+
+export interface ASRSettings {
+  asr_mode: string;
+  asr_provider: string;
+  asr_base_url: string;
+  asr_api_key: string;
+  asr_model: string;
+}
+
+export interface ASRToolStatus {
+  installed: boolean;
+  path?: string;
+}
+
+export interface ASREnvStatus {
+  os: string;
+  arch: string;
+  tools: Record<string, ASRToolStatus>;
+  local_ready: boolean;
+  cloud_ready: boolean;
+  install_command: string;
+  script_path?: string;
+}

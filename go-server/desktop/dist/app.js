@@ -29,15 +29,19 @@
     // Each content view keeps its own filter state. Filtering 今天 must not
     // change 内容库 (and vice versa), so these are never shared.
     filters: {
-      today: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" },
-      library: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" },
-      ai: { filter: "all", category: "", sourceCategory: "", aiCategory: "", query: "" }
+      today: { filter: "all", category: "", contentType: "", sourceCategory: "", aiCategory: "", query: "" },
+      library: { filter: "all", category: "", contentType: "", sourceCategory: "", aiCategory: "", query: "" },
+      ai: { filter: "all", category: "", contentType: "", sourceCategory: "", aiCategory: "", query: "" }
     },
     health: null, stats: null, items: [], browsers: [], itemsCursor: "",
     viewItems: { today: [], library: [] },
     viewCursors: { today: "", library: "" },
     sources: [], sourceCategories: [], aiCategories: [], logs: [],
+    // Scrapes run synchronously on the server, so the UI keeps a per-source
+    // running flag to show a spinner instead of looking unresponsive.
+    runningSources: {}, runningAllSources: false,
     aiSettings: null, aiStats: null, aiItems: [], aiCatalog: null, aiUsage: null,
+    asrEnv: null, asrInstalling: false,
     aiTab: "items",
     discoveredModels: [],
     pendingImport: null,
@@ -253,16 +257,24 @@
   }
 
   function hasFilters(f) {
-    return !!f && (f.filter !== "all" || !!f.query || !!f.category || !!f.sourceCategory || !!f.aiCategory);
+    return !!f && (f.filter !== "all" || !!f.query || !!f.category || !!f.contentType || !!f.sourceCategory || !!f.aiCategory);
   }
 
   function clearFilters(f) {
     if (!f) return;
     f.filter = "all";
     f.category = "";
+    f.contentType = "";
     f.sourceCategory = "";
     f.aiCategory = "";
     f.query = "";
+  }
+
+  function emptyFeed(f) {
+    if (f && f.contentType === "podcast") {
+      return empty("没有识别到播客内容", "如果是播客 RSS 源，请到「RSS 源」点击一次「立即抓取」，让 Grabby 重新识别音频。");
+    }
+    return empty("没有符合筛选条件的内容", "换个来源或类型，或点「清除筛选」。");
   }
 
   function itemsUrl(cursor, view) {
@@ -279,6 +291,7 @@
       if (f.filter === "starred") p.push("starred=1");
       if (f.query) p.push("q=" + encodeURIComponent(f.query));
       if (f.category) p.push("category=" + encodeURIComponent(f.category));
+      if (f.contentType) p.push("content_type=" + encodeURIComponent(f.contentType));
       if (f.sourceCategory) p.push("source_category=" + encodeURIComponent(f.sourceCategory));
     }
     if (cursor) p.push("cursor=" + encodeURIComponent(cursor));
@@ -332,7 +345,7 @@
       d = await fetchAll({
         desktopSettings: api("/api/desktop/settings"), health: api("/open/api/health"),
         aiSettings: api("/api/ai/settings"), aiStats: api("/open/api/ai/stats"),
-        aiUsage: api("/api/ai/usage?days=7")
+        aiUsage: api("/api/ai/usage?days=7"), asrEnv: api("/open/api/asr/env")
       });
     } else {
       d = await fetchAll({ health: api("/open/api/health") });
@@ -368,6 +381,7 @@
     if (d.aiSettings) { state.aiSettings = d.aiSettings.settings || null; state.activeProfileID = null; }
     if (d.aiCatalog && d.aiCatalog.providers) state.aiCatalog = d.aiCatalog;
     if (d.aiUsage && d.aiUsage.summary) state.aiUsage = d.aiUsage.summary;
+    if (d.asrEnv && d.asrEnv.env) state.asrEnv = d.asrEnv.env;
     if (d.aiStats) state.aiStats = d.aiStats;
     if (d.aiItems) state.aiItems = d.aiItems.items || [];
     if (d.dailyList) state.dailyList = Array.isArray(d.dailyList) ? d.dailyList : (d.dailyList.reports || d.dailyList.items || []);
@@ -460,42 +474,54 @@
 
     var html = "";
 
-    // One compact strip instead of four oversized cards.
-    html += '<div class="today-stats">' + [
-      [s.total_count, "已归档"],
-      [s.unread_count, "未读"],
-      [s.starred_count, "已收藏"],
-      [h.browser_count == null ? "—" : h.browser_count, "已连接浏览器"]
-    ].map(function (x) {
-      return '<div class="today-stat"><div class="today-stat-value">' + esc(x[0] == null ? "—" : x[0]) +
-        '</div><div class="today-stat-label">' + esc(x[1]) + "</div></div>";
-    }).join("") + "</div>";
-
-    html += '<div class="today-bar">' +
-      '<div class="today-conn">' +
-        '<span class="status-dot' + (connected ? " ok" : "") + '"></span>' +
-        '<span class="today-conn-text">' + (connected ? "扩展已连接" : "扩展未连接") + "</span>" +
-        '<span class="today-conn-addr mono">ws://localhost:' + esc(location.port || "5040") + "/ws_browser</span>" +
-        badge(connected ? "在线" : "离线", connected) +
+    // Stats and connection state share one panel so the overview stays compact
+    // and the feed gets the visual weight on the home page.
+    html += '<div class="today-hero">' +
+      '<div class="today-stats">' + [
+        [s.total_count, "已归档"],
+        [s.unread_count, "未读"],
+        [s.starred_count, "已收藏"],
+        [h.browser_count == null ? "—" : h.browser_count, "已连接浏览器"]
+      ].map(function (x) {
+        return '<div class="today-stat"><div class="today-stat-value">' + esc(x[0] == null ? "—" : x[0]) +
+          '</div><div class="today-stat-label">' + esc(x[1]) + "</div></div>";
+      }).join("") + "</div>" +
+      '<div class="today-bar">' +
+        '<div class="today-conn">' +
+          '<span class="status-dot' + (connected ? " ok" : "") + '"></span>' +
+          '<span class="today-conn-text">' + (connected ? "扩展已连接" : "扩展未连接") + "</span>" +
+          '<span class="today-conn-addr mono">ws://localhost:' + esc(location.port || "5040") + "/ws_browser</span>" +
+          badge(connected ? "在线" : "离线", connected) +
+        "</div>" +
+        '<div class="today-links">' +
+          (connected
+            ? '<button class="mini" data-action="goto" data-view="devices" type="button">浏览器设备</button>'
+            : '<button class="mini" data-action="goto" data-view="devices" type="button">连接说明</button>') +
+          '<button class="mini" data-action="goto" data-view="sources" type="button">订阅源 ' +
+            esc(state.sources.length || asNames(s.source_categories).length) + "</button>" +
+          '<button class="mini" data-action="goto" data-view="news" type="button">新闻源</button>' +
+          '<button class="mini" data-action="goto" data-view="daily" type="button">AI 日报</button>' +
+        "</div>" +
       "</div>" +
-      '<div class="today-links">' +
-        (connected
-          ? '<button class="mini" data-action="goto" data-view="devices" type="button">浏览器设备</button>'
-          : '<button class="mini" data-action="goto" data-view="devices" type="button">连接说明</button>') +
-        '<button class="mini" data-action="goto" data-view="sources" type="button">订阅源 ' +
-          esc(state.sources.length || asNames(s.source_categories).length) + "</button>" +
-        '<button class="mini" data-action="goto" data-view="news" type="button">新闻源</button>' +
-        '<button class="mini" data-action="goto" data-view="daily" type="button">AI 日报</button>' +
-      "</div></div>";
+    "</div>";
 
     if (report) html += todayReportCard(report);
 
     var todayFiltered = hasFilters(filtersFor("today"));
-    html += '<h2 class="section-title">最新内容</h2>';
-    html += renderFilterBar({ view: "today", count: todayFiltered ? state.items.length : null });
+    // The heading and filters stick together while the feed scrolls under
+    // them. Source-group chips live in 内容库 to keep the overview quiet.
+    html += '<div class="feed-head">' +
+      '<h2 class="section-title">最新内容</h2>' +
+      renderFilterBar({ view: "today", count: todayFiltered ? state.items.length : null, hideSource: true }) +
+      "</div>";
     html += todayFiltered && !state.items.length
-      ? empty("没有符合筛选条件的内容", "换个来源或分类，或点「清除筛选」。")
-      : feed(state.items.slice(0, 12), true);
+      ? emptyFeed(filtersFor("today"))
+      : feed(state.items.slice(0, 6), true);
+    if (state.items.length) {
+      html += '<div class="today-more">' +
+        '<button class="btn" data-action="goto" data-view="library" type="button">查看全部内容</button>' +
+        "</div>";
+    }
     return html;
   }
 
@@ -566,7 +592,7 @@
     // Source groups (体育新闻 / 财经新闻 …) are the filter people reach for
     // most, so keep them one click away instead of hiding them behind the nav.
     var srcCats = (s.source_categories || []).slice();
-    if (srcCats.length) {
+    if (srcCats.length && !(opts && opts.hideSource)) {
       var srcUnread = s.source_category_unread || {};
       html += '<div class="filter-row"><span class="filter-label">来源</span><div class="chips">' +
         '<button class="chip' + (!f.sourceCategory ? " is-active" : "") + '" data-action="source-all" type="button">全部</button>' +
@@ -577,10 +603,34 @@
         }).join("") + "</div></div>";
     }
 
-    var cats = asNames(quality ? state.aiCategories : (s.categories));
-    if (cats.length) {
-      html += '<div class="filter-row"><span class="filter-label">' + (quality ? "AI 分类" : "类型") + "</span>" +
-        chips(cats, quality ? f.aiCategory : f.category, quality ? "quality-category" : "category", "value") + "</div>";
+    // Fixed content-type filters. They stay in one predictable place instead
+    // of appearing only after a type has items, so RSS / 播客 / YouTube are
+    // always one click away.
+    if (quality) {
+      var cats = asNames(state.aiCategories);
+      if (cats.length) {
+        html += '<div class="filter-row"><span class="filter-label">AI 分类</span>' +
+          chips(cats, f.aiCategory, "quality-category", "value") + "</div>";
+      }
+    } else {
+      var counts = s.categories || {};
+      var countOf = function (key) { return Math.max(0, Number(counts[key]) || 0); };
+      var types = [
+        ["", "全部", null],
+        ["rss", "RSS", countOf("article") + countOf("blog") + countOf("news")],
+        ["podcast", "播客", countOf("podcast")],
+        ["youtube", "YouTube", countOf("youtube")],
+        ["tweet", "推文", countOf("tweet")],
+        ["paper", "论文", countOf("paper")],
+        ["project", "项目", countOf("project")]
+      ];
+      html += '<div class="filter-row"><span class="filter-label">类型</span><div class="chips">' +
+        types.map(function (t) {
+          var on = (f.contentType || "") === t[0];
+          return '<button class="chip type-chip' + (on ? " is-active" : "") +
+            '" data-action="content-type" data-value="' + attr(t[0]) + '" type="button">' + esc(t[1]) +
+            (t[2] ? ' <span class="chip-count">' + esc(t[2]) + "</span>" : "") + "</button>";
+        }).join("") + "</div></div>";
     }
     return html;
   }
@@ -596,10 +646,13 @@
       ? "当前显示 " + state.items.length + " 条 · 来自 RSS、新闻源与浏览器采集"
       : "共 " + total + " 条 · 来自 RSS、新闻源与浏览器采集";
     var html = head(desc);
-    html += renderFilterBar({ view: "library" });
-    html += '<div style="height:16px"></div>';
+    // Same sticky, bordered filter block as 今天 so both feeds share the exact
+    // same spacing between filters and the first row.
+    html += '<div class="feed-head feed-head--plain">' +
+      renderFilterBar({ view: "library" }) +
+      "</div>";
     if (filtered && !state.items.length) {
-      html += empty("没有符合筛选条件的内容", "换个来源或分类，或点「清除筛选」。");
+      html += emptyFeed(f);
     } else {
       html += feed(state.items, false);
     }
@@ -612,16 +665,19 @@
   function sourceRow(s) {
     var status = s.last_fetch_status || "";
     var ok = status === "success" || status === "partial";
-    return '<div class="list-row">' +
+    var running = !!state.runningSources[s.id] || state.runningAllSources;
+    return '<div class="list-row' + (running ? " is-running" : "") + '">' +
       '<div class="list-main">' +
         '<div class="list-title">' + esc(s.name || s.id) + " " + badge(s.type || "rss", s.enabled == 1) + "</div>" +
         '<div class="list-sub mono">' + esc(s.url || "") + "</div>" +
         '<div class="list-meta">分组 ' + esc(s.category || "未分组") + " · 计划 " + esc(s.schedule || "—") +
         " · 上次抓取 " + esc(fmtTime(s.last_fetch_at)) + (status ? " · " + esc(status) : "") + "</div>" +
+        (running ? '<div class="run-status"><span class="spinner"></span>正在抓取，抓取完成后会自动刷新…</div>' : "") +
       "</div>" +
       '<div class="list-actions">' +
         '<button class="mini" data-action="toggle-source" data-id="' + attr(s.id) + '" data-enabled="' + attr(s.enabled) + '" type="button">' + (s.enabled == 1 ? "停用" : "启用") + "</button>" +
-        '<button class="mini" data-action="run-source" data-id="' + attr(s.id) + '" type="button">立即抓取</button>' +
+        '<button class="mini run-source-btn" data-action="run-source" data-id="' + attr(s.id) + '" type="button"' + (running ? " disabled" : "") + ">" +
+          (running ? '<span class="spinner"></span>抓取中…' : "立即抓取") + "</button>" +
         '<button class="mini" data-action="logs-source" data-id="' + attr(s.id) + '" type="button">日志</button>' +
         '<button class="mini" data-action="edit-source" data-id="' + attr(s.id) + '" type="button">编辑</button>' +
         '<button class="mini danger" data-action="delete-source" data-id="' + attr(s.id) + '" type="button">删除</button>' +
@@ -639,8 +695,20 @@
     ]);
     html += '<div class="toolbar" style="margin-top:18px">' +
       '<button class="btn primary" data-action="add-source" type="button">添加数据源</button>' +
-      '<button class="btn" data-action="run-all-sources" type="button">全部抓取</button>' +
+      '<button class="btn" data-action="run-all-sources" type="button"' + (state.runningAllSources ? " disabled" : "") + ">" +
+        (state.runningAllSources ? '<span class="spinner"></span>抓取中…' : "全部抓取") + "</button>" +
       '<span class="toolbar-note">添加后立即生效，定时任务由 APP 内的调度器管理</span></div>';
+    if (state.runningAllSources) {
+      html += '<div class="run-banner"><span class="spinner"></span>正在抓取全部已启用的订阅源…' +
+        '<div class="run-bar"><span></span></div></div>';
+    } else {
+      var running = list.filter(function (x) { return state.runningSources[x.id]; });
+      if (running.length) {
+        html += '<div class="run-banner"><span class="spinner"></span>正在抓取「' + esc(running[0].name || running[0].id) + '」…' +
+          (running.length > 1 ? "（共 " + running.length + " 个）" : "") +
+          '<div class="run-bar"><span></span></div></div>';
+      }
+    }
     html += '<div class="panel list-panel">';
     html += list.length ? list.map(sourceRow).join("") : empty("还没有订阅源", "点击「添加数据源」新建一个 RSS 或 API 源。");
     html += "</div>";
@@ -662,7 +730,8 @@
     { id: "xhs-search", label: "小红书搜索", hint: "关键词", path: "/api/xiaohongshu/search", field: "query", extra: { limit: 20 } },
     { id: "xhs-note", label: "小红书笔记", hint: "笔记 URL", path: "/api/xiaohongshu/note", field: "url", extra: {} },
     { id: "reddit-thread", label: "Reddit 帖子", hint: "帖子 URL", path: "/api/reddit/thread", field: "url", extra: {} },
-    { id: "extract", label: "网页提取为 Markdown", hint: "网页 URL", path: "/api/extract", field: "url", extra: {} }
+    { id: "extract", label: "网页提取为 Markdown", hint: "网页 URL", path: "/api/extract", field: "url", extra: {} },
+    { id: "feed-ingest", label: "YouTube / 播客 / 文章实时转文字", hint: "URL（YouTube / 小宇宙 / Apple 播客 / 网页）", path: "/open/api/feed/ingest", field: "url", extra: { type: "auto", analyze: true } }
   ];
   function adapterById(id) {
     for (var i = 0; i < ADAPTERS.length; i++) if (ADAPTERS[i].id === id) return ADAPTERS[i];
@@ -1265,6 +1334,9 @@
       '<p class="hint">关闭窗口后 APP 会继续在托盘运行，API 服务不中断。</p></div>';
     html += '<div class="panel"><h3>主要端点</h3><div class="endpoint-list">' +
       [
+        ["GET", "/open/api/feed", "统一内容接口（新闻/博客/YouTube/播客）"],
+        ["GET", "/open/api/feed/picks", "每日精选（跨类型聚合）"],
+        ["POST", "/open/api/feed/ingest", "实时单链接抓取与转文字"],
         ["GET", "/open/api/items", "内容列表（免鉴权）"], ["GET", "/open/api/stats", "统计"],
         ["GET", "/open/api/ai/items", "AI 优质内容"], ["GET", "/open/api/ai/daily", "AI 日报"],
         ["GET", "/api/sources", "订阅源列表"], ["POST", "/api/sources", "新增订阅源"],
@@ -1415,6 +1487,41 @@
       "API Key 存在本地数据库，界面不回显。多模型策略需要配置档里有多个模型才会生效。</p>"
     );
 
+    var asrEnv = state.asrEnv || {};
+    var asrTools = asrEnv.tools || {};
+    var asrToolBadges = ["ffmpeg", "yt-dlp", "mlx_whisper", "whisper"].map(function (t) {
+      var stTool = asrTools[t] || {};
+      return badge(t + (stTool.installed ? " 已安装" : " 未安装"), !!stTool.installed);
+    }).join(" ");
+    var asrModeVal = ai.asr_mode || "auto";
+    var asrProviderVal = ai.asr_provider || "groq";
+    var asrInstallCmd = asrEnv.install_command || "bash scripts/install-asr-tools.sh";
+
+    html += settingSection("2B", "音视频转文字 (ASR)", "用于无字幕 YouTube 视频和播客音频自动生成文字版；支持本地 CLI 与云端 Whisper 接口",
+      '<div class="form-grid">' +
+        '<label class="field"><span>转写模式</span><select name="asr_mode">' +
+          [["auto", "自动（优先本地，失败走云端）"], ["cloud", "仅云端 API"], ["local", "仅本地命令行"], ["disabled", "停用"]].map(function (x) {
+            return '<option value="' + x[0] + '"' + (asrModeVal === x[0] ? " selected" : "") + ">" + x[1] + "</option>";
+          }).join("") + "</select></label>" +
+        '<label class="field"><span>云端 ASR 服务商</span><select name="asr_provider">' +
+          [["groq", "Groq Whisper（极速推荐）"], ["siliconflow", "SiliconFlow（SenseVoice）"], ["openai", "OpenAI Whisper"], ["custom", "自定义 OpenAI 兼容"]].map(function (x) {
+            return '<option value="' + x[0] + '"' + (asrProviderVal === x[0] ? " selected" : "") + ">" + x[1] + "</option>";
+          }).join("") + "</select></label>" +
+        field("ASR Base URL", "asr_base_url", ai.asr_base_url || "https://api.groq.com/openai/v1", "text", 'placeholder="https://api.groq.com/openai/v1"') +
+        '<label class="field"><span>ASR API Key</span><input name="asr_api_key" type="password" value="" placeholder="' + (ai.asr_api_key ? "已配置，留空表示不修改" : "粘贴云端 ASR Key") + '" autocomplete="off"></label>' +
+        field("ASR 模型", "asr_model", ai.asr_model || "whisper-large-v3-turbo", "text", 'placeholder="whisper-large-v3-turbo"') +
+      "</div>" +
+      '<div class="panel" style="margin-top:14px;padding:12px 14px">' +
+        '<div class="row" style="border:none;padding:4px 0"><span class="row-label">本地转写依赖</span><span class="row-value">' + asrToolBadges + "</span></div>" +
+        '<div class="form-actions" style="margin-top:10px">' +
+          '<button class="btn" data-action="asr-install" type="button"' + (state.asrInstalling ? " disabled" : "") + ">" +
+            (state.asrInstalling ? "正在安装本地工具…" : "一键安装本地转写工具") + "</button>" +
+          '<button class="copy-btn" data-copy="' + attr(asrInstallCmd) + '" type="button">复制终端安装命令</button>' +
+        "</div>" +
+        '<pre class="code-block" style="margin-top:10px">' + esc(asrInstallCmd) + "</pre>" +
+      "</div>"
+    );
+
     html += settingSection("03", "提示词", "决定单条内容分析与日报生成的输出风格，留空则使用内置提示词",
       '<label class="field block"><span>系统提示词（内容分析）</span>' +
         '<textarea name="system_prompt" rows="5">' + esc(ai.system_prompt || "") + "</textarea></label>" +
@@ -1543,27 +1650,75 @@
 
   /* ---------------- Dialogs ---------------- */
 
+  // Preset schedules keep the common cases one click away; Cron stays editable
+  // for anything the list does not cover.
+  var SCHEDULE_PRESETS = [
+    ["0 * * * *", "每小时"],
+    ["0 */2 * * *", "每 2 小时"],
+    ["0 */4 * * *", "每 4 小时"],
+    ["0 8 * * *", "每天 08:00"],
+    ["0 9,12,18,21 * * *", "每天 4 次（09 / 12 / 18 / 21 点）"],
+    ["0 8 * * 1", "每周一 08:00"]
+  ];
+  function schedulePresetValue(schedule) {
+    var s = String(schedule || "").trim();
+    for (var i = 0; i < SCHEDULE_PRESETS.length; i++) {
+      if (SCHEDULE_PRESETS[i][0] === s) return s;
+    }
+    return "custom";
+  }
+
   function sourceForm(s) {
     var edit = !!s;
     s = s || {};
+    var cfg = {};
+    try { cfg = s.config ? JSON.parse(s.config) : {}; } catch (e) { cfg = {}; }
+    var fullContentChecked = !!(cfg.full_content || cfg.fetch_full_via_scrape);
+    // Audio is never downloaded while scraping unless this is explicitly
+    // switched on; the player fetches audio only when the user presses play.
+    // Podcast sources never transcribe at scrape time, so the toggle is off.
+    var transcribeChecked = cfg.transcribe_audio === true && s.type !== "podcast";
+    var schedule = s.schedule || "0 */2 * * *";
+    var presetValue = schedulePresetValue(schedule);
     var body = '<form data-form="source" data-edit="' + (edit ? "1" : "0") + '">' +
       '<div class="form-grid">' +
         field("ID" + (edit ? "（不可修改）" : "（唯一标识）"), "id", s.id || "", "text", edit ? "readonly" : 'placeholder="例如 tech-rss"') +
         field("名称", "name", s.name || "", "text", 'placeholder="例如 科技新闻"') +
         '<label class="field"><span>类型</span><select name="type">' +
-          ["rss", "api", "web_scrape"].map(function (t) {
-            return '<option value="' + t + '"' + ((s.type || "rss") === t ? " selected" : "") + ">" + t + "</option>";
+          [
+            ["rss", "RSS 订阅"],
+            ["podcast", "播客 (RSS / Apple / 小宇宙)"],
+            ["youtube", "YouTube (频道 / 列表 / 视频)"],
+            ["api", "JSON API"],
+            ["web_scrape", "网页抓取"]
+          ].map(function (t) {
+            return '<option value="' + t[0] + '"' + ((s.type || "rss") === t[0] ? " selected" : "") + ">" + esc(t[1]) + "</option>";
           }).join("") + "</select></label>" +
         field("分组", "category", s.category || "", "text", 'placeholder="例如 AI / 科技新闻"') +
-        field("URL", "url", s.url || "", "text", 'placeholder="https://example.com/feed.xml"') +
-        field("抓取计划（cron）", "schedule", s.schedule || "0 */2 * * *") +
+        field("URL", "url", s.url || "", "text", 'placeholder="RSS / YouTube 主页 / Apple 或小宇宙播客链接"') +
+        '<label class="field"><span>抓取计划</span><select name="schedule_preset">' +
+          SCHEDULE_PRESETS.map(function (p) {
+            return '<option value="' + attr(p[0]) + '"' + (presetValue === p[0] ? " selected" : "") + ">" + esc(p[1]) + "</option>";
+          }).join("") +
+          '<option value="custom"' + (presetValue === "custom" ? " selected" : "") + ">自定义 Cron</option></select></label>" +
+        field("Cron 表达式", "schedule", schedule, "text", 'placeholder="0 */2 * * *" spellcheck="false"') +
         '<label class="field"><span>默认内容类型</span><select name="default_category">' +
-          ["auto", "article", "tweet", "paper", "project"].map(function (t) {
+          ["auto", "article", "blog", "youtube", "podcast", "tweet", "paper", "project"].map(function (t) {
             return '<option value="' + t + '"' + ((s.default_category || "auto") === t ? " selected" : "") + ">" + t + "</option>";
           }).join("") + "</select></label>" +
         '<label class="field"><span>状态</span><select name="enabled">' +
           '<option value="1"' + (!edit || s.enabled == 1 ? " selected" : "") + ">启用</option>" +
           '<option value="0"' + (edit && s.enabled != 1 ? " selected" : "") + ">停用</option></select></label>" +
+      "</div>" +
+      '<div class="setting-switch">' +
+        switchField("RSS 深入抓取全文（正文过短或仅链接时自动抓取原网页）", "full_content", fullContentChecked) +
+      "</div>" +
+      '<div class="setting-switch">' +
+        '<label class="switch-field"><input type="checkbox" name="transcribe_audio"' +
+          (transcribeChecked ? " checked" : "") + ((s.type || "rss") === "podcast" ? " disabled" : "") + ">" +
+          "<span data-transcribe-label>" + ((s.type || "rss") === "podcast"
+            ? "播客音频不会在抓取时下载（仅点击播放时缓存）"
+            : "抓取时下载音频并转文字（YouTube 字幕 / ASR，默认关闭）") + "</span></label>" +
       "</div>" +
       '<label class="field block"><span>高级配置（JSON，可留空）</span><textarea name="config" rows="3" placeholder="{}">' + esc(s.config || "") + "</textarea></label>" +
       '<div class="form-actions"><button class="btn primary" type="submit">保存</button>' +
@@ -1709,12 +1864,163 @@
       "</section>";
   }
 
+  function itemMetadata(it) {
+    var meta = it && it.metadata;
+    if (!meta) return {};
+    if (typeof meta === "string") {
+      try { meta = JSON.parse(meta); } catch (e) { return {}; }
+    }
+    return meta && typeof meta === "object" ? meta : {};
+  }
+
+  // Podcasts store the audio enclosure in `metadata.media_url`. Older podcast
+  // items only carry it inside the markdown body, so fall back to that.
+  function podcastMedia(it) {
+    var meta = itemMetadata(it);
+    var audio = String(meta.media_url || meta.audio_url || "").trim();
+    if (!audio) {
+      var raw = String(it.content || "") + " " + String(it._html || "");
+      var m = raw.match(/音频链接[\s\S]{0,80}?(https?:\/\/[^\s)"'<>]+)/i);
+      if (m) audio = m[1];
+      else {
+        m = raw.match(/https?:\/\/[^\s"'<>]+\.(?:mp3|m4a|aac|ogg|wav)(?:\?[^\s"'<>]*)?/i);
+        if (m) audio = m[0];
+      }
+    }
+    if (audio.indexOf("//") === 0) audio = "https:" + audio;
+    return {
+      audio: audio,
+      duration: String(meta.duration || ""),
+      podcast: String(meta.podcast || (it && it.origin_source) || "")
+    };
+  }
+
+  function fmtClock(seconds) {
+    var total = Number(seconds);
+    if (!isFinite(total) || total < 0) return "0:00";
+    total = Math.floor(total);
+    var h = Math.floor(total / 3600);
+    var m = Math.floor((total % 3600) / 60);
+    var s = total % 60;
+    return (h > 0 ? h + ":" + String(m).padStart(2, "0") : String(m)) + ":" + String(s).padStart(2, "0");
+  }
+
+  function podcastPlayerHTML(it) {
+    var media = podcastMedia(it);
+    if (!media.audio) return "";
+    var v = itemVisual(it);
+    var skipIcon = function (flip) {
+      return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="' +
+        (flip ? "M21 12a9 9 0 1 1-2.64-6.36L21 8" : "M3 12a9 9 0 1 0 2.64-6.36L3 8") +
+        '"/><path d="' + (flip ? "M21 3v5h-5" : "M3 3v5h5") + '"/></svg>';
+    };
+    return '<section class="pod-player" data-pod-player data-duration="' + attr(media.duration) + '">' +
+      '<div class="pod-art" style="background:' + v.cover + '"><span>' + esc(v.letter) + "</span></div>" +
+      '<div class="pod-main">' +
+        '<div class="pod-kicker">播客 · ' + esc(media.podcast || v.label) + "</div>" +
+        '<div class="pod-title">' + esc(it.title || "未命名单集") + "</div>" +
+        '<input class="pod-seek" type="range" min="0" max="1000" step="1" value="0" aria-label="播放进度">' +
+        '<div class="pod-foot">' +
+          '<span class="pod-time" data-pod-time>0:00 / ' + esc(media.duration || "—") + "</span>" +
+          '<div class="pod-controls">' +
+            '<button class="pod-btn pod-speed" data-action="pod-speed" type="button" aria-label="播放速度">1×</button>' +
+            '<button class="pod-btn pod-skip" data-action="pod-back" type="button" aria-label="后退 15 秒">' +
+              skipIcon(false) + "<b>15</b></button>" +
+            '<button class="pod-play" data-action="pod-toggle" type="button" aria-label="播放">' +
+              '<svg class="ic-play" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10.5-6.5z"/></svg>' +
+              '<svg class="ic-pause" viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="5" width="3.6" height="14" rx="1.2"/><rect x="13.4" y="5" width="3.6" height="14" rx="1.2"/></svg>' +
+            "</button>" +
+            '<button class="pod-btn pod-skip" data-action="pod-forward" type="button" aria-label="前进 30 秒">' +
+              skipIcon(true) + "<b>30</b></button>" +
+            '<button class="pod-btn pod-transcript" data-action="pod-transcript" type="button">文字稿</button>' +
+          "</div>" +
+        "</div>" +
+      "</div>" +
+      '<audio class="pod-audio" preload="none" src="' + attr(media.audio) + '"></audio>' +
+      "</section>";
+  }
+
+  // The reader body is replaced on every open, so listeners are attached to
+  // the freshly rendered player each time instead of once at boot.
+  function bindPodcastPlayer() {
+    var root = $("reader-body").querySelector("[data-pod-player]");
+    if (!root) return;
+    var audio = root.querySelector(".pod-audio");
+    if (!audio) return;
+    var seek = root.querySelector(".pod-seek");
+    var time = root.querySelector("[data-pod-time]");
+    var fallbackDuration = String(root.dataset.duration || "—");
+    var duration = 0;
+    var seeking = false;
+
+    function paint() {
+      var total = duration || (isFinite(audio.duration) ? audio.duration : 0);
+      var pct = total > 0 ? Math.min(100, Math.max(0, (audio.currentTime / total) * 100)) : 0;
+      if (seek && !seeking) {
+        seek.value = String(Math.round(pct * 10));
+        seek.style.setProperty("--pod-progress", pct.toFixed(2) + "%");
+      }
+      if (time) {
+        time.textContent = fmtClock(audio.currentTime) + " / " + (total > 0 ? fmtClock(total) : fallbackDuration);
+      }
+    }
+    function syncPlaying() {
+      root.classList.toggle("is-playing", !audio.paused);
+      var btn = root.querySelector('[data-action="pod-toggle"]');
+      if (btn) btn.setAttribute("aria-label", audio.paused ? "播放" : "暂停");
+    }
+
+    audio.addEventListener("loadedmetadata", function () {
+      if (isFinite(audio.duration) && audio.duration > 0) duration = audio.duration;
+      paint();
+    });
+    audio.addEventListener("timeupdate", paint);
+    audio.addEventListener("play", syncPlaying);
+    audio.addEventListener("pause", syncPlaying);
+    audio.addEventListener("ended", syncPlaying);
+    if (seek) {
+      seek.addEventListener("input", function () {
+        seeking = true;
+        var total = duration || (isFinite(audio.duration) ? audio.duration : 0);
+        if (total > 0) audio.currentTime = (Number(seek.value) / 1000) * total;
+        paint();
+      });
+      seek.addEventListener("change", function () {
+        seeking = false;
+        paint();
+      });
+    }
+    paint();
+  }
+
+  // The podcast markdown repeats the title and audio link that the player card
+  // already shows; drop those so the reader starts with the show notes.
+  function cleanPodcastHTML(html, title) {
+    if (!html) return html;
+    var box = document.createElement("div");
+    box.innerHTML = html;
+    var firstHeading = box.querySelector("h1");
+    if (firstHeading && title && firstHeading.textContent.trim() === title.trim()) {
+      firstHeading.remove();
+    }
+    var lists = box.querySelectorAll("ul");
+    for (var i = 0; i < Math.min(lists.length, 2); i++) {
+      if (/音频链接|单集链接/.test(lists[i].textContent || "")) {
+        lists[i].remove();
+        break;
+      }
+    }
+    return box.innerHTML;
+  }
+
   function readerHTML(it, an) {
     var scoreRaw = an && an.quality_score != null ? Number(an.quality_score)
       : (it.quality_score != null ? Number(it.quality_score) : null);
     var score = scoreRaw != null && !isNaN(scoreRaw) ? scoreRaw : null;
     var v = itemVisual(it);
+    var media = podcastMedia(it);
     var contentHTML = safeHtml(it._html || "");
+    if (media.audio) contentHTML = cleanPodcastHTML(contentHTML, it.title);
     var contentText = plainText(contentHTML).replace(/\s+/g, " ").trim();
     var summaryHTML = richText(it._summaryHtml || it.summary || "");
     var summaryText = plainText(summaryHTML).replace(/\s+/g, " ").trim();
@@ -1736,6 +2042,7 @@
 
     return '<article class="reader-article">' +
       readerHeaderHTML(it, an, score) +
+      podcastPlayerHTML(it) +
       readerAnalysisHTML(it, an, score) +
       (showSummary ? '<div class="reader-summary">' + summaryHTML + "</div>" : "") +
       (contentText ? '<div class="reader-divider">正文</div>' : "") +
@@ -1816,6 +2123,7 @@
     var an = state.reader.analysis || null;
     $("reader-kicker").textContent = it.origin_source || it.source_category || "阅读";
     $("reader-body").innerHTML = readerHTML(it, an);
+    bindPodcastPlayer();
     $("reader-scroll").scrollTop = 0;
     updateReaderStar();
     updateReaderNav();
@@ -2055,7 +2363,13 @@
   });
 
   document.addEventListener("input", function (e) {
-    if (e.target.id !== "discovered-search") return;
+    if (e.target.id !== "discovered-search" && e.target.name !== "schedule") return;
+    if (e.target.name === "schedule") {
+      var scheduleForm = e.target.closest("form");
+      var scheduleSelect = scheduleForm && scheduleForm.querySelector('[name="schedule_preset"]');
+      if (scheduleSelect) scheduleSelect.value = schedulePresetValue(e.target.value);
+      return;
+    }
     var term = String(e.target.value || "").toLowerCase();
     var items = document.querySelectorAll("#discovered-models .discovered-item");
     for (var i = 0; i < items.length; i++) {
@@ -2077,15 +2391,25 @@
     state.busy = true;
     try {
       if (kind === "source") {
+        var rawCfg = String(fd.get("config") || "").trim() || "{}";
+        var parsedCfg = {};
+        try { parsedCfg = JSON.parse(rawCfg); } catch (cfgErr) { toast("高级配置必须是合法 JSON", true); return; }
+        parsedCfg.full_content = fd.get("full_content") === "on";
+        parsedCfg.transcribe_audio = fd.get("transcribe_audio") === "on";
+        var scheduleValue = String(fd.get("schedule") || "").trim() || "0 */2 * * *";
+        if (scheduleValue.split(/\s+/).length !== 5) {
+          toast("Cron 表达式需要 5 个字段，例如 0 */2 * * *", true);
+          return;
+        }
         var payload = {
           id: String(fd.get("id") || "").trim(),
           name: String(fd.get("name") || "").trim(),
           type: String(fd.get("type") || "rss"),
           url: String(fd.get("url") || "").trim(),
-          schedule: String(fd.get("schedule") || "0 */2 * * *").trim(),
+          schedule: scheduleValue,
           category: String(fd.get("category") || "").trim(),
           default_category: String(fd.get("default_category") || "auto"),
-          config: String(fd.get("config") || "").trim() || "{}"
+          config: JSON.stringify(parsedCfg)
         };
         if (!payload.id || !payload.name || !payload.url) { toast("ID、名称和 URL 为必填项", true); return; }
         var r = form.dataset.edit === "1" ? await put("/api/sources/" + encodeURIComponent(payload.id), payload)
@@ -2132,6 +2456,12 @@
         next.evening_report_enabled = fd.get("evening_report_enabled") === "on";
         next.morning_report_time = String(fd.get("morning_report_time") || "08:30");
         next.evening_report_time = String(fd.get("evening_report_time") || "22:30");
+        next.asr_mode = String(fd.get("asr_mode") || "auto");
+        next.asr_provider = String(fd.get("asr_provider") || "groq");
+        next.asr_base_url = String(fd.get("asr_base_url") || "").trim();
+        next.asr_model = String(fd.get("asr_model") || "").trim();
+        var asrKey = String(fd.get("asr_api_key") || "").trim();
+        if (asrKey) next.asr_api_key = asrKey;
 
         // The backend mirrors the active profile onto the top-level provider /
         // model / base_url / api_key fields, so edits must land in a profile or
@@ -2226,6 +2556,61 @@
     if (e.target.name === "provider_preset") {
       var chosenProvider = presetById(e.target.value);
       if (chosenProvider) applyProviderPreset(chosenProvider);
+    }
+    if (e.target.name === "type") {
+      var typeForm = e.target.closest('form[data-form="source"]');
+      var categorySelect = typeForm && typeForm.querySelector('[name="default_category"]');
+      if (categorySelect) {
+        // Picking 播客 / YouTube should carry over to the default content type,
+        // otherwise newly scraped items stay article and the feed filter misses
+        // them. Switching back to a generic type resets the derived value.
+        if (e.target.value === "podcast" || e.target.value === "youtube") {
+          categorySelect.value = e.target.value;
+        } else if (categorySelect.value === "podcast" || categorySelect.value === "youtube") {
+          categorySelect.value = "auto";
+        }
+      }
+      var transcribeToggle = typeForm && typeForm.querySelector('[name="transcribe_audio"]');
+      if (transcribeToggle) {
+        var isPodcastType = e.target.value === "podcast";
+        transcribeToggle.disabled = isPodcastType;
+        if (isPodcastType || e.target.value === "youtube") transcribeToggle.checked = false;
+        var transcribeLabel = typeForm.querySelector("[data-transcribe-label]");
+        if (transcribeLabel) {
+          transcribeLabel.textContent = isPodcastType
+            ? "播客音频不会在抓取时下载（仅点击播放时缓存）"
+            : "抓取时下载音频并转文字（YouTube 字幕 / ASR，默认关闭）";
+        }
+      }
+    }
+    if (e.target.name === "schedule_preset") {
+      var scheduleForm = e.target.closest("form");
+      var scheduleInput = scheduleForm && scheduleForm.querySelector('[name="schedule"]');
+      if (scheduleInput) {
+        if (e.target.value === "custom") {
+          scheduleInput.focus();
+          scheduleInput.select();
+        } else {
+          scheduleInput.value = e.target.value;
+        }
+      }
+    }
+    if (e.target.name === "asr_provider") {
+      var asrForm = e.target.closest("form");
+      if (asrForm) {
+        var presets = {
+          groq: ["https://api.groq.com/openai/v1", "whisper-large-v3-turbo"],
+          siliconflow: ["https://api.siliconflow.cn/v1", "FunAudioLLM/SenseVoiceSmall"],
+          openai: ["https://api.openai.com/v1", "whisper-1"]
+        };
+        var p = presets[e.target.value];
+        if (p) {
+          var bu = asrForm.querySelector('[name="asr_base_url"]');
+          var md = asrForm.querySelector('[name="asr_model"]');
+          if (bu) bu.value = p[0];
+          if (md) md.value = p[1];
+        }
+      }
     }
     if (e.target.name === "token_enabled") {
       var form = e.target.closest("form");
@@ -2344,6 +2729,28 @@
         return;
       }
       if (action === "ai-apply-models") { applyDiscoveredSelection(); return; }
+      if (action === "asr-install") {
+        if (state.asrInstalling) return;
+        state.asrInstalling = true;
+        render();
+        toast("正在安装本地 ASR 依赖（ffmpeg / yt-dlp / whisper），请稍候…");
+        try {
+          var instRes = await post("/api/asr/install", {});
+          if (instRes && instRes.env) state.asrEnv = instRes.env;
+          if (instRes && instRes.success) {
+            toast("本地 ASR 工具安装完成");
+          } else {
+            toast("安装失败：" + ((instRes && instRes.error) || "请查看日志"), true);
+          }
+          if (instRes && instRes.output) {
+            openDialog("本地 ASR 工具安装日志", '<pre class="code-block result-block">' + esc(instRes.output.slice(-6000)) + "</pre>", "", true);
+          }
+        } finally {
+          state.asrInstalling = false;
+          render();
+        }
+        return;
+      }
       if (action === "ai-import") {
         toast("正在扫描本机配置…");
         var ir = await post("/api/ai/import", { source: "auto", apply: true });
@@ -2426,8 +2833,61 @@
       if (action === "layout") { setLayout(target.dataset.layout); return; }
       if (action === "detail") { await openReader(id, target); return; }
       if (action === "reader-retry") { await openReader(id || state.reader.id); return; }
+      if (action === "pod-toggle") {
+        var podRoot = target.closest("[data-pod-player]");
+        var podAudio = podRoot && podRoot.querySelector(".pod-audio");
+        if (podAudio) {
+          if (podAudio.paused) {
+            podAudio.play().catch(function () { toast("音频暂时无法播放，请检查网络或原链接", true); });
+          } else {
+            podAudio.pause();
+          }
+        }
+        return;
+      }
+      if (action === "pod-back" || action === "pod-forward") {
+        var seekRoot = target.closest("[data-pod-player]");
+        var seekAudio = seekRoot && seekRoot.querySelector(".pod-audio");
+        if (seekAudio) {
+          var delta = action === "pod-forward" ? 30 : -15;
+          var upper = isFinite(seekAudio.duration) ? seekAudio.duration : seekAudio.currentTime;
+          seekAudio.currentTime = Math.max(0, Math.min(upper, seekAudio.currentTime + delta));
+        }
+        return;
+      }
+      if (action === "pod-speed") {
+        var speedRoot = target.closest("[data-pod-player]");
+        var speedAudio = speedRoot && speedRoot.querySelector(".pod-audio");
+        if (speedAudio) {
+          var rates = [1, 1.25, 1.5, 2, 0.75];
+          var currentRate = Number(speedRoot.dataset.speed || 1);
+          var rateIndex = rates.indexOf(currentRate);
+          var nextRate = rates[(rateIndex + 1) % rates.length];
+          speedRoot.dataset.speed = String(nextRate);
+          speedAudio.playbackRate = nextRate;
+          target.textContent = nextRate + "×";
+        }
+        return;
+      }
+      if (action === "pod-transcript") {
+        var heads = document.querySelectorAll("#reader-body .reader-content h1, #reader-body .reader-content h2, #reader-body .reader-content h3, #reader-body .reader-content h4");
+        for (var hi = 0; hi < heads.length; hi++) {
+          if (/文字稿|transcript/i.test(heads[hi].textContent || "")) {
+            heads[hi].scrollIntoView({ block: "start" });
+            $("reader-scroll").scrollTop -= 110;
+            return;
+          }
+        }
+        toast("这条内容还没有生成文字稿", true);
+        return;
+      }
       if (action === "filter") {
-        filtersFor(state.view).filter = target.dataset.value;
+        var nextFilter = target.dataset.value;
+        var viewFilters = filtersFor(state.view);
+        viewFilters.filter = nextFilter;
+        // The AI-quality endpoint has its own categories and ignores the
+        // content-type parameter, so reset it instead of leaving a hidden filter.
+        if (nextFilter === "quality") viewFilters.contentType = "";
         await reloadItems(state.view); return;
       }
       if (action === "load-more") { await loadMoreItems(state.view); return; }
@@ -2447,6 +2907,12 @@
       }
       if (action === "clear-group") {
         filtersFor(state.view).sourceCategory = "";
+        await reloadItems(state.view); return;
+      }
+      if (action === "content-type") {
+        var tf = filtersFor(state.view);
+        var value = target.dataset.value || "";
+        tf.contentType = tf.contentType === value ? "" : value;
         await reloadItems(state.view); return;
       }
       if (action === "source-category") {
@@ -2503,15 +2969,31 @@
       }
       if (action === "run-source" || action === "run-all-sources") {
         if (action === "run-all-sources") {
+          if (state.runningAllSources) { toast("正在抓取中，请稍候…"); return; }
           var enabled = state.sources.filter(function (x) { return x.enabled == 1; });
           if (!enabled.length) { toast("没有已启用的订阅源", true); return; }
+          state.runningAllSources = true;
+          render();
           toast("正在抓取 " + enabled.length + " 个源…");
-          var rs = await Promise.allSettled(enabled.map(function (x) { return post("/api/sources/" + encodeURIComponent(x.id) + "/run"); }));
-          var added = rs.reduce(function (n, r) { return n + (r.status === "fulfilled" && r.value ? (r.value.items_added || 0) : 0); }, 0);
-          toast("抓取完成，新增 " + added + " 条内容");
+          try {
+            var rs = await Promise.allSettled(enabled.map(function (x) { return post("/api/sources/" + encodeURIComponent(x.id) + "/run"); }));
+            var added = rs.reduce(function (n, r) { return n + (r.status === "fulfilled" && r.value ? (r.value.items_added || 0) : 0); }, 0);
+            var failed = rs.filter(function (r) { return r.status === "rejected" || (r.value && r.value.error); }).length;
+            toast(failed ? "抓取完成，新增 " + added + " 条，" + failed + " 个源失败" : "抓取完成，新增 " + added + " 条", failed > 0);
+          } finally {
+            state.runningAllSources = false;
+          }
         } else {
-          var r1 = await post("/api/sources/" + encodeURIComponent(id) + "/run");
-          toast(r1 && r1.error ? "抓取失败：" + r1.error : "抓取完成，新增 " + (r1.items_added || 0) + " 条", !!(r1 && r1.error));
+          if (state.runningSources[id]) { toast("这个源正在抓取中…"); return; }
+          state.runningSources[id] = true;
+          render();
+          toast("开始抓取，完成后会自动刷新…");
+          try {
+            var r1 = await post("/api/sources/" + encodeURIComponent(id) + "/run");
+            toast(r1 && r1.error ? "抓取失败：" + r1.error : "抓取完成，新增 " + (r1.items_added || 0) + " 条", !!(r1 && r1.error));
+          } finally {
+            delete state.runningSources[id];
+          }
         }
         await loadView("sources"); return;
       }

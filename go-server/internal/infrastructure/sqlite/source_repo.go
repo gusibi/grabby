@@ -11,6 +11,7 @@ func (d *Database) GetSources() ([]Source, error) {
 		SELECT id, name, type, url, schedule, enabled, default_category, config,
 		       last_etag, last_modified, last_fetch_at, last_fetch_status, category, created_at, updated_at
 		FROM sources
+		WHERE id != '__realtime__'
 		ORDER BY created_at DESC
 	`)
 	if err != nil {

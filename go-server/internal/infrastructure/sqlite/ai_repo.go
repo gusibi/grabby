@@ -48,7 +48,7 @@ func (d *Database) GetUnanalyzedItems(limit int) ([]ScrapedItem, error) {
 		limit = 100
 	}
 	rows, err := d.db.Query(`
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}')
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
 		LEFT JOIN ai_analyses a ON i.id = a.item_id
@@ -67,7 +67,7 @@ func (d *Database) GetUnanalyzedItems(limit int) ([]ScrapedItem, error) {
 		var pubAt sql.NullTime
 		err := rows.Scan(
 			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags, &item.Metadata,
 		)
 		if err != nil {
 			return nil, err
@@ -86,7 +86,7 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 	}
 
 	query := `
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}'),
 		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
@@ -103,6 +103,10 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 	if f.SourceCategory != "" && f.SourceCategory != "all" {
 		query += " AND s.category = ?"
 		args = append(args, f.SourceCategory)
+	}
+
+	if f.ContentType != "" && f.ContentType != "all" {
+		query, args = appendContentTypeFilter(query, args, f.ContentType)
 	}
 
 	if f.ScoreMin > 0 {
@@ -141,7 +145,7 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 		var processedAt time.Time
 		err := rows.Scan(
 			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags, &item.Metadata,
 			&item.AICategory, &item.AISubcategory, &item.QualityScore, &item.AISummary, &item.AIComment, &item.AITags, &item.AIModelUsed, &processedAt,
 		)
 		if err != nil {
@@ -341,7 +345,7 @@ func (d *Database) GetTotalItemsCountForDate(date string) (int, error) {
 // SQLite's datetime() before comparing.
 func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin int) ([]ScrapedItemWithAI, error) {
 	rows, err := d.db.Query(`
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}'),
 		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
@@ -361,7 +365,7 @@ func (d *Database) GetQualityItemsForTimeRange(start, end time.Time, scoreMin in
 		var processedAt time.Time
 		err := rows.Scan(
 			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags, &item.Metadata,
 			&item.AICategory, &item.AISubcategory, &item.QualityScore, &item.AISummary, &item.AIComment, &item.AITags, &item.AIModelUsed, &processedAt,
 		)
 		if err != nil {

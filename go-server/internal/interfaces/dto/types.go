@@ -373,6 +373,33 @@ type LibraryDailyParams struct {
 	ReportType string `json:"report_type,omitempty"`
 }
 
+// FeedQueryParams for the "feed_query" MCP tool.
+type FeedQueryParams struct {
+	Type           string `json:"type,omitempty"`
+	Category       string `json:"category,omitempty"`
+	Query          string `json:"query,omitempty"`
+	ScoreMin       int    `json:"score_min,omitempty"`
+	Days           int    `json:"days,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	IncludeContent *bool  `json:"include_content,omitempty"`
+}
+
+// FeedPicksParams for the "feed_daily_picks" MCP tool.
+type FeedPicksParams struct {
+	Date           string `json:"date,omitempty"`
+	Days           int    `json:"days,omitempty"`
+	ScoreMin       *int   `json:"score_min,omitempty"`
+	Limit          int    `json:"limit,omitempty"`
+	IncludeContent *bool  `json:"include_content,omitempty"`
+}
+
+// FeedIngestParams for the "feed_ingest" MCP tool.
+type FeedIngestParams struct {
+	URL     string `json:"url"`
+	Type    string `json:"type,omitempty"`
+	Analyze *bool  `json:"analyze,omitempty"`
+}
+
 // BrowserListResponse is the GET /api/browsers response body.
 type BrowserListResponse struct {
 	Browsers []browser.BrowserInfo `json:"browsers"`

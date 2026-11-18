@@ -208,6 +208,27 @@ const zh = {
   routeSingle: "单一",
   routeRoundRobin: "轮询",
   routeFailover: "故障转移",
+
+  // ASR (Audio / Video Speech-to-Text)
+  secAsrTitle: "音视频转文字 (ASR)",
+  secAsrDesc: "用于无字幕 YouTube 视频和播客音频自动生成文字版，支持本地 CLI 与云端 Whisper 接口。",
+  asrModeLabel: "转写模式",
+  asrModeAuto: "自动（优先本地，失败走云端）",
+  asrModeCloud: "仅云端 API",
+  asrModeLocal: "仅本地命令行",
+  asrModeDisabled: "停用",
+  asrProviderLabel: "云端 ASR 服务商",
+  asrBaseUrlLabel: "ASR Base URL",
+  asrApiKeyLabel: "ASR API Key",
+  asrModelLabel: "ASR 模型",
+  asrLocalTitle: "本地转写环境依赖",
+  asrInstalled: "已安装",
+  asrMissing: "未安装",
+  asrInstallBtn: "一键安装本地转写依赖",
+  asrInstalling: "正在安装依赖…",
+  asrCopyCmd: "复制安装命令",
+  asrInstallOk: "本地 ASR 工具安装完成",
+  asrInstallFail: "本地 ASR 安装失败",
 };
 
 type AISettingsCopy = typeof zh;
@@ -400,6 +421,26 @@ const en: AISettingsCopy = {
   routeSingle: "Single",
   routeRoundRobin: "Round robin",
   routeFailover: "Failover",
+
+  secAsrTitle: "Audio / Video Transcription (ASR)",
+  secAsrDesc: "Convert podcast audio and uncaptioned YouTube videos into transcripts via local CLI or cloud Whisper APIs.",
+  asrModeLabel: "Transcription mode",
+  asrModeAuto: "Auto (local first, cloud fallback)",
+  asrModeCloud: "Cloud API only",
+  asrModeLocal: "Local CLI only",
+  asrModeDisabled: "Disabled",
+  asrProviderLabel: "Cloud ASR provider",
+  asrBaseUrlLabel: "ASR Base URL",
+  asrApiKeyLabel: "ASR API Key",
+  asrModelLabel: "ASR model",
+  asrLocalTitle: "Local ASR dependencies",
+  asrInstalled: "Installed",
+  asrMissing: "Missing",
+  asrInstallBtn: "One-click install local tools",
+  asrInstalling: "Installing local tools…",
+  asrCopyCmd: "Copy install command",
+  asrInstallOk: "Local ASR tools installed",
+  asrInstallFail: "Local ASR installation failed",
 };
 
 export const aiSettingsCopy = { zh, en };

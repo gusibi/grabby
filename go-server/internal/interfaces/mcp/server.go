@@ -4,6 +4,8 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"go.uber.org/zap"
 
+	aiapp "go-server/internal/application/ai"
+	"go-server/internal/application/scraping"
 	"go-server/internal/config"
 	"go-server/internal/infrastructure/browserws"
 	"go-server/internal/infrastructure/sqlite"
@@ -13,6 +15,8 @@ import (
 type Deps struct {
 	WM       *browserws.WebSocketManager
 	DB       *sqlite.Database
+	Scraper  *scraping.Scraper
+	AIEngine *aiapp.AIEngine
 	Settings *config.Settings
 	Logger   *zap.Logger
 }
@@ -39,7 +43,7 @@ func NewServer(deps Deps) Servers {
 	registerTwitterTools(mcpSvr, deps.WM, deps.Logger)
 	registerRedditTools(mcpSvr, deps.WM, deps.Logger)
 	registerXiaohongshuTools(mcpSvr, deps.WM, deps.Logger)
-	registerLibraryTools(mcpSvr, deps.DB, deps.Logger)
+	registerLibraryTools(mcpSvr, deps.DB, deps.Scraper, deps.AIEngine, deps.Logger)
 
 	return Servers{
 		Streamable: server.NewStreamableHTTPServer(mcpSvr),

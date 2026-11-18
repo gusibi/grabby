@@ -8,6 +8,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/_lib.sh"
 usage() {
   cat <<'EOF'
 Usage:
+  grabby-api.sh feed [all|news|blog|youtube|podcast] [limit] [category] [score_min]
+  grabby-api.sh picks [date] [limit]
+  grabby-api.sh ingest <url> [type]
   grabby-api.sh daily [daily|morning|evening] [YYYY-MM-DD]
   grabby-api.sh categories
   grabby-api.sh items <category> [limit]
@@ -30,6 +33,25 @@ cmd="${1:-}"
 shift || true
 
 case "$cmd" in
+  feed)
+    type="${1:-all}"; limit="${2:-20}"; category="${3:-}"; score_min="${4:-}"
+    args=(--data-urlencode "type=$type" --data-urlencode "limit=$limit")
+    [[ -n "$category" ]] && args+=(--data-urlencode "category=$category")
+    [[ -n "$score_min" ]] && args+=(--data-urlencode "score_min=$score_min")
+    gb_get /open/api/feed "${args[@]}"
+    ;;
+  picks)
+    date_arg="${1:-}"; limit="${2:-20}"
+    args=(--data-urlencode "limit=$limit")
+    [[ -n "$date_arg" ]] && args+=(--data-urlencode "date=$date_arg")
+    gb_get /open/api/feed/picks "${args[@]}"
+    ;;
+  ingest)
+    target_url="${1:-}"; hint_type="${2:-auto}"
+    [[ -z "$target_url" ]] && { usage; exit 2; }
+    payload="{\"url\":$(json_string "$target_url"),\"type\":$(json_string "$hint_type"),\"analyze\":true}"
+    gb_post /open/api/feed/ingest "$payload"
+    ;;
   daily)
     type="${1:-daily}"; date_arg="${2:-}"
     args=(--data-urlencode "type=$type")

@@ -59,6 +59,14 @@ type AISettings struct {
 	EveningReportTime    string              `json:"evening_report_time"`
 	MorningReportEnabled bool                `json:"morning_report_enabled"`
 	EveningReportEnabled bool                `json:"evening_report_enabled"`
+
+	// ASR (Audio/Video Speech-to-Text) settings
+	ASRMode         string `json:"asr_mode"`          // "auto" | "cloud" | "local" | "disabled"
+	ASRProvider     string `json:"asr_provider"`      // "groq" | "siliconflow" | "openai" | "custom"
+	ASRBaseURL      string `json:"asr_base_url"`      // e.g. https://api.groq.com/openai/v1
+	ASRAPIKey       string `json:"asr_api_key"`       // API key for cloud transcription
+	ASRModel        string `json:"asr_model"`         // e.g. whisper-large-v3-turbo
+	ASRLocalCommand string `json:"asr_local_command"` // optional override for local CLI
 }
 
 // AIProviderProfile stores one selectable AI provider connection profile.
@@ -277,5 +285,45 @@ func NormalizeAISettings(settings AISettings) AISettings {
 	if len(settings.Models) > 0 {
 		settings.Model = settings.Models[0]
 	}
+
+	settings.ASRMode = strings.ToLower(strings.TrimSpace(settings.ASRMode))
+	switch settings.ASRMode {
+	case "auto", "cloud", "local", "disabled":
+	default:
+		settings.ASRMode = "auto"
+	}
+	settings.ASRProvider = strings.ToLower(strings.TrimSpace(settings.ASRProvider))
+	if settings.ASRProvider == "" {
+		settings.ASRProvider = "groq"
+	}
+	settings.ASRBaseURL = strings.TrimRight(strings.TrimSpace(settings.ASRBaseURL), "/")
+	settings.ASRAPIKey = strings.TrimSpace(settings.ASRAPIKey)
+	settings.ASRModel = strings.TrimSpace(settings.ASRModel)
+	settings.ASRLocalCommand = strings.TrimSpace(settings.ASRLocalCommand)
+
+	switch settings.ASRProvider {
+	case "groq":
+		if settings.ASRBaseURL == "" {
+			settings.ASRBaseURL = "https://api.groq.com/openai/v1"
+		}
+		if settings.ASRModel == "" {
+			settings.ASRModel = "whisper-large-v3-turbo"
+		}
+	case "siliconflow":
+		if settings.ASRBaseURL == "" {
+			settings.ASRBaseURL = "https://api.siliconflow.cn/v1"
+		}
+		if settings.ASRModel == "" {
+			settings.ASRModel = "FunAudioLLM/SenseVoiceSmall"
+		}
+	case "openai":
+		if settings.ASRBaseURL == "" {
+			settings.ASRBaseURL = "https://api.openai.com/v1"
+		}
+		if settings.ASRModel == "" {
+			settings.ASRModel = "whisper-1"
+		}
+	}
+
 	return settings
 }

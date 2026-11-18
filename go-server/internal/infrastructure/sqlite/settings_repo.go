@@ -303,6 +303,14 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 		s.EveningReportTime = "22:30"
 	}
 
+	// 11. ASR (Audio/Video Speech-to-Text) settings
+	s.ASRMode, _ = d.GetSetting("asr_mode", env.ASRMode)
+	s.ASRProvider, _ = d.GetSetting("asr_provider", env.ASRProvider)
+	s.ASRBaseURL, _ = d.GetSetting("asr_base_url", env.ASRBaseURL)
+	s.ASRAPIKey, _ = d.GetSetting("asr_api_key", env.ASRAPIKey)
+	s.ASRModel, _ = d.GetSetting("asr_model", env.ASRModel)
+	s.ASRLocalCommand, _ = d.GetSetting("asr_local_command", env.ASRLocalCommand)
+
 	// Normalize settings (trim spaces and fix custom model prefix)
 	s = NormalizeAISettings(s)
 
@@ -336,6 +344,12 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 	_ = d.SaveSetting("ai_evening_report_enabled", eveningEnabledDB)
 	_ = d.SaveSetting("ai_morning_report_time", s.MorningReportTime)
 	_ = d.SaveSetting("ai_evening_report_time", s.EveningReportTime)
+	_ = d.SaveSetting("asr_mode", s.ASRMode)
+	_ = d.SaveSetting("asr_provider", s.ASRProvider)
+	_ = d.SaveSetting("asr_base_url", s.ASRBaseURL)
+	_ = d.SaveSetting("asr_api_key", s.ASRAPIKey)
+	_ = d.SaveSetting("asr_model", s.ASRModel)
+	_ = d.SaveSetting("asr_local_command", s.ASRLocalCommand)
 
 	return s, nil
 }

@@ -23,6 +23,12 @@ func (c *Classifier) Classify(itemURL string, defaultCategory string) string {
 	if strings.Contains(lowerURL, "x.com") || strings.Contains(lowerURL, "twitter.com") {
 		return "tweet"
 	}
+	if strings.Contains(lowerURL, "youtube.com") || strings.Contains(lowerURL, "youtu.be") {
+		return "youtube"
+	}
+	if strings.Contains(lowerURL, "podcasts.apple.com") || strings.Contains(lowerURL, "xiaoyuzhoufm.com") {
+		return "podcast"
+	}
 	if strings.Contains(lowerURL, "github.com") || strings.Contains(lowerURL, "gitlab.com") {
 		return "project"
 	}

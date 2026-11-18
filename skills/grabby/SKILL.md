@@ -15,7 +15,7 @@ description: 抓取网页内容（URL转Markdown）、截图，借用已登录�
 
 | 脚本 | 覆盖 |
 |------|------|
-| `scripts/grabby-api.sh` | Grabby 服务的 AI 新闻/日报（无需浏览器）：`daily` `categories` `items` `quality` `stats` |
+| `scripts/grabby-api.sh` | 统一内容公共接口（新闻/博客/YouTube/播客）：`feed` `picks` `ingest` `daily` `categories` `items` `quality` `stats` |
 | `scripts/browser.sh` | 浏览器通用：`health` `browsers` `extract` `screenshot` `run-script` `fetch` |
 | `scripts/twitter.sh` | X/Twitter：`search` `timeline` `likes` |
 | `scripts/reddit.sh` | Reddit：`thread` `subreddit` `search` |
@@ -49,6 +49,9 @@ description: 抓取网页内容（URL转Markdown）、截图，借用已登录�
 | `xiaohongshu.sh note` | `url`（须带 xsec_token） | — |
 | `xiaohongshu.sh search` | `query` | `limit=50` |
 | `xiaohongshu.sh user-notes` | `profile-url` | `limit=50` |
+| `grabby-api.sh feed` | — | `type=all`、`limit=20` |
+| `grabby-api.sh picks` | — | `limit=20`（每日精选） |
+| `grabby-api.sh ingest` | `url` | `type=auto` |
 | `grabby-api.sh items` | `category` | `limit=10` |
 
 ---
@@ -158,11 +161,38 @@ scripts/gsc.sh record performance "sc-domain:example.com" 28   # 录制表现报
 
 ---
 
-## 三、查询智能新闻和日报（grabby-api.sh，无需浏览器）
+## 三、统一内容接口与智能新闻（grabby-api.sh）
 
-Grabby 服务在后台持续抓取订阅源并用 AI 分类评分，直接读 API 即可。
+Agent 获取新闻、博客、YouTube 视频文字版、播客文字版以及「每日精选」时，**统一通过这组公共接口调用**，无需区分底层站点细节。
 
-### 1. 今日日报 / 早报 / 晚报
+### 1. 统一内容拉取（feed）
+
+```bash
+scripts/grabby-api.sh feed news 10                  # 最新新闻（含全文）
+scripts/grabby-api.sh feed blog 10                  # 最新博客（含全文）
+scripts/grabby-api.sh feed youtube 5                # 最新 YouTube（含字幕/转写文字版）
+scripts/grabby-api.sh feed podcast 5                # 最新播客（含 Show Notes + 文字版）
+scripts/grabby-api.sh feed all 20 AI 7              # 全类型过滤：AI 分类且评分 ≥ 7
+```
+
+### 2. 每日精选（picks — 跨新闻/博客/YouTube/播客）
+
+```bash
+scripts/grabby-api.sh picks                       # 今日跨类型高分精选 + 今日 AI 日报
+scripts/grabby-api.sh picks "$(date +%F)" 20      # 指定日期与条数
+```
+
+### 3. 实时单链接抓取与转文字（ingest）
+
+```bash
+scripts/grabby-api.sh ingest "https://www.youtube.com/watch?v=xxxx"
+scripts/grabby-api.sh ingest "https://www.xiaoyuzhoufm.com/episode/xxxx"
+scripts/grabby-api.sh ingest "https://example.com/long-article" blog
+```
+
+传入任意 YouTube 视频、播客单集或文章 URL，服务端自动抓取正文/字幕或运行 ASR 语音转文字，并直接返回统一结构的全文与 AI 摘要。
+
+### 4. 今日日报 / 早报 / 晚报
 
 ```bash
 scripts/grabby-api.sh daily daily "$(date +%F)"   # 今日日报（type: daily|morning|evening）

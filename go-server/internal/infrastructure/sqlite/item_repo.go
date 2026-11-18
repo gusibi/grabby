@@ -45,7 +45,7 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	}
 
 	query := `
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}')
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
 		WHERE 1=1
@@ -60,6 +60,15 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	if f.SourceCategory != "" && f.SourceCategory != "all" {
 		query += " AND s.category = ?"
 		args = append(args, f.SourceCategory)
+	}
+
+	if f.SourceID != "" {
+		query += " AND i.source_id = ?"
+		args = append(args, f.SourceID)
+	}
+
+	if f.ContentType != "" && f.ContentType != "all" {
+		query, args = appendContentTypeFilter(query, args, f.ContentType)
 	}
 
 	if f.Origin != "" {
@@ -81,6 +90,11 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 	if f.ReadStatus != nil {
 		query += " AND i.read_status = ?"
 		args = append(args, *f.ReadStatus)
+	}
+
+	if f.Days > 0 {
+		query += " AND datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)"
+		args = append(args, fmt.Sprintf("-%d days", f.Days))
 	}
 
 	// Cursor clause
@@ -109,7 +123,7 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 		var pubAt sql.NullTime
 		err := rows.Scan(
 			&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+			&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags, &item.Metadata,
 		)
 		if err != nil {
 			return nil, "", err
@@ -138,13 +152,13 @@ func (d *Database) GetScrapedItem(id int64) (*ScrapedItem, error) {
 	var item ScrapedItem
 	var pubAt sql.NullTime
 	err := d.db.QueryRow(`
-		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}')
 		FROM scraped_items i
 		JOIN sources s ON i.source_id = s.id
 		WHERE i.id = ?
 	`, id).Scan(
 		&item.ID, &item.SourceID, &item.OriginSource, &item.Title, &item.URL, &item.Summary, &item.Content,
-		&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags,
+		&item.Category, &item.SourceCategory, &pubAt, &item.FetchedAt, &item.ReadStatus, &item.Starred, &item.Tags, &item.Metadata,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil
@@ -159,10 +173,14 @@ func (d *Database) GetScrapedItem(id int64) (*ScrapedItem, error) {
 }
 
 func (d *Database) InsertScrapedItem(item ScrapedItem) (int64, error) {
+	metadata := item.Metadata
+	if metadata == "" {
+		metadata = "{}"
+	}
 	res, err := d.db.Exec(`
-		INSERT OR IGNORE INTO scraped_items (source_id, origin_source, title, url, summary, content, category, published_at, fetched_at, read_status, starred, tags)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0, 0, '')
-	`, item.SourceID, item.OriginSource, item.Title, item.URL, item.Summary, item.Content, item.Category, utcTimestampArg(item.PublishedAt))
+		INSERT OR IGNORE INTO scraped_items (source_id, origin_source, title, url, summary, content, category, published_at, fetched_at, read_status, starred, tags, metadata)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, 0, 0, ?, ?)
+	`, item.SourceID, item.OriginSource, item.Title, item.URL, item.Summary, item.Content, item.Category, utcTimestampArg(item.PublishedAt), item.Tags, metadata)
 	if err != nil {
 		return 0, err
 	}
@@ -171,6 +189,285 @@ func (d *Database) InsertScrapedItem(item ScrapedItem) (int64, error) {
 		return 0, err
 	}
 	return res.LastInsertId()
+}
+
+// UpsertScrapedItem inserts a new scraped item or updates an existing item with the
+// same URL when the incoming content is richer (longer). It returns (id, created, err).
+func (d *Database) UpsertScrapedItem(item ScrapedItem) (int64, bool, error) {
+	id, err := d.InsertScrapedItem(item)
+	if err != nil {
+		return 0, false, err
+	}
+	if id > 0 {
+		return id, true, nil
+	}
+
+	var existingID int64
+	var existingContent string
+	err = d.db.QueryRow("SELECT id, COALESCE(content, '') FROM scraped_items WHERE url = ?", item.URL).Scan(&existingID, &existingContent)
+	if err != nil {
+		return 0, false, err
+	}
+
+	if len([]rune(strings.TrimSpace(item.Content))) > len([]rune(strings.TrimSpace(existingContent))) {
+		metadata := item.Metadata
+		if metadata == "" {
+			metadata = "{}"
+		}
+		_, err = d.db.Exec(`
+			UPDATE scraped_items
+			SET title = CASE WHEN ? != '' THEN ? ELSE title END,
+			    summary = CASE WHEN ? != '' THEN ? ELSE summary END,
+			    content = ?,
+			    category = CASE WHEN ? != '' THEN ? ELSE category END,
+			    metadata = CASE WHEN ? != '{}' AND ? != '' THEN ? ELSE metadata END
+			WHERE id = ?
+		`, item.Title, item.Title, item.Summary, item.Summary, item.Content, item.Category, item.Category, metadata, metadata, metadata, existingID)
+		if err != nil {
+			return existingID, false, err
+		}
+	}
+	return existingID, false, nil
+}
+
+// UpdateSourceItemMedia upgrades an existing item with audio metadata captured
+// from its feed enclosure, without disturbing the fetched content.
+func (d *Database) UpdateSourceItemMedia(sourceID, url, category, metadata string) error {
+	if metadata == "" || metadata == "{}" {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`UPDATE scraped_items SET category = ?, metadata = ? WHERE source_id = ? AND url = ?`,
+		category, metadata, sourceID, url,
+	)
+	return err
+}
+
+// SetSourceItemsCategory rewrites the content type of every item that belongs
+// to a source. A source type or default content type change must be reflected
+// immediately, not only for items scraped after the change.
+func (d *Database) SetSourceItemsCategory(sourceID, category string) error {
+	category = strings.TrimSpace(category)
+	if sourceID == "" || category == "" || category == "auto" {
+		return nil
+	}
+	_, err := d.db.Exec(
+		`UPDATE scraped_items SET category = ? WHERE source_id = ?`,
+		category, sourceID,
+	)
+	return err
+}
+
+// UpdateScrapedItemContent backfills full extracted content and metadata for an existing item.
+func (d *Database) UpdateScrapedItemContent(id int64, content string, metadata string) error {
+	if metadata != "" && metadata != "{}" {
+		_, err := d.db.Exec("UPDATE scraped_items SET content = ?, metadata = ? WHERE id = ?", content, metadata, id)
+		return err
+	}
+	_, err := d.db.Exec("UPDATE scraped_items SET content = ? WHERE id = ?", content, id)
+	return err
+}
+
+type rowScanner interface {
+	Scan(dest ...any) error
+}
+
+func scanScrapedItemWithAI(s rowScanner) (ScrapedItemWithAI, error) {
+	var it ScrapedItemWithAI
+	var pubAt sql.NullTime
+	var aiCat, aiSub, aiSummary, aiComment, aiTags, aiModel sql.NullString
+	var aiScore sql.NullInt64
+	var aiProcessed sql.NullTime
+
+	err := s.Scan(
+		&it.ID, &it.SourceID, &it.OriginSource, &it.Title, &it.URL, &it.Summary, &it.Content,
+		&it.Category, &it.SourceCategory, &pubAt, &it.FetchedAt, &it.ReadStatus, &it.Starred, &it.Tags, &it.Metadata,
+		&aiCat, &aiSub, &aiScore, &aiSummary, &aiComment, &aiTags, &aiModel, &aiProcessed,
+	)
+	if err != nil {
+		return it, err
+	}
+	if pubAt.Valid {
+		it.PublishedAt = &pubAt.Time
+	}
+	if aiCat.Valid {
+		it.AICategory = aiCat.String
+	}
+	if aiSub.Valid {
+		it.AISubcategory = aiSub.String
+	}
+	if aiScore.Valid {
+		it.QualityScore = int(aiScore.Int64)
+	}
+	if aiSummary.Valid {
+		it.AISummary = aiSummary.String
+	}
+	if aiComment.Valid {
+		it.AIComment = aiComment.String
+	}
+	if aiTags.Valid {
+		it.AITags = aiTags.String
+	}
+	if aiModel.Valid {
+		it.AIModelUsed = aiModel.String
+	}
+	if aiProcessed.Valid {
+		t := aiProcessed.Time
+		it.AIProcessedAt = &t
+	}
+	return it, nil
+}
+
+func appendContentTypeFilter(query string, args []any, contentType string) (string, []any) {
+	if contentType == "" || strings.EqualFold(contentType, "all") {
+		return query, args
+	}
+	switch strings.ToLower(contentType) {
+	case "rss":
+		query += " AND i.category IN ('article', 'news', 'blog') AND s.type NOT IN ('podcast', 'youtube')"
+	case "podcast":
+		query += " AND (i.category = 'podcast' OR s.type = 'podcast')"
+	case "youtube":
+		query += " AND (i.category = 'youtube' OR s.type = 'youtube')"
+	case "news":
+		query += " AND i.category IN ('article', 'news')"
+	case "blog":
+		query += " AND i.category IN ('blog', 'article')"
+	default:
+		query += " AND i.category = ?"
+		args = append(args, strings.ToLower(contentType))
+	}
+	return query, args
+}
+
+// QueryUnifiedFeed queries items across all source types with optional AI analysis joined.
+func (d *Database) QueryUnifiedFeed(f ItemsFilter) ([]ScrapedItemWithAI, string, error) {
+	if f.Limit <= 0 {
+		f.Limit = 20
+	}
+	if f.Limit > 100 {
+		f.Limit = 100
+	}
+
+	query := `
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}'),
+		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
+		FROM scraped_items i
+		JOIN sources s ON i.source_id = s.id
+		LEFT JOIN ai_analyses a ON i.id = a.item_id
+		WHERE 1=1
+	`
+	var args []any
+
+	if f.ContentType != "" && f.ContentType != "all" {
+		query, args = appendContentTypeFilter(query, args, f.ContentType)
+	}
+
+	if f.Category != "" && f.Category != "all" {
+		query += " AND (s.category = ? OR a.ai_category = ? OR i.category = ?)"
+		args = append(args, f.Category, f.Category, f.Category)
+	}
+
+	if f.SourceCategory != "" && f.SourceCategory != "all" {
+		query += " AND s.category = ?"
+		args = append(args, f.SourceCategory)
+	}
+
+	if f.SourceID != "" {
+		query += " AND i.source_id = ?"
+		args = append(args, f.SourceID)
+	}
+
+	if f.Origin != "" {
+		query += " AND i.origin_source = ?"
+		args = append(args, f.Origin)
+	}
+
+	if f.ScoreMin > 0 {
+		query += " AND COALESCE(a.quality_score, 0) >= ?"
+		args = append(args, f.ScoreMin)
+	}
+
+	if f.Days > 0 {
+		query += " AND datetime(COALESCE(i.published_at, i.fetched_at)) >= datetime('now', ?)"
+		args = append(args, fmt.Sprintf("-%d days", f.Days))
+	}
+
+	if f.Q != "" {
+		query += " AND (i.title LIKE ? OR i.summary LIKE ? OR i.content LIKE ?)"
+		likeArg := "%" + f.Q + "%"
+		args = append(args, likeArg, likeArg, likeArg)
+	}
+
+	if f.Starred != nil {
+		query += " AND i.starred = ?"
+		args = append(args, *f.Starred)
+	}
+
+	if f.ReadStatus != nil {
+		query += " AND i.read_status = ?"
+		args = append(args, *f.ReadStatus)
+	}
+
+	if f.Cursor != "" {
+		cursorTime, cursorID, err := decodeCursor(f.Cursor)
+		if err == nil {
+			timeStr := utcTimestamp(cursorTime)
+			query += " AND (COALESCE(i.published_at, i.fetched_at) < ? OR (COALESCE(i.published_at, i.fetched_at) = ? AND i.id < ?))"
+			args = append(args, timeStr, timeStr, cursorID)
+		}
+	}
+
+	query += " ORDER BY COALESCE(i.published_at, i.fetched_at) DESC, i.id DESC LIMIT ?"
+	args = append(args, f.Limit+1)
+
+	rows, err := d.db.Query(query, args...)
+	if err != nil {
+		return nil, "", err
+	}
+	defer rows.Close()
+
+	var list []ScrapedItemWithAI
+	for rows.Next() {
+		it, err := scanScrapedItemWithAI(rows)
+		if err != nil {
+			return nil, "", err
+		}
+		list = append(list, it)
+	}
+
+	nextCursor := ""
+	if len(list) > f.Limit {
+		nextItem := list[f.Limit]
+		sortTime := nextItem.FetchedAt
+		if nextItem.PublishedAt != nil {
+			sortTime = *nextItem.PublishedAt
+		}
+		nextCursor = encodeCursor(sortTime, nextItem.ID)
+		list = list[:f.Limit]
+	}
+
+	return list, nextCursor, nil
+}
+
+// GetScrapedItemWithAI fetches a single item along with optional AI analysis.
+func (d *Database) GetScrapedItemWithAI(id int64) (*ScrapedItemWithAI, error) {
+	row := d.db.QueryRow(`
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category, s.category, i.published_at, i.fetched_at, i.read_status, i.starred, i.tags, COALESCE(i.metadata, '{}'),
+		       a.ai_category, a.ai_subcategory, a.quality_score, a.ai_summary, a.ai_comment, a.ai_tags, a.model_used, a.processed_at
+		FROM scraped_items i
+		JOIN sources s ON i.source_id = s.id
+		LEFT JOIN ai_analyses a ON i.id = a.item_id
+		WHERE i.id = ?
+	`, id)
+	it, err := scanScrapedItemWithAI(row)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &it, nil
 }
 
 func (d *Database) MarkItemRead(id int64, readStatus int) error {

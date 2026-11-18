@@ -22,7 +22,7 @@ import { api } from "@/lib/api";
 import { useFeedback } from "@/components/ui/feedback-context";
 import { useCopy } from "@/lib/copy";
 import { appCopy } from "@/lib/app-copy";
-import type { AICategory, AIProviderProfile, AITestResult, AppView, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
+import type { AICategory, AIProviderProfile, AITestResult, AppView, ASRSettings, DailyReport, FetchLog, ReportListItem, ScrapedItem, Source, SourceForm, Stats } from "@/types";
 
 function getLocalDateString(d: Date = new Date()): string {
   const year = d.getFullYear();
@@ -130,6 +130,13 @@ export default function App() {
   const [eveningReportEnabled, setEveningReportEnabled] = useState<boolean>(false);
   const [morningReportTime, setMorningReportTime] = useState<string>("08:30");
   const [eveningReportTime, setEveningReportTime] = useState<string>("22:30");
+  const [asrSettings, setAsrSettings] = useState<ASRSettings>({
+    asr_mode: "auto",
+    asr_provider: "groq",
+    asr_base_url: "https://api.groq.com/openai/v1",
+    asr_api_key: "",
+    asr_model: "whisper-large-v3-turbo",
+  });
 
   const lastSetHashRef = useRef<string>('');
 
@@ -385,6 +392,13 @@ export default function App() {
         setEveningReportEnabled(data.settings.evening_report_enabled || false);
         setMorningReportTime(data.settings.morning_report_time || "07:30");
         setEveningReportTime(data.settings.evening_report_time || "20:00");
+        setAsrSettings({
+          asr_mode: data.settings.asr_mode || "auto",
+          asr_provider: data.settings.asr_provider || "groq",
+          asr_base_url: data.settings.asr_base_url || "https://api.groq.com/openai/v1",
+          asr_api_key: data.settings.asr_api_key || "",
+          asr_model: data.settings.asr_model || "whisper-large-v3-turbo",
+        });
       }
     } catch (err) {
       console.error("Failed to fetch AI settings", err);
@@ -416,6 +430,11 @@ export default function App() {
         evening_report_enabled: eveningReportEnabled,
         morning_report_time: morningReportTime,
         evening_report_time: eveningReportTime,
+        asr_mode: asrSettings.asr_mode,
+        asr_provider: asrSettings.asr_provider,
+        asr_base_url: asrSettings.asr_base_url,
+        asr_api_key: asrSettings.asr_api_key,
+        asr_model: asrSettings.asr_model,
       });
       if (data.success) {
         toast(c.savedTitle, c.savedBody, "success");
@@ -1018,6 +1037,8 @@ export default function App() {
                     setEveningReportEnabled={setEveningReportEnabled}
                     eveningReportTime={eveningReportTime}
                     setEveningReportTime={setEveningReportTime}
+                    asrSettings={asrSettings}
+                    setAsrSettings={setAsrSettings}
                     aiTestResult={aiTestResult}
                     handleTestAI={handleTestAI}
                     isTestingAI={isTestingAI}

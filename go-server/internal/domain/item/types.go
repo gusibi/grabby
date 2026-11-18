@@ -18,16 +18,21 @@ type ScrapedItem struct {
 	ReadStatus     int        `json:"read_status"` // 0-unread, 1-read, 2-read later
 	Starred        int        `json:"starred"`     // 0-unstarred, 1-starred
 	Tags           string     `json:"tags"`
+	Metadata       string     `json:"metadata,omitempty"`
 }
 
 // ItemsFilter represents filters when querying scraped items.
 type ItemsFilter struct {
 	Category       string
 	SourceCategory string
+	SourceID       string
+	ContentType    string
 	Origin         string
 	Q              string
 	Starred        *int
 	ReadStatus     *int
+	ScoreMin       int
+	Days           int
 	Cursor         string
 	Limit          int
 }
@@ -36,6 +41,7 @@ type ItemsFilter struct {
 type AIItemsFilter struct {
 	AICategory     string
 	SourceCategory string
+	ContentType    string
 	ScoreMin       int
 	Days           int
 	Limit          int

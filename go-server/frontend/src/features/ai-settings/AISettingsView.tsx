@@ -35,7 +35,7 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import type { AIProviderProfile, AITestResult, AIUsageSummary } from "@/types";
+import type { ASREnvStatus, ASRSettings, AIProviderProfile, AITestResult, AIUsageSummary } from "@/types";
 import {
   defaultModelRef,
   providerDescription,
@@ -94,6 +94,8 @@ interface AISettingsViewProps {
   setEveningReportEnabled: (value: boolean) => void;
   eveningReportTime: string;
   setEveningReportTime: (value: string) => void;
+  asrSettings: ASRSettings;
+  setAsrSettings: (value: ASRSettings | ((prev: ASRSettings) => ASRSettings)) => void;
   aiTestResult: AITestResult | null;
   handleTestAI: (draft?: { profile: AIProviderProfile; system_prompt: string }) => void;
   isTestingAI: boolean;
@@ -723,6 +725,8 @@ export function AISettingsView(props: AISettingsViewProps) {
     setEveningReportEnabled,
     eveningReportTime,
     setEveningReportTime,
+    asrSettings,
+    setAsrSettings,
     aiTestResult,
     handleTestAI,
     isTestingAI,
@@ -746,6 +750,9 @@ export function AISettingsView(props: AISettingsViewProps) {
   const [importing, setImporting] = useState(false);
   const [liveModels, setLiveModels] = useState<Record<string, ModelInfo[]>>({});
   const [usage, setUsage] = useState<AIUsageSummary | null>(null);
+  const [asrEnv, setAsrEnv] = useState<ASREnvStatus | null>(null);
+  const [installingAsr, setInstallingAsr] = useState(false);
+  const [asrInstallOutput, setAsrInstallOutput] = useState("");
 
   const preset = useMemo(() => resolvePresetFrom(catalog.presets, aiProvider, aiBaseUrl), [catalog.presets, aiProvider, aiBaseUrl]);
   const effectivePreset = useMemo(() => {
@@ -762,7 +769,7 @@ export function AISettingsView(props: AISettingsViewProps) {
     aiEnabled, activeProfileId, aiProfiles, aiStrategy, aiProfileName, aiProvider,
     aiModels, aiApiKey, aiBaseUrl, aiRequestsPerMinute, aiQualityThreshold,
     aiSystemPrompt, aiDailyPrompt, morningReportEnabled, morningReportTime,
-    eveningReportEnabled, eveningReportTime,
+    eveningReportEnabled, eveningReportTime, asrSettings,
   });
 
   useEffect(() => {
@@ -777,6 +784,11 @@ export function AISettingsView(props: AISettingsViewProps) {
         if (!cancelled && data?.success && data.summary) setUsage(data.summary as AIUsageSummary);
       })
       .catch(() => { /* usage is optional */ });
+    api.getASREnv()
+      .then((data) => {
+        if (!cancelled && data?.success && data.env) setAsrEnv(data.env as ASREnvStatus);
+      })
+      .catch(() => { /* asr env is optional */ });
     return () => { cancelled = true; };
   }, []);
 
@@ -1176,6 +1188,7 @@ export function AISettingsView(props: AISettingsViewProps) {
                   { id: "sec-prompts", n: "03", label: c.secPromptsTitle },
                   { id: "sec-schedule", n: "04", label: c.secScheduleTitle },
                   { id: "sec-verify", n: "05", label: c.secVerifyTitle },
+                  { id: "sec-asr", n: "06", label: c.secAsrTitle },
                 ].map((item) => (
                   <button
                     key={item.id}
@@ -1536,6 +1549,159 @@ export function AISettingsView(props: AISettingsViewProps) {
                         : undefined
                 }
               />
+            </SettingSection>
+
+            {/* ASR */}
+            <SettingSection id="sec-asr" index="06" title={c.secAsrTitle} description={c.secAsrDesc}>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <FieldLabel>{c.asrModeLabel}</FieldLabel>
+                  <select
+                    className="g-input"
+                    value={asrSettings.asr_mode}
+                    onChange={(e) => setAsrSettings((prev) => ({ ...prev, asr_mode: e.target.value }))}
+                  >
+                    <option value="auto">{c.asrModeAuto}</option>
+                    <option value="cloud">{c.asrModeCloud}</option>
+                    <option value="local">{c.asrModeLocal}</option>
+                    <option value="disabled">{c.asrModeDisabled}</option>
+                  </select>
+                </div>
+
+                <div>
+                  <FieldLabel>{c.asrProviderLabel}</FieldLabel>
+                  <select
+                    className="g-input"
+                    value={asrSettings.asr_provider}
+                    onChange={(e) => {
+                      const nextProvider = e.target.value;
+                      const presets: Record<string, { url: string; model: string }> = {
+                        groq: { url: "https://api.groq.com/openai/v1", model: "whisper-large-v3-turbo" },
+                        siliconflow: { url: "https://api.siliconflow.cn/v1", model: "FunAudioLLM/SenseVoiceSmall" },
+                        openai: { url: "https://api.openai.com/v1", model: "whisper-1" },
+                      };
+                      const presetCfg = presets[nextProvider];
+                      setAsrSettings((prev) => ({
+                        ...prev,
+                        asr_provider: nextProvider,
+                        asr_base_url: presetCfg ? presetCfg.url : prev.asr_base_url,
+                        asr_model: presetCfg ? presetCfg.model : prev.asr_model,
+                      }));
+                    }}
+                  >
+                    <option value="groq">Groq Whisper</option>
+                    <option value="siliconflow">SiliconFlow SenseVoice</option>
+                    <option value="openai">OpenAI Whisper</option>
+                    <option value="custom">Custom OpenAI-compatible</option>
+                  </select>
+                </div>
+
+                <div>
+                  <FieldLabel>{c.asrBaseUrlLabel}</FieldLabel>
+                  <input
+                    className="g-input mono"
+                    value={asrSettings.asr_base_url}
+                    onChange={(e) => setAsrSettings((prev) => ({ ...prev, asr_base_url: e.target.value }))}
+                    placeholder="https://api.groq.com/openai/v1"
+                  />
+                </div>
+
+                <div>
+                  <FieldLabel>{c.asrModelLabel}</FieldLabel>
+                  <input
+                    className="g-input mono"
+                    value={asrSettings.asr_model}
+                    onChange={(e) => setAsrSettings((prev) => ({ ...prev, asr_model: e.target.value }))}
+                    placeholder="whisper-large-v3-turbo"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <FieldLabel>{c.asrApiKeyLabel}</FieldLabel>
+                  <input
+                    type="password"
+                    className="g-input mono"
+                    value={asrSettings.asr_api_key}
+                    onChange={(e) => setAsrSettings((prev) => ({ ...prev, asr_api_key: e.target.value }))}
+                    placeholder="gsk_..."
+                    autoComplete="off"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-5 rounded-xl p-4" style={{ background: "var(--g-panel-2)", border: "1px solid var(--g-line)" }}>
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="g-label">{c.asrLocalTitle}</div>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {["ffmpeg", "yt-dlp", "mlx_whisper", "whisper"].map((tool) => {
+                      const ok = !!asrEnv?.tools?.[tool]?.installed;
+                      return (
+                        <span
+                          key={tool}
+                          className="g-chip !h-6 !px-2 g-mono !text-[10px]"
+                          style={ok ? { background: "var(--g-signal-soft)", color: "var(--g-signal)" } : {}}
+                        >
+                          {tool}: {ok ? c.asrInstalled : c.asrMissing}
+                        </span>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  <button
+                    type="button"
+                    className="g-btn g-btn-secondary g-btn-sm"
+                    disabled={!isAuthenticated || installingAsr}
+                    onClick={async () => {
+                      setInstallingAsr(true);
+                      setAsrInstallOutput("");
+                      try {
+                        const res = await api.installASRTools();
+                        if (res?.env) setAsrEnv(res.env as ASREnvStatus);
+                        if (res?.output) setAsrInstallOutput(String(res.output));
+                        if (res?.success) {
+                          toast(c.asrInstallOk, "", "success");
+                        } else {
+                          toast(c.asrInstallFail, res?.error || "", "error");
+                        }
+                      } catch (err) {
+                        toast(c.asrInstallFail, err instanceof Error ? err.message : "", "error");
+                      } finally {
+                        setInstallingAsr(false);
+                      }
+                    }}
+                  >
+                    {installingAsr ? <Loader2 size={12} className="g-spin" /> : <Download size={12} />}
+                    {installingAsr ? c.asrInstalling : c.asrInstallBtn}
+                  </button>
+
+                  {asrEnv?.install_command && (
+                    <button
+                      type="button"
+                      className="g-btn g-btn-ghost g-btn-sm"
+                      onClick={() => {
+                        navigator.clipboard?.writeText(asrEnv.install_command);
+                        toast(c.asrCopyCmd, asrEnv.install_command, "success");
+                      }}
+                    >
+                      <Copy size={12} /> {c.asrCopyCmd}
+                    </button>
+                  )}
+                </div>
+
+                {asrEnv?.install_command && (
+                  <pre className="mt-3 p-2.5 rounded-lg g-mono text-[10.5px] overflow-x-auto" style={{ background: "var(--g-panel)", color: "var(--g-muted)" }}>
+                    {asrEnv.install_command}
+                  </pre>
+                )}
+
+                {asrInstallOutput && (
+                  <pre className="mt-3 p-2.5 rounded-lg g-mono text-[10.5px] max-h-40 overflow-auto" style={{ background: "var(--g-panel)", color: "var(--g-muted)" }}>
+                    {asrInstallOutput}
+                  </pre>
+                )}
+              </div>
             </SettingSection>
           </main>
         </div>

@@ -171,6 +171,18 @@ func (d *Database) seedDefaultSources() error {
 			Category:        "国际新闻",
 			Config:          `{"full_content":false}`,
 		},
+		// 内置隐藏源，供实时 URL 抓取入库作为外键关联
+		{
+			ID:              "__realtime__",
+			Name:            "实时抓取",
+			Type:            "api",
+			URL:             "https://grabby.local/realtime",
+			Schedule:        "0 0 * * *",
+			Enabled:         0,
+			DefaultCategory: "auto",
+			Category:        "实时采集",
+			Config:          `{}`,
+		},
 	}
 
 	tx, err := d.db.Begin()

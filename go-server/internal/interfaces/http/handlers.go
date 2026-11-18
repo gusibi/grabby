@@ -83,6 +83,7 @@ func (h *contentHandlers) listItems(c echo.Context) error {
 
 	items, nextCursor, err := h.deps.DB.GetScrapedItems(item.ItemsFilter{
 		Category:       c.QueryParam("category"),
+		ContentType:    c.QueryParam("content_type"),
 		SourceCategory: c.QueryParam("source_category"),
 		Origin:         c.QueryParam("origin"),
 		Q:              c.QueryParam("q"),
@@ -167,6 +168,20 @@ func (h *contentHandlers) listSources(c echo.Context) error {
 	return c.JSON(http.StatusOK, list)
 }
 
+// effectiveSourceCategory resolves the content type a source assigns to its
+// items. An explicit default category wins; otherwise podcast/youtube sources
+// imply their own type so the feed filters work without extra configuration.
+func effectiveSourceCategory(src source.Source) string {
+	if c := strings.TrimSpace(src.DefaultCategory); c != "" && c != "auto" {
+		return c
+	}
+	switch src.Type {
+	case "podcast", "youtube":
+		return src.Type
+	}
+	return ""
+}
+
 func (h *contentHandlers) createSource(c echo.Context) error {
 	var form source.SourceForm
 	if err := c.Bind(&form); err != nil {
@@ -189,6 +204,11 @@ func (h *contentHandlers) createSource(c echo.Context) error {
 	}
 	if src.Config == "" {
 		src.Config = "{}"
+	}
+	if src.DefaultCategory == "" || src.DefaultCategory == "auto" {
+		if auto := effectiveSourceCategory(src); auto != "" {
+			src.DefaultCategory = auto
+		}
 	}
 
 	if err := h.deps.DB.InsertSource(src); err != nil {
@@ -214,6 +234,7 @@ func (h *contentHandlers) updateSource(c echo.Context) error {
 		return detailErr(c, http.StatusNotFound, "Source not found")
 	}
 
+	oldCategory := effectiveSourceCategory(*src)
 	src.Name = form.Name
 	src.Type = form.Type
 	src.URL = form.URL
@@ -224,9 +245,22 @@ func (h *contentHandlers) updateSource(c echo.Context) error {
 	if src.Config == "" {
 		src.Config = "{}"
 	}
+	if src.DefaultCategory == "" || src.DefaultCategory == "auto" {
+		if auto := effectiveSourceCategory(*src); auto != "" {
+			src.DefaultCategory = auto
+		}
+	}
+	newCategory := effectiveSourceCategory(*src)
 
 	if err := h.deps.DB.UpdateSource(*src); err != nil {
 		return detailErr(c, http.StatusInternalServerError, err.Error())
+	}
+	// Reclassify already-imported items so switching a source to podcast (or
+	// YouTube) takes effect immediately instead of only for future scrapes.
+	if newCategory != "" && newCategory != oldCategory {
+		if err := h.deps.DB.SetSourceItemsCategory(src.ID, newCategory); err != nil && h.deps.Logger != nil {
+			h.deps.Logger.Warn("reclassify source items failed", zap.String("source", src.ID), zap.Error(err))
+		}
 	}
 	h.deps.Scheduler.AddOrUpdateSource(*src)
 

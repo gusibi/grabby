@@ -60,6 +60,12 @@ func PersistSettings(store SettingsStore, reloader SettingsReloader, req domaina
 	_ = store.SaveSetting("ai_evening_report_enabled", eveningEnabledStr)
 	_ = store.SaveSetting("ai_morning_report_time", req.MorningReportTime)
 	_ = store.SaveSetting("ai_evening_report_time", req.EveningReportTime)
+	_ = store.SaveSetting("asr_mode", req.ASRMode)
+	_ = store.SaveSetting("asr_provider", req.ASRProvider)
+	_ = store.SaveSetting("asr_base_url", req.ASRBaseURL)
+	_ = store.SaveSetting("asr_api_key", req.ASRAPIKey)
+	_ = store.SaveSetting("asr_model", req.ASRModel)
+	_ = store.SaveSetting("asr_local_command", req.ASRLocalCommand)
 
 	// 1b. Normalized tables (connections / models / route) are authoritative
 	// for the engine and the usage dashboard.

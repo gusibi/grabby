@@ -278,6 +278,25 @@ func (d *Database) migrate() error {
 		}
 		version = 6
 	}
+	if version < 7 {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		// Add metadata column to scraped_items for structured podcast/youtube attributes.
+		_, _ = tx.Exec("ALTER TABLE scraped_items ADD COLUMN metadata TEXT DEFAULT '{}'")
+
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+
+		if _, err := d.db.Exec("PRAGMA user_version = 7"); err != nil {
+			return err
+		}
+		version = 7
+	}
 	return nil
 }
 

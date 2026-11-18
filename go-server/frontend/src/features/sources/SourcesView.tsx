@@ -20,6 +20,8 @@ interface SourcesViewProps {
 const typeLabel = (c: SourcesCopy, type: string) => {
   switch (type) {
     case "rss": return c.typeRss;
+    case "podcast": return c.typePodcast;
+    case "youtube": return c.typeYoutube;
     case "api": return c.typeApi;
     case "web_scrape": return c.typeWeb;
     case "twitter": return c.typeTwitter;

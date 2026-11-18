@@ -49,6 +49,7 @@ func NewRouter(deps Dependencies) *echo.Echo {
 
 	RegisterAuthHandlers(api, deps)
 	RegisterHandlers(openAPI, api, deps)
+	RegisterFeedHandlers(openAPI, api, deps)
 	RegisterBrowserHandlers(api, deps)
 	RegisterTwitterHandlers(api, deps)
 	RegisterRedditHandlers(api, deps)
@@ -66,6 +67,8 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	mcpSvrs := mcpiface.NewServer(mcpiface.Deps{
 		WM:       deps.WSManager,
 		DB:       deps.DB,
+		Scraper:  deps.Scraper,
+		AIEngine: deps.AIEngine,
 		Settings: deps.Settings,
 		Logger:   deps.Logger,
 	})

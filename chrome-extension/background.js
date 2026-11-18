@@ -407,10 +407,10 @@ async function handleExtractCommand(data) {
     try {
         logger.log('extract', 'info', '开始处理内容提取指令', { message_id: data.message_id, url: data.url });
 
-        // 如果指定了URL，先导航到新标签页
+        // 如果指定了URL，先导航到新标签页（默认后台静默打开，不抢焦点）
         if (data.url) {
-            logger.log('extract', 'info', '准备导航到URL', { url: data.url });
-            const tab = await navigateToUrl(data.url);
+            logger.log('extract', 'info', '准备导航到URL', { url: data.url, visible: data.visible === true });
+            const tab = await navigateToUrl(data.url, data.visible === true);
             targetTabId = tab.id;
             shouldCloseTab = true;
             logger.log('extract', 'info', 'URL导航完成', { tabId: targetTabId });
@@ -986,6 +986,163 @@ async function handleRunPageScriptCommand(data) {
                 switch (name) {
                     case 'youtube.initialPlayerResponse':
                         return window.ytInitialPlayerResponse ?? null;
+                    case 'youtube.extractTranscript': {
+                        const extractJsonAfter = (text, marker) => {
+                            const idx = text.indexOf(marker);
+                            if (idx < 0) return null;
+                            const start = text.indexOf('{', idx + marker.length);
+                            if (start < 0) return null;
+                            let depth = 0;
+                            let inStr = false;
+                            let esc = false;
+                            for (let i = start; i < text.length; i++) {
+                                const ch = text[i];
+                                if (inStr) {
+                                    if (esc) esc = false;
+                                    else if (ch === '\\') esc = true;
+                                    else if (ch === '"') inStr = false;
+                                    continue;
+                                }
+                                if (ch === '"') inStr = true;
+                                else if (ch === '{') depth++;
+                                else if (ch === '}') {
+                                    depth--;
+                                    if (depth === 0) {
+                                        try { return JSON.parse(text.slice(start, i + 1)); } catch (_) { return null; }
+                                    }
+                                }
+                            }
+                            return null;
+                        };
+                        let pr = window.ytInitialPlayerResponse || null;
+                        if (!pr) {
+                            for (const s of document.scripts) {
+                                const txt = s.textContent || '';
+                                if (txt.includes('ytInitialPlayerResponse')) {
+                                    pr = extractJsonAfter(txt, 'ytInitialPlayerResponse');
+                                    if (pr) break;
+                                }
+                            }
+                        }
+                        if (!pr) return null;
+                        const vd = pr.videoDetails || {};
+                        const tracks = pr.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+                        let picked = tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('zh'))
+                            || tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'))
+                            || tracks[0]
+                            || null;
+
+                        const fmtTime = (ms) => {
+                            const totalSec = Math.max(0, Math.floor(ms / 1000));
+                            const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
+                            const s = String(totalSec % 60).padStart(2, '0');
+                            return `[${m}:${s}]`;
+                        };
+
+                        let transcript = '';
+                        if (picked && picked.baseUrl) {
+                            try {
+                                const jsonUrl = picked.baseUrl.includes('fmt=')
+                                    ? picked.baseUrl.replace(/fmt=[^&]+/, 'fmt=json3')
+                                    : picked.baseUrl + '&fmt=json3';
+                                const resp = await fetch(jsonUrl, { credentials: 'include' });
+                                if (resp.ok) {
+                                    const data = await resp.json();
+                                    const events = Array.isArray(data?.events) ? data.events : [];
+                                    const lines = [];
+                                    let bucketStart = -1;
+                                    let bucketWords = [];
+                                    for (const ev of events) {
+                                        const segs = Array.isArray(ev?.segs) ? ev.segs : [];
+                                        const text = segs.map((s) => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
+                                        if (!text) continue;
+                                        const tMs = Number(ev.tStartMs || 0);
+                                        if (bucketStart < 0) bucketStart = tMs;
+                                        if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
+                                            lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
+                                            bucketStart = tMs;
+                                            bucketWords = [text];
+                                        } else {
+                                            bucketWords.push(text);
+                                        }
+                                    }
+                                    if (bucketWords.length > 0) {
+                                        lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
+                                    }
+                                    transcript = lines.join('\n\n');
+                                }
+                            } catch (_) {}
+
+                            if (!transcript) {
+                                try {
+                                    const resp = await fetch(picked.baseUrl, { credentials: 'include' });
+                                    if (resp.ok) {
+                                        const xmlText = await resp.text();
+                                        const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+                                        const nodes = Array.from(doc.querySelectorAll('text'));
+                                        const lines = [];
+                                        let bucketStart = -1;
+                                        let bucketWords = [];
+                                        for (const n of nodes) {
+                                            const txt = (n.textContent || '').replace(/\s+/g, ' ').trim();
+                                            if (!txt) continue;
+                                            const tMs = Math.floor(Number(n.getAttribute('start') || 0) * 1000);
+                                            if (bucketStart < 0) bucketStart = tMs;
+                                            if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
+                                                lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
+                                                bucketStart = tMs;
+                                                bucketWords = [txt];
+                                            } else {
+                                                bucketWords.push(txt);
+                                            }
+                                        }
+                                        if (bucketWords.length > 0) {
+                                            lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
+                                        }
+                                        transcript = lines.join('\n\n');
+                                    }
+                                } catch (_) {}
+                            }
+                        }
+
+                        return {
+                            videoId: vd.videoId || '',
+                            title: vd.title || document.title || '',
+                            author: vd.author || '',
+                            channelId: vd.channelId || '',
+                            shortDescription: vd.shortDescription || '',
+                            lengthSeconds: vd.lengthSeconds || '',
+                            transcript,
+                            languageCode: picked ? (picked.languageCode || '') : '',
+                            hasCaptions: tracks.length > 0
+                        };
+                    }
+                    case 'youtube.resolveChannel': {
+                        let channelId = document.querySelector('meta[itemprop="channelId"]')?.getAttribute('content') || '';
+                        const title = window.ytInitialData?.metadata?.channelMetadataRenderer?.title
+                            || document.querySelector('meta[property="og:title"]')?.getAttribute('content')
+                            || document.title
+                            || '';
+                        if (!channelId) {
+                            channelId = window.ytInitialData?.metadata?.channelMetadataRenderer?.externalId || '';
+                        }
+                        if (!channelId) {
+                            const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
+                            const m = canonical.match(/\/channel\/(UC[a-zA-Z0-9_-]{22})/);
+                            if (m) channelId = m[1];
+                        }
+                        if (!channelId) {
+                            for (const s of document.scripts) {
+                                const m = (s.textContent || '').match(/"(?:externalId|channelId)"\s*:\s*"(UC[a-zA-Z0-9_-]{22})"/);
+                                if (m) { channelId = m[1]; break; }
+                            }
+                        }
+                        return {
+                            channelId,
+                            title,
+                            rssUrl: channelId ? `https://www.youtube.com/feeds/videos.xml?channel_id=${channelId}` : ''
+                        };
+                    }
                     case 'bilibili.initialState':
                         return window.__INITIAL_STATE__ ?? null;
                     case 'xiaohongshu.initialState': {

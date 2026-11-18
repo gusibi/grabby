@@ -95,6 +95,8 @@ export const api = {
     body: JSON.stringify({ data }),
   }),
   startEvaluation: () => jsonFetch("/api/ai/start_eval", { method: "POST" }),
+  getASREnv: () => jsonFetch("/open/api/asr/env"),
+  installASRTools: () => jsonFetch("/api/asr/install", { method: "POST" }),
   getExtractCaptures: (limit = 100, offset = 0) => jsonFetch(`/api/captures/extract?limit=${limit}&offset=${offset}`),
   getTwitterCaptures: (source = "", limit = 100, offset = 0) => jsonFetch(
     `/api/captures/twitter?limit=${limit}&offset=${offset}${source ? `&source=${encodeURIComponent(source)}` : ""}`

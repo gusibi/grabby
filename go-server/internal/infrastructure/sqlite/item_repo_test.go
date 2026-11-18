@@ -150,3 +150,110 @@ func TestCleanupOldDataRetainsProtectedData(t *testing.T) {
 		t.Fatalf("expected only the recent fetch log to remain, got %+v", logs)
 	}
 }
+
+func TestContentTypeFilterAndMediaBackfill(t *testing.T) {
+	db := newTestDB(t)
+
+	insertSource := func(id, typ string) {
+		t.Helper()
+		if err := db.InsertSource(Source{
+			ID: id, Name: id, Type: typ, URL: "https://example.com/" + id,
+			Schedule: "0 * * * *", Enabled: 1, DefaultCategory: "auto", Config: "{}",
+		}); err != nil {
+			t.Fatalf("InsertSource(%s): %v", id, err)
+		}
+	}
+	insertItem := func(sourceID, url, category, metadata string) int64 {
+		t.Helper()
+		id, err := db.InsertScrapedItem(ScrapedItem{
+			SourceID: sourceID, Title: url, URL: url, Category: category, Metadata: metadata,
+		})
+		if err != nil {
+			t.Fatalf("InsertScrapedItem(%s): %v", url, err)
+		}
+		return id
+	}
+
+	insertSource("rss-src", "rss")
+	insertSource("pod-src", "podcast")
+
+	insertItem("rss-src", "https://example.com/article", "article", "{}")
+	insertItem("rss-src", "https://example.com/episode", "podcast", `{"media_url":"https://cdn.example.com/a.mp3"}`)
+	insertItem("rss-src", "https://example.com/video", "youtube", "{}")
+	// Legacy row from a source that is already typed as a podcast.
+	insertItem("pod-src", "https://example.com/legacy", "article", "{}")
+
+	count := func(typ string) int {
+		t.Helper()
+		items, _, err := db.GetScrapedItems(ItemsFilter{ContentType: typ, Limit: 50})
+		if err != nil {
+			t.Fatalf("GetScrapedItems(%s): %v", typ, err)
+		}
+		return len(items)
+	}
+
+	if got := count("rss"); got != 1 {
+		t.Fatalf("rss filter = %d, want 1", got)
+	}
+	if got := count("podcast"); got != 2 {
+		t.Fatalf("podcast filter = %d, want 2", got)
+	}
+	if got := count("youtube"); got != 1 {
+		t.Fatalf("youtube filter = %d, want 1", got)
+	}
+
+	// The one-time media backfill upgrades an existing article row in place.
+	if err := db.UpdateSourceItemMedia("rss-src", "https://example.com/article", "podcast", `{"media_url":"https://cdn.example.com/backfill.mp3"}`); err != nil {
+		t.Fatalf("UpdateSourceItemMedia: %v", err)
+	}
+	if got := count("podcast"); got != 3 {
+		t.Fatalf("podcast filter after backfill = %d, want 3", got)
+	}
+	if got := count("rss"); got != 0 {
+		t.Fatalf("rss filter after backfill = %d, want 0", got)
+	}
+}
+
+func TestSetSourceItemsCategory(t *testing.T) {
+	db := newTestDB(t)
+	if err := db.InsertSource(Source{
+		ID: "src", Name: "src", Type: "rss", URL: "https://example.com/feed",
+		Schedule: "0 * * * *", Enabled: 1, DefaultCategory: "auto", Config: "{}",
+	}); err != nil {
+		t.Fatalf("InsertSource: %v", err)
+	}
+	for _, u := range []string{"https://example.com/1", "https://example.com/2"} {
+		if _, err := db.InsertScrapedItem(ScrapedItem{
+			SourceID: "src", Title: u, URL: u, Category: "article", Metadata: "{}",
+		}); err != nil {
+			t.Fatalf("InsertScrapedItem(%s): %v", u, err)
+		}
+	}
+
+	// Switching the source to podcast must reclassify existing items so the
+	// feed filter reflects the change without waiting for a re-scrape.
+	if err := db.SetSourceItemsCategory("src", "podcast"); err != nil {
+		t.Fatalf("SetSourceItemsCategory: %v", err)
+	}
+	items, _, err := db.GetScrapedItems(ItemsFilter{SourceID: "src", Limit: 50})
+	if err != nil {
+		t.Fatalf("GetScrapedItems: %v", err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2", len(items))
+	}
+	for _, it := range items {
+		if it.Category != "podcast" {
+			t.Fatalf("category = %q, want podcast", it.Category)
+		}
+	}
+
+	// "auto" is not a concrete category and must never rewrite stored items.
+	if err := db.SetSourceItemsCategory("src", "auto"); err != nil {
+		t.Fatalf("SetSourceItemsCategory(auto): %v", err)
+	}
+	items, _, _ = db.GetScrapedItems(ItemsFilter{SourceID: "src", Limit: 50})
+	if len(items) != 2 || items[0].Category != "podcast" {
+		t.Fatalf("auto category should be a no-op")
+	}
+}
