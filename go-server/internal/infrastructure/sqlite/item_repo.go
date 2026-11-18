@@ -97,6 +97,11 @@ func (d *Database) GetScrapedItems(f ItemsFilter) ([]ScrapedItem, string, error)
 		args = append(args, fmt.Sprintf("-%d days", f.Days))
 	}
 
+	if !f.Since.IsZero() {
+		query += " AND datetime(i.fetched_at) >= datetime(?)"
+		args = append(args, utcTimestamp(f.Since))
+	}
+
 	// Cursor clause
 	if f.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(f.Cursor)
@@ -552,6 +557,13 @@ func (d *Database) CountUnreadItems() (int, error) {
 func (d *Database) CountStarredItems() (int, error) {
 	var count int
 	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items WHERE starred = 1").Scan(&count)
+	return count, err
+}
+
+// CountItemsSince counts the items fetched at or after t.
+func (d *Database) CountItemsSince(t time.Time) (int, error) {
+	var count int
+	err := d.db.QueryRow("SELECT COUNT(*) FROM scraped_items WHERE datetime(fetched_at) >= datetime(?)", utcTimestamp(t)).Scan(&count)
 	return count, err
 }
 

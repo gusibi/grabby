@@ -32,7 +32,7 @@ type Dependencies struct {
 	TaskQueue       *scraping.TaskQueue
 	Scraper         *scraping.Scraper
 	Scheduler       *scheduler.Scheduler
-	FrontendFS      embed.FS
+	StaticFS        embed.FS
 }
 
 // NewRouter creates and returns a fully-configured Echo router.
@@ -78,6 +78,6 @@ func NewRouter(deps Dependencies) *echo.Echo {
 	mcpGroup.Any("/sse", echo.WrapHandler(mcpSvrs.SSE))
 	mcpGroup.Any("/message", echo.WrapHandler(mcpSvrs.SSE))
 
-	RegisterStaticHandlers(e, deps.FrontendFS, deps.Logger)
+	RegisterStaticHandlers(e, deps.StaticFS, deps.Logger)
 	return e
 }

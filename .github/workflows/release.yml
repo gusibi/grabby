@@ -25,28 +25,6 @@ env:
   VERSION: ${{ github.event.inputs.version || github.ref_name }}
 
 jobs:
-  frontend:
-    name: Build web frontend
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: npm
-          cache-dependency-path: go-server/frontend/package-lock.json
-      - name: Install dependencies
-        working-directory: go-server/frontend
-        run: npm ci
-      - name: Build
-        working-directory: go-server/frontend
-        run: npm run build
-      - uses: actions/upload-artifact@v4
-        with:
-          name: frontend-dist
-          path: go-server/frontend/dist
-          if-no-files-found: error
-
   extension:
     name: Build Chrome extension
     runs-on: ubuntu-latest
@@ -94,7 +72,6 @@ jobs:
 
   server:
     name: Build server (${{ matrix.goos }}/${{ matrix.goarch }})
-    needs: frontend
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -108,10 +85,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: go-server/go.sum
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: go-server/frontend/dist
       - name: Build and package
         working-directory: go-server
         env:
@@ -265,7 +238,6 @@ jobs:
 
   test:
     name: Go tests
-    needs: frontend
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -274,10 +246,6 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
           cache: true
           cache-dependency-path: go-server/go.sum
-      - uses: actions/download-artifact@v4
-        with:
-          name: frontend-dist
-          path: go-server/frontend/dist
       - name: Run Go tests
         working-directory: go-server
         run: go test ./...

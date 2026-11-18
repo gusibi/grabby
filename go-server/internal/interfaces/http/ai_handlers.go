@@ -68,11 +68,20 @@ func (h *AIHandlers) HandleQuality(c echo.Context) error {
 		limit = l
 	}
 
+	var since time.Time
+	if v := c.QueryParam("since"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			since = t
+		}
+	}
+
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
 		AICategory:     c.QueryParam("category"),
 		SourceCategory: c.QueryParam("source_category"),
+		ContentType:    c.QueryParam("content_type"),
 		ScoreMin:       scoreMin,
 		Days:           days,
+		Since:          since,
 		Limit:          limit,
 		Cursor:         c.QueryParam("cursor"),
 	})

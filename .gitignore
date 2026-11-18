@@ -48,11 +48,6 @@ chrome-extension/icons/temp_svgs/
 # GoReleaser
 dist/
 
-# The desktop app's UI is hand-written (no build step) and embedded into the
-# binary with //go:embed, so unlike frontend/dist it has to be tracked.
-!go-server/desktop/dist/
-!go-server/desktop/dist/*
-
 # IDE
 .vscode/
 .idea/

@@ -1,11 +1,12 @@
 //go:build desktop
 
-// Grabby Desktop: a MyGO shell around the existing Go server.
+// Grabby Desktop: a MyGO native window around the existing Go server.
 //
-// Unlike the headless server, this build embeds desktop/dist (its own native
-// looking UI) instead of frontend/dist. The HTTP / WebSocket / MCP server is
-// unchanged and still runs in this same process, so the app is an API relay:
-// external calls -> this process -> ws_browser -> Chrome extension -> page.
+// The interface is drawn natively by package nativeui (github.com/egoist/mygo/ui),
+// not by a web page. The HTTP / WebSocket / MCP server is unchanged and still
+// runs in this same process, so the app is an API relay: external calls ->
+// this process -> ws_browser -> Chrome extension -> page. Only rich article
+// and report HTML is shown in an embedded WebView inside the native reader.
 package main
 
 import (
@@ -28,14 +29,16 @@ import (
 	"time"
 
 	"github.com/egoist/mygo"
+	"github.com/egoist/mygo/ui"
 
 	"go-server/internal/bootstrap"
 	"go-server/internal/config"
 	"go-server/internal/logging"
+	"go-server/nativeui"
 )
 
-//go:embed all:desktop/dist
-var frontendFS embed.FS
+// The desktop app serves no web UI: the window is native.
+var staticFS embed.FS
 
 //go:embed desktop/assets/icon.png
 var desktopIconPNG []byte
@@ -126,7 +129,7 @@ func main() {
 	ctx, cancel := context.WithCancel(context.Background())
 	var serverWG sync.WaitGroup
 	logger := logging.GetLogger()
-	app, err := bootstrap.NewApp(settings, logger, frontendFS)
+	app, err := bootstrap.NewApp(settings, logger, staticFS)
 	if err != nil {
 		log.Fatalf("desktop: cannot initialise server: %v", err)
 	}
@@ -141,18 +144,9 @@ func main() {
 		log.Printf("desktop: server did not become ready at %s, opening the window anyway", uiBase)
 	}
 
-	// Platform-aware skin plus auth/bind hints for the UI. Never pass the
-	// token itself through the URL.
-	uiURL := uiBase + "/?platform=" + runtime.GOOS + "&desktop=1"
-	if settings.APIToken != "" || settings.AdminKey != "" {
-		uiURL += "&auth=1"
-	}
-	if external {
-		uiURL += "&external=1"
-	}
-
 	var mainWindow *mygo.Window
 	var quitting bool
+	var nativeApp *nativeui.App
 
 	openMainWindow := func() {
 		if mainWindow != nil {
@@ -160,25 +154,27 @@ func main() {
 			mainWindow.Focus()
 			return
 		}
+		if nativeApp == nil {
+			nativeApp = nativeui.New(nativeui.NewClient(uiBase))
+			nativeApp.SetIconPNG(desktopIconPNG)
+		}
 		opts := mygo.WindowOptions{
 			Title:           desktopAppName,
-			URL:             uiURL,
+			Content:         ui.View(nativeApp.View),
 			Width:           1180,
 			Height:          780,
 			MinWidth:        900,
 			MinHeight:       600,
 			StateKey:        "main",
 			BackgroundColor: "light-dark(#ffffff, #1c1c1e)",
-			Page: mygo.PageOptions{
-				TrustedOrigins: []string{uiBase},
-			},
 		}
 		if runtime.GOOS == "darwin" {
-			// Apple News style: the sidebar draws its own title bar area and
-			// leaves room for the traffic lights.
+			// The native sidebar draws the title bar area itself and leaves
+			// room for the traffic lights.
 			opts.TitleBarStyle = mygo.TitleBarHidden
 		}
 		win := mygo.NewWindow(opts)
+		nativeApp.Start(win)
 		win.OnClose(func(e *mygo.CloseEvent) {
 			if quitting {
 				mainWindow = nil
@@ -398,7 +394,7 @@ func waitForServer(base string, timeout time.Duration) bool {
 }
 
 // trayIconPNG draws a small black-on-transparent "G" template icon at runtime,
-// so the desktop build needs no binary asset beyond the embedded frontend.
+// so the desktop build needs no binary asset beyond the bundled icon.
 func trayIconPNG() ([]byte, error) {
 	const size = 32
 	img := image.NewRGBA(image.Rect(0, 0, size, size))

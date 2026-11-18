@@ -8,9 +8,10 @@ Grabby 把「用真实浏览器抓网页」和「AI 帮你筛选、总结、归�
 Chrome 扩展负责在带登录态的浏览器中抓取内容，Go 服务负责存储、调度与 AI 分析，
 桌面 App 提供完整的阅读与管理界面。数据默认只保存在本机 SQLite，不需要云端账号。
 
-- **桌面 App**：[MyGO](https://github.com/egoist/mygo) v0.8.3（macOS / Windows / Linux，系统 WebView）
+- **桌面 App**：[MyGO](https://github.com/egoist/mygo) v0.8.3 原生 UI（macOS / Windows / Linux，GPU 渲染）
 - **后端 / CLI**：Go（HTTP、WebSocket、MCP 与命令行）
-- **扩展 / Web 界面**：JavaScript、React
+- **Chrome 扩展**：JavaScript
+- **桌面界面**：Go，MyGO 原生 UI（GPU 渲染，无 HTML/JS）
 
 同一个进程同时提供 HTTP / WebSocket / MCP 服务，所以它既是桌面 App，也是一个
 **浏览器自动化 API 中转站**：外部请求进来后，由它转发给 Chrome 扩展在真实浏览器里执行。
@@ -134,7 +135,7 @@ cd Grabby-<版本>-Linux-amd64
 
 #### 从源码构建
 
-需要 Go 1.27.3+、Node.js 22+（仅构建 Web 界面时需要）。
+需要 Go 1.27.3+；Node.js 22+ 只在构建 Chrome 扩展时需要。
 
 ```bash
 git clone https://github.com/gusibi/grabby.git
@@ -183,8 +184,8 @@ make app          # 构建 → 打包 dist/Grabby.app → 启动
 
 ### 其他运行方式
 
-- **Web 管理界面**：`./start.sh`（macOS/Linux）或 `python start.py`，然后打开 `http://localhost:5040`。
-  也可以 `make run-go` 先构建前端再启动。
+- **headless 服务**：`./start.sh`（macOS/Linux）或 `python start.py`，或 `make run-go`。
+  服务只提供 API / WebSocket / MCP 与一个状态页（`http://localhost:5040`），完整界面在桌面 App 里。
 - **CLI**：`go-cli/`（Go），通过本地服务抓取网页。安装最新版：
   ```bash
   curl -fsSL https://raw.githubusercontent.com/gusibi/grabby/main/scripts/install.sh | bash
@@ -199,8 +200,9 @@ make app          # 构建 → 打包 dist/Grabby.app → 启动
 
 ## Web 服务（无桌面 App 时）
 
-不安装桌面 App 也可以只运行 Go 服务，通过浏览器使用 Web 管理界面，或把它当作纯 API / MCP 服务。
-Web 版与桌面 App 使用同一套 Go 服务与 SQLite 数据库，接口完全一致。
+不安装桌面 App 也可以只运行 Go 服务，把它当作纯 API / MCP 服务或采集中转站。
+headless 服务与桌面 App 使用同一套 Go 服务与 SQLite 数据库，接口完全一致；
+`http://localhost:5040` 只显示一个服务状态页，阅读与管理界面在桌面 App 中。
 
 ### 环境配置
 
@@ -467,24 +469,25 @@ wait
 
 ## 桌面 App（MyGO）
 
-桌面 App 是 Grabby 的主要使用方式。它复用同一套 Go 后端接口，但使用独立的界面
-`go-server/desktop/dist/`：macOS 为 Apple News 风格（沉浸式半透明侧栏、大标题、卡片流），
-Windows 为 Fluent / Windows 新闻风格，两者都跟随系统深浅色，并按平台处理窗口与图标样式。
-界面是运行在系统 WebView 中的 HTML/CSS/JS；进程、托盘、单实例、数据库和 API 服务则是原生 Go 二进制。
+桌面 App 是 Grabby 的主要使用方式。界面由 MyGO 的原生 UI 工具包（`go-server/nativeui`）
+用 Go 直接绘制，不经过 HTML/JS，也没有 WebView 外壳：侧栏、卡片流、表单、弹窗、对话框
+全部是 GPU 渲染的原生控件，跟随系统深浅色。唯一保留的 WebView 嵌在阅读器里，用来显示
+经过清洗的富文本正文；日报正文则用原生 Markdown 组件渲染。
 
 ### 关于 MyGO
 
-桌面外壳基于 [MyGO](https://github.com/egoist/mygo) v0.8.3 构建。MyGO 负责窗口、菜单栏托盘、
-Dock 图标、单实例锁、系统 WebView 与 `.app` 打包等原生能力，Grabby 专注于界面与业务逻辑。
-入口文件是 `go-server/main_desktop.go`，`make package-macos-app` 生成可分发的 `dist/Grabby.app`。
+桌面应用基于 [MyGO](https://github.com/egoist/mygo) v0.8.3 构建。MyGO 负责窗口、原生 UI、
+菜单栏托盘、Dock 图标、单实例锁与 `.app` 打包等能力，Grabby 专注于界面与业务逻辑。
+界面代码在 `go-server/nativeui/`，入口文件是 `go-server/main_desktop.go`，
+`make package-macos-app` 生成可分发的 `dist/Grabby.app`。
 
 感谢 MyGO 作者 [@egoist](https://github.com/egoist) 及所有贡献者。
 
-> 原有的 Web 管理页面保持原样，桌面 App 与 Web 版共用同一个数据库和 API，可以按需选择。
+> headless 服务仍可通过 `/open/api` 与 MCP 使用；桌面 App 自身不再加载任何 Web 管理页面。
 
 ### APP 功能
 
-APP 复用 Web 版同一套后端接口，侧栏分四组：
+APP 复用与 headless 服务相同的后端接口，侧栏分四组：
 
 | 页面 | 功能 | 主要接口 |
 |---|---|---|
@@ -541,7 +544,6 @@ APP 复用 Web 版同一套后端接口，侧栏分四组：
 
 写操作走 `/api/*`，读操作走 `/open/api/*`。**APP 内不需要任何 token**：服务与本机调用（WebView、CLI、MCP、扩展）
 全部走 loopback，永远免密，也不会弹登录框；Token 只用于保护来自其他设备的请求，默认关闭。
-启动到指定页面可加 `?view=sources`（`today|library|sources|news|ai|daily|devices|apihub|settings`）。
 
 APP 不只是界面：完整的 HTTP / WebSocket / MCP 服务仍然跑在同一个 Go 进程里，
 所以它本身就是一个 **API 中转站**：
@@ -570,7 +572,7 @@ bash scripts/package-desktop.sh linux   0.3.1   # 可执行文件 + tar.gz + .de
 ```
 
 桌面 App 是**单个自包含的可执行文件**：Go 服务端、HTTP / WebSocket / MCP、SQLite 与
-`desktop/dist` 界面都通过 `go:embed` 打进二进制，运行时不依赖 Go、Node 或任何后端进程；
+原生界面代码都编译进二进制，运行时不依赖 Go、Node 或任何后端进程；
 交叉编译使用 `CGO_ENABLED=0`（MyGO 是纯 Go），因此 macOS / Windows / Linux 的产物都可以在任意机器上构建。
 
 MyGO 要求 Go 1.27.3+（`go-server/go.mod` 已升级）。若本机设置了 `GOSUMDB=off`，
@@ -580,7 +582,6 @@ Go 自动切换 toolchain 会失败，Makefile 的 desktop target 已临时指�
 
 ```bash
 cd go-server && go test ./...                        # 后端单元测试
-cd go-server/frontend && npm ci && npm run build    # 前端构建 + TypeScript 检查
 cd chrome-extension && npm ci && npm run build      # 生成 defuddle bundle
 ```
 
@@ -595,7 +596,7 @@ git push origin v0.3.1
 
 推送 `v*` tag 后会自动：
 
-1. 构建 Web 前端与 Chrome 扩展（`grabby-extension-<version>.zip`）；
+1. 构建 Chrome 扩展（`grabby-extension-<version>.zip`）；
 2. 交叉编译 headless server 与 CLI（darwin / linux / windows × amd64 / arm64）；
 3. 构建桌面 App：
    - macOS：arm64 + amd64 合并为通用二进制，写入版本号、ad-hoc 签名，打包 `.dmg`；
@@ -632,7 +633,7 @@ Token 与对外访问**不读环境变量，也不读 `.env`**，只在 APP 的�
 监听范围改变需要重启 APP。开启对外访问时必须先设置 Token，否则保存会被拒绝。
 
 `.env` 里遗留的 `GRABBY_ADMIN_KEY` / `GRABBY_API_TOKEN` 对 APP 无效（启动时被清空），
-所以不会出现「一打开就要求登录」的情况；Web 版与命令行的鉴权行为完全不变。
+所以不会出现「一打开就要求登录」的情况；headless 服务与命令行的鉴权行为完全不变。
 
 ### 行为
 
@@ -651,7 +652,7 @@ Token 与对外访问**不读环境变量，也不读 `.env`**，只在 APP 的�
 - **对外监听时 HTTP 与 WebSocket 都会校验 Token**：远端 HTTP 请求带 `X-API-Key`（或 `Authorization: Bearer`），
   远端 WS 握手带 `?token=`。Chrome 扩展在填写 Token 后会自动同时用于注册请求和 WS 握手，因此局域网连接可以直接用。
   本机 loopback 请求始终免密，所以本机上的 Chrome 扩展、CLI、MCP 客户端与 APP 自身不受影响，
-  Web 版的鉴权行为也没有变化。`CheckOrigin` 仍为允许，不要把 Token 长期暴露在不可信网络里。
+  headless 服务的鉴权行为也没有变化。`CheckOrigin` 仍为允许，不要把 Token 长期暴露在不可信网络里。
 
 ## 项目架构
 
@@ -665,8 +666,9 @@ grabby/
 │   │   ├── application/     # 业务逻辑（scraping / ai / scheduler / twitter / reddit / xiaohongshu / backup）
 │   │   ├── infrastructure/  # 基础设施（browserws / sqlite / llm / browserregistry / catalog）
 │   │   └── interfaces/      # 对外接口（http / websocket / mcp / dto）
-│   ├── frontend/            # React Web 管理界面（编译后嵌入 headless 二进制）
-│   └── desktop/             # 桌面 App（MyGO WebView UI + 平台图标资源）
+│   ├── nativeui/            # 桌面 App 原生界面（MyGO UI：侧栏、卡片、表单、阅读器）
+│   ├── web/                 # headless 服务的内置状态页
+│   └── desktop/             # 桌面打包资源（图标、Info.plist）
 ├── assets/                  # 品牌 Logo 与各平台图标（icons/macos|windows|linux）
 ├── go-cli/                  # Go 版命令行客户端
 ├── python-cli/              # Python 版命令行客户端（免编译）

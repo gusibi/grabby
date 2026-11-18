@@ -44,7 +44,8 @@ grabby/
 ├── go-server/               # Go 后端（唯一后端）
 │   ├── main.go
 │   ├── internal/            # domain / application / infrastructure / interfaces
-│   └── frontend/            # React 管理界面
+│   ├── nativeui/            # MyGO 原生桌面 UI
+│   └── web/                 # 无头服务状态页
 ├── go-cli/                  # Go 版命令行客户端
 ├── python-cli/              # Python 版命令行客户端
 ├── Makefile

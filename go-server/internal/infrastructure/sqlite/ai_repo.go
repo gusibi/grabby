@@ -119,6 +119,11 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 		args = append(args, fmt.Sprintf("-%d days", f.Days))
 	}
 
+	if !f.Since.IsZero() {
+		query += " AND datetime(i.fetched_at) >= datetime(?)"
+		args = append(args, utcTimestamp(f.Since))
+	}
+
 	// Cursor clause using COALESCE(i.published_at, i.fetched_at)
 	if f.Cursor != "" {
 		cursorTime, cursorID, err := decodeCursor(f.Cursor)

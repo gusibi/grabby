@@ -47,7 +47,8 @@ grabby/
 │   │   ├── infrastructure/      # browserws / sqlite / llm / browserregistry
 │   │   ├── interfaces/          # http / websocket / mcp / dto
 │   │   └── logging/             # 日志
-│   └── frontend/                # React 管理界面（编译后嵌入二进制）
+│   ├── nativeui/                # MyGO 原生 UI（桌面窗口与页面）
+│   └── web/                     # 无头服务的状态页（embed.FS）
 ├── go-cli/                      # Go 版命令行客户端
 ├── python-cli/                  # Python 版命令行客户端（免编译）
 ├── scripts/                     # 安装脚本
@@ -71,4 +72,4 @@ grabby/
 - mark3labs/mcp-go (MCP Server)
 - goldmark + bluemonday（Markdown/HTML 混合渲染与安全过滤）
 - SQLite (数据存储)
-- 内嵌 React 前端（embed.FS）
+- MyGO (github.com/egoist/mygo) 原生桌面 UI

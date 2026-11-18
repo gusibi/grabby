@@ -32,10 +32,10 @@ type App struct {
 	taskQueue       *scraping.TaskQueue
 	scraper         *scraping.Scraper
 	scheduler       *scheduler.Scheduler
-	frontendFS      embed.FS
+	staticFS        embed.FS
 }
 
-func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) (*App, error) {
+func NewApp(settings *config.Settings, logger *zap.Logger, staticFS embed.FS) (*App, error) {
 	dbPath := config.GetEnv("DB_PATH", "grabby.db")
 	db, err := sqlite.NewDatabase(dbPath)
 	if err != nil {
@@ -80,7 +80,7 @@ func NewApp(settings *config.Settings, logger *zap.Logger, frontendFS embed.FS) 
 		taskQueue:       taskQueue,
 		scraper:         scraper,
 		scheduler:       schedulerInstance,
-		frontendFS:      frontendFS,
+		staticFS:        staticFS,
 	}, nil
 }
 
@@ -123,7 +123,7 @@ func (a *App) Run(ctx context.Context) error {
 		TaskQueue:       a.taskQueue,
 		Scraper:         a.scraper,
 		Scheduler:       a.scheduler,
-		FrontendFS:      a.frontendFS,
+		StaticFS:        a.staticFS,
 	})
 
 	addr := fmt.Sprintf("%s:%d", a.settings.Host, a.settings.Port)

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grabby Server</title>
+<style>
+  :root{--paper:#f7f7f3;--ink:#171a16;--muted:#62685e;--line:#e1e3da;--signal:#205f37;--soft:#f1f2ec;color-scheme:light}
+  @media (prefers-color-scheme:dark){:root{--paper:#121512;--ink:#f1f3ec;--muted:#9ba197;--line:#292e28;--signal:#c9f267;--soft:#191d19;color-scheme:dark}}
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--paper);color:var(--ink);
+    font:15px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif}
+  main{width:min(640px,calc(100vw - 40px));padding:34px 36px;border:1px solid var(--line);border-radius:18px;background:var(--soft)}
+  .brand{display:flex;align-items:center;gap:10px;margin-bottom:22px}
+  .mark{width:30px;height:30px;border-radius:9px;display:grid;place-items:center;color:#fff;font-weight:800;
+    background:linear-gradient(135deg,#205f37,#7aa35a)}
+  h1{font-size:20px;margin:0;letter-spacing:-.01em}
+  p{color:var(--muted);margin:0 0 18px}
+  code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px;background:rgba(127,127,127,.12);
+    padding:2px 6px;border-radius:6px}
+  ul{margin:0;padding:0;list-style:none}
+  li{display:flex;justify-content:space-between;gap:14px;padding:9px 0;border-top:1px solid var(--line)}
+  li:first-child{border-top:0}
+  a{color:var(--signal);text-decoration:none}
+  a:hover{text-decoration:underline}
+  footer{margin-top:22px;color:var(--muted);font-size:12px}
+</style>
+</head>
+<body>
+<main>
+  <div class="brand"><div class="mark">G</div><h1>Grabby Server</h1></div>
+  <p>服务正在运行。桌面 App 是 Grabby 的完整界面；这个进程对外提供采集、内容库与 MCP 接口。</p>
+  <ul>
+    <li><span>健康检查</span><a href="/open/api/health"><code>/open/api/health</code></a></li>
+    <li><span>内容库</span><a href="/open/api/items"><code>/open/api/items</code></a></li>
+    <li><span>MCP</span><code>/mcp</code> · <code>/mcp/sse</code></li>
+    <li><span>浏览器 WebSocket</span><code>/ws_browser</code></li>
+  </ul>
+  <footer>安装桌面 App 获得完整阅读与管理界面。</footer>
+</main>
+</body>
+</html>

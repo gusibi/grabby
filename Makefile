@@ -7,7 +7,7 @@ DIST_DIR := dist
 VERSION := $(shell cat $(EXTENSION_DIR)/manifest.json | grep '"version"' | sed 's/.*"version": "\([^"]*\)".*/\1/')
 PACKAGE_NAME := grabby-v$(VERSION).zip
 
-.PHONY: all build package clean install dev build-go run-go clean-go build-frontend run build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop build-cli clean-cli
+.PHONY: all build package clean install dev build-go run-go clean-go run build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop build-cli clean-cli
 
 # ==================== Chrome Extension ====================
 
@@ -79,13 +79,8 @@ go-deps:
 	@echo "==> 下载 Go 依赖..."
 	cd $(GO_SERVER_DIR) && go mod download
 
-# 构建 React 前端
-build-frontend:
-	@echo "==> 构建 React 前端..."
-	cd $(GO_SERVER_DIR)/frontend && npm run build
-
-# 构建 Go MCP Server（依赖前端构建及 Go 源码，确保最新前端被嵌入）
-build-go: build-frontend $(GO_SRC)
+# 构建 headless Go 服务（界面在桌面 App 中，服务端只内置状态页）
+build-go: $(GO_SRC)
 	@echo "==> 构建 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && go build -o go-server .
 	@echo "==> Go Server 构建完成: $(GO_SERVER_DIR)/go-server"
@@ -95,8 +90,8 @@ run-go: build-go
 	@echo "==> 启动 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && ./go-server
 
-# 编译前端，然后直接运行 Go (使用 go run 规避 macOS 签名限制)
-run: build-frontend
+# 直接运行 headless Go 服务
+run:
 	@echo "==> 启动 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && go run .
 
@@ -123,7 +118,7 @@ clean-cli:
 
 DESKTOP_BIN := $(GO_SERVER_DIR)/grabby-desktop
 
-# 构建桌面 APP（使用独立的 desktop/dist 前端，不影响 Web 页面）
+# 构建桌面 APP（界面由 MyGO 原生 UI 绘制，不依赖前端构建产物）
 build-desktop:
 	@echo "==> 构建 Grabby 桌面 APP..."
 	cd $(GO_SERVER_DIR) && go build -tags desktop -o grabby-desktop .
@@ -219,10 +214,9 @@ help:
 	@echo "  make all          - 完整流程（build + package）"
 	@echo ""
 	@echo "=== Go MCP Server ==="
-	@echo "  make build-frontend - 仅构建 React 前端"
-	@echo "  make build-go       - 构建 Go MCP Server (自动构建前端)"
+	@echo "  make build-go       - 构建 Go MCP Server"
 	@echo "  make run-go         - 构建并运行 Go MCP Server"
-	@echo "  make run            - 先编译前端，再编译 Go，最后运行"
+	@echo "  make run            - 直接运行 Go MCP Server"
 	@echo "  make clean-go       - 清理 Go 构建产物"
 	@echo ""
 	@echo "=== CLI ==="

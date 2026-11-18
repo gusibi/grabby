@@ -16,8 +16,8 @@ import (
 	"go-server/internal/logging"
 )
 
-//go:embed frontend/dist
-var frontendFS embed.FS
+//go:embed all:web
+var staticFS embed.FS
 
 func main() {
 	settings := config.GetSettings()
@@ -27,7 +27,7 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	app, err := bootstrap.NewApp(settings, logger, frontendFS)
+	app, err := bootstrap.NewApp(settings, logger, staticFS)
 	if err != nil {
 		logger.Fatal("Failed to initialize app", zap.Error(err))
 	}

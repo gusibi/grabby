@@ -33,8 +33,10 @@ type ItemsFilter struct {
 	ReadStatus     *int
 	ScoreMin       int
 	Days           int
-	Cursor         string
-	Limit          int
+	// Since keeps items fetched at or after it, for a day's feed.
+	Since  time.Time
+	Cursor string
+	Limit  int
 }
 
 // AIItemsFilter represents filters when querying scraped items with AI analysis.
@@ -44,8 +46,10 @@ type AIItemsFilter struct {
 	ContentType    string
 	ScoreMin       int
 	Days           int
-	Limit          int
-	Cursor         string
+	// Since keeps items fetched at or after it, for a day's feed.
+	Since  time.Time
+	Limit  int
+	Cursor string
 }
 
 // ScrapedItemWithAI represents a scraped item along with its AI analysis details.

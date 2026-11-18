@@ -81,6 +81,13 @@ func (h *contentHandlers) listItems(c echo.Context) error {
 		}
 	}
 
+	var since time.Time
+	if v := c.QueryParam("since"); v != "" {
+		if t, err := time.Parse(time.RFC3339, v); err == nil {
+			since = t
+		}
+	}
+
 	items, nextCursor, err := h.deps.DB.GetScrapedItems(item.ItemsFilter{
 		Category:       c.QueryParam("category"),
 		ContentType:    c.QueryParam("content_type"),
@@ -89,6 +96,7 @@ func (h *contentHandlers) listItems(c echo.Context) error {
 		Q:              c.QueryParam("q"),
 		Starred:        starred,
 		ReadStatus:     readStatus,
+		Since:          since,
 		Cursor:         c.QueryParam("cursor"),
 		Limit:          limit,
 	})
@@ -331,11 +339,14 @@ func (h *contentHandlers) stats(c echo.Context) error {
 	catCounts, _ := db.CountItemsByCategory()
 	sourceCatUnread, _ := db.CountItemsBySourceCategory()
 	allSourceCats, _ := db.GetDistinctSourceCategories()
+	now := time.Now()
+	todayCount, _ := db.CountItemsSince(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
 
 	return c.JSON(http.StatusOK, map[string]any{
 		"total_count":            totalCount,
 		"unread_count":           unreadCount,
 		"starred_count":          starredCount,
+		"today_count":            todayCount,
 		"categories":             catCounts,
 		"source_categories":      allSourceCats,
 		"source_category_unread": sourceCatUnread,
@@ -352,20 +363,21 @@ func paramInt64(c echo.Context) (int64, error) {
 	return id, nil
 }
 
-// RegisterStaticHandlers serves the embedded frontend SPA. It legitimately uses
-// net/http file serving, so it keeps the wrapHandlerFunc bridge.
-//
-// The headless server embeds frontend/dist, while the desktop build embeds its
-// own desktop/dist. Pick whichever is present so the two UIs stay independent
-// and the existing web frontend needs no changes.
-func RegisterStaticHandlers(e *echo.Echo, frontendFS embed.FS, logger *zap.Logger) {
-	root := "frontend/dist"
-	if _, err := fs.Stat(frontendFS, "desktop/dist/index.html"); err == nil {
-		root = "desktop/dist"
+// RegisterStaticHandlers serves a bundled landing page, when the build has one.
+// The headless server ships a small status page (web/index.html); the desktop
+// app's window is native UI and ships no web frontend, so it passes an empty FS
+// and no static route is registered.
+func RegisterStaticHandlers(e *echo.Echo, staticFS embed.FS, logger *zap.Logger) {
+	root := ""
+	if _, err := fs.Stat(staticFS, "web/index.html"); err == nil {
+		root = "web"
 	}
-	fsys, err := fs.Sub(frontendFS, root)
+	if root == "" {
+		return
+	}
+	fsys, err := fs.Sub(staticFS, root)
 	if err != nil {
-		logger.Warn("Failed to load embedded frontend files", zap.Error(err))
+		logger.Warn("Failed to load embedded web files", zap.Error(err))
 		return
 	}
 	fileServer := http.FileServer(http.FS(fsys))
