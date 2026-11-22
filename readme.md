@@ -25,9 +25,12 @@ Chrome 扩展负责在带登录态的浏览器中抓取内容，Go 服务负责�
 ### 采集
 
 - **网页提取**：任意 URL → 干净 Markdown / 截图，保留登录态，支持多浏览器路由。
-- **订阅源**：RSS / API / 网页抓取源，cron 定时、启停、立即抓取、抓取日志、分组管理。
+- **订阅源**：RSS / Atom、博客列表、YouTube 频道、播客、API、网页抓取源，cron 定时、启停、立即抓取、抓取日志、分组管理。
+  RSS 可补抓原文正文；博客列表按每源选择器/链接规则发现文章；YouTube 保存原始简介与公开字幕；播客保存节目简介、音频链接与公开文字稿。每轮抓取记录逐条文本来源、跳过与失败原因。
 - **平台采集**：X（搜索 / 时间线 / 喜欢）、Reddit（板块 / 搜索 / 帖子）、小红书、Google Search Console。
 - **浏览器扩展**：WebSocket 长连接、连接状态图标、按页面一键采集、自动重连。
+
+> 订阅文本采集（RSS 全文、博客列表、YouTube 简介/字幕、播客文字稿）的配置字段、补抓方式、抓取明细 API 与阅读说明见 [docs/subscription-text.md](docs/subscription-text.md)。
 
 ### 阅读与管理
 
@@ -493,7 +496,7 @@ APP 复用与 headless 服务相同的后端接口，侧栏分四组：
 |---|---|---|
 | 今天 | 当日统计、扩展连接状态、今日日报摘要、最新内容 | `/open/api/health`、`/open/api/stats`、`/open/api/items`、`/open/api/ai/daily/list` |
 | 内容库 | 服务端搜索；全部 / 已收藏 / AI 优质；来源、内容类型、AI 分类标签筛选；加载更多、详情、收藏、已读 | `/open/api/items`、`/open/api/ai/items`、`/api/items/:id/*` |
-| RSS 源 | 订阅源增删改、启停、单条与批量立即抓取、抓取日志、分组 | `/api/sources`、`/api/sources/:id/toggle|run`、`/api/logs` |
+| RSS 源 | 订阅源增删改、启停、单条与批量立即抓取、抓取日志、分组 | `/api/sources`、`/api/sources/:id/toggle|run`、`/api/logs`、`/api/logs/:id` |
 | 新闻源 | 来源分组跳转、X / Reddit / 小红书 / 网页提取采集、提取归档 | `/api/twitter/*`、`/api/reddit/*`、`/api/xiaohongshu/*`、`/api/extract`、`/api/captures/extract` |
 | AI 分析 | 「优质内容 / 概览与配置」两个 Tab；队列与用量统计、连通性测试、全量评测、优质内容（含分析时间）、单条重分析 | `/open/api/ai/stats`、`/api/ai/test`、`/api/ai/start_eval`、`/open/api/ai/*` |
 | AI 日报 | 按日期 / 类型查看、生成、补生成近 7 天、历史列表（含生成时间）、RSS 订阅地址 | `/open/api/ai/daily`、`/open/api/ai/daily/list`、`/api/ai/daily/generate` |

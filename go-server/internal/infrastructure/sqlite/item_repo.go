@@ -3,6 +3,7 @@ package sqlite
 import (
 	"database/sql"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -236,14 +237,39 @@ func (d *Database) UpsertScrapedItem(item ScrapedItem) (int64, bool, error) {
 }
 
 // UpdateSourceItemMedia upgrades an existing item with audio metadata captured
-// from its feed enclosure, without disturbing the fetched content.
+// from its feed enclosure, without disturbing the fetched content or other
+// metadata keys (full-text status, transcripts, ...).
 func (d *Database) UpdateSourceItemMedia(sourceID, url, category, metadata string) error {
 	if metadata == "" || metadata == "{}" {
 		return nil
 	}
-	_, err := d.db.Exec(
+	var existingRaw string
+	err := d.db.QueryRow(
+		`SELECT COALESCE(metadata, '{}') FROM scraped_items WHERE source_id = ? AND url = ? LIMIT 1`,
+		sourceID, url,
+	).Scan(&existingRaw)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	merged := map[string]any{}
+	if existingRaw != "" {
+		_ = json.Unmarshal([]byte(existingRaw), &merged)
+	}
+	incoming := map[string]any{}
+	_ = json.Unmarshal([]byte(metadata), &incoming)
+	for k, v := range incoming {
+		if s, ok := v.(string); ok && strings.TrimSpace(s) == "" {
+			continue
+		}
+		merged[k] = v
+	}
+	raw, err := json.Marshal(merged)
+	if err != nil {
+		raw = []byte(metadata)
+	}
+	_, err = d.db.Exec(
 		`UPDATE scraped_items SET category = ?, metadata = ? WHERE source_id = ? AND url = ?`,
-		category, metadata, sourceID, url,
+		category, string(raw), sourceID, url,
 	)
 	return err
 }
@@ -648,4 +674,118 @@ func (d *Database) ItemExistsByURL(url string) (bool, error) {
 	var exists bool
 	err := d.db.QueryRow("SELECT EXISTS(SELECT 1 FROM scraped_items WHERE url = ?)", url).Scan(&exists)
 	return exists, err
+}
+
+// GetScrapedItemFullByURL loads an item by its stored URL, including source
+// category and metadata. Unlike GetScrapedItemByURL it returns the whole row.
+func (d *Database) GetScrapedItemFullByURL(url string) (*ScrapedItem, error) {
+	var it ScrapedItem
+	var pubAt sql.NullTime
+	err := d.db.QueryRow(`
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category,
+		       COALESCE(s.category, ''), i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
+		       COALESCE(i.metadata, '{}')
+		FROM scraped_items i
+		LEFT JOIN sources s ON i.source_id = s.id
+		WHERE i.url = ?
+		LIMIT 1
+	`, url).Scan(
+		&it.ID, &it.SourceID, &it.OriginSource, &it.Title, &it.URL, &it.Summary, &it.Content, &it.Category,
+		&it.SourceCategory, &pubAt, &it.FetchedAt, &it.ReadStatus, &it.Starred, &it.Tags, &it.Metadata,
+	)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	if pubAt.Valid {
+		it.PublishedAt = &pubAt.Time
+	}
+	return &it, nil
+}
+
+// FindScrapedItemByVideoID resolves a YouTube video by identity, not just by
+// URL spelling: youtu.be/ID, watch?v=ID&t=..., shorts/ID and the canonical watch
+// URL all land on the same item. Older rows carried video_id in metadata, which
+// keeps them reachable too.
+func (d *Database) FindScrapedItemByVideoID(videoID string) (*ScrapedItem, error) {
+	videoID = strings.TrimSpace(videoID)
+	if videoID == "" {
+		return nil, nil
+	}
+	canonical := "https://www.youtube.com/watch?v=" + videoID
+	var id int64
+	err := d.db.QueryRow(`
+		SELECT id FROM scraped_items
+		WHERE url = ? OR url = ? OR (COALESCE(metadata, '') LIKE ?)
+		ORDER BY id ASC LIMIT 1
+	`, canonical, "https://youtu.be/"+videoID, `%"video_id":"`+videoID+`"%`).Scan(&id)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return d.GetScrapedItem(id)
+}
+
+// ListSourceItems returns every item that belongs to a source. Used for
+// backfilling entries stored before full-text/transcript capture was enabled.
+func (d *Database) ListSourceItems(sourceID string) ([]ScrapedItem, error) {
+	rows, err := d.db.Query(`
+		SELECT i.id, i.source_id, i.origin_source, i.title, i.url, i.summary, i.content, i.category,
+		       COALESCE(s.category, ''), i.published_at, i.fetched_at, i.read_status, i.starred, i.tags,
+		       COALESCE(i.metadata, '{}')
+		FROM scraped_items i
+		LEFT JOIN sources s ON i.source_id = s.id
+		WHERE i.source_id = ?
+		ORDER BY COALESCE(i.published_at, i.fetched_at) DESC, i.id DESC
+	`, sourceID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var list []ScrapedItem
+	for rows.Next() {
+		var it ScrapedItem
+		var pubAt sql.NullTime
+		if err := rows.Scan(&it.ID, &it.SourceID, &it.OriginSource, &it.Title, &it.URL, &it.Summary,
+			&it.Content, &it.Category, &it.SourceCategory, &pubAt, &it.FetchedAt, &it.ReadStatus,
+			&it.Starred, &it.Tags, &it.Metadata); err != nil {
+			return nil, err
+		}
+		if pubAt.Valid {
+			it.PublishedAt = &pubAt.Time
+		}
+		list = append(list, it)
+	}
+	return list, rows.Err()
+}
+
+// UpdateScrapedItemFromScrape writes refreshed scrape fields without touching
+// user state (read_status, starred, tags). The item ID is stable, so bookmarks,
+// read markers and AI analyses keep pointing at the same row.
+func (d *Database) UpdateScrapedItemFromScrape(id int64, title, summary, content, category, metadata string, publishedAt *time.Time) error {
+	if metadata == "" {
+		metadata = "{}"
+	}
+	_, err := d.db.Exec(`
+		UPDATE scraped_items
+		SET title = CASE WHEN ? != '' THEN ? ELSE title END,
+		    summary = CASE WHEN ? != '' THEN ? ELSE summary END,
+		    content = CASE WHEN ? != '' THEN ? ELSE content END,
+		    category = CASE WHEN ? != '' THEN ? ELSE category END,
+		    metadata = ?,
+		    published_at = COALESCE(?, published_at)
+		WHERE id = ?
+	`, title, title, summary, summary, content, content, category, category, metadata,
+		utcTimestampArg(publishedAt), id)
+	return err
+}
+
+// ExecRaw is a narrow escape hatch for tests and one-off maintenance commands.
+func (d *Database) ExecRaw(query string, args ...any) (sql.Result, error) {
+	return d.db.Exec(query, args...)
 }

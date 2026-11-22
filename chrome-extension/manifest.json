@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Grabby 2.0 - 浏览器数据助手",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "description": "Grabby 浏览器扩展 — 借用已登录真实浏览器抓取网页、提取正文转 Markdown、截图，支持 X/Twitter、小红书、Reddit 等平台结构化内容读取，为 AI 工具提供数据。",
   "icons": {
     "16": "icons/icon16.png",

@@ -4,6 +4,37 @@
  */
 
 (function (global) {
+    const YOUTUBE_ID_RE = /^[A-Za-z0-9_-]{6,20}$/;
+
+    // youTubeVideoID 只认视频页；频道/首页/搜索返回空，继续走通用正文提取。
+    function youTubeVideoID(rawUrl) {
+        try {
+            const u = new URL(rawUrl);
+            const host = u.hostname.toLowerCase();
+            if (host === 'youtu.be') {
+                const id = u.pathname.split('/').filter(Boolean)[0] || '';
+                return YOUTUBE_ID_RE.test(id) ? id : '';
+            }
+            if (host !== 'youtube.com' && !host.endsWith('.youtube.com')) return '';
+            if (u.pathname === '/watch') {
+                const id = u.searchParams.get('v') || '';
+                return YOUTUBE_ID_RE.test(id) ? id : '';
+            }
+            const m = u.pathname.match(/^\/(?:shorts|live|embed)\/([A-Za-z0-9_-]+)/);
+            return m && YOUTUBE_ID_RE.test(m[1]) ? m[1] : '';
+        } catch (_) {
+            return '';
+        }
+    }
+
+    function plainTextToMarkdown(text) {
+        return String(text || '')
+            .split(/\n{2,}/)
+            .map((p) => p.replace(/\s*\n\s*/g, ' ').trim())
+            .filter(Boolean)
+            .join('\n\n');
+    }
+
     class ContentExtractor {
         constructor() {
             this.extractionRules = [];
@@ -32,6 +63,12 @@
                 // 获取页面URL，用于匹配自定义规则
                 const tab = await this.getTabInfo(tabId);
                 const url = tab.url;
+
+                // YouTube 视频的正文在播放器数据里，Defuddle 只能拿到简介，
+                // 这里改用页面 MAIN world 的字幕脚本，拿到真正的文字稿。
+                if (youTubeVideoID(url) && typeof self.extractYouTubeTranscript === 'function') {
+                    return this.withMetadataHeader(await this.extractYouTube(tabId, tab), tab);
+                }
 
                 // 检查是否有匹配的自定义规则
                 const customRule = this.findMatchingRule(url);
@@ -82,6 +119,49 @@
                 description,
                 content: withHeader,
                 markdown: withHeader
+            };
+        }
+
+        /**
+         * 提取 YouTube 视频：简介 + 字幕文字稿。
+         * 字幕通过 background.js 的 MAIN world 脚本读取（页面里才有
+         * ytInitialPlayerResponse 和带登录态的 captions 请求）。
+         */
+        async extractYouTube(tabId, tab) {
+            const data = await self.extractYouTubeTranscript(tabId);
+            if (!data) {
+                throw new Error('无法读取 YouTube 视频信息，请刷新页面后重试');
+            }
+
+            const description = (data.shortDescription || '').trim();
+            const transcript = (data.transcript || '').trim();
+            const parts = [];
+            if (description) parts.push('## 视频简介\n\n' + description);
+            if (transcript) parts.push('## 视频文字稿\n\n' + transcript);
+
+            const body = parts.join('\n\n\n');
+            if (!body) {
+                throw new Error(data.hasCaptions ? '该视频的字幕暂时无法读取' : '该视频没有简介或字幕');
+            }
+
+            return {
+                title: data.title || tab.title || '',
+                description,
+                url: tab.url || '',
+                content: body,
+                markdown: body,
+                author: data.author || '',
+                published: '',
+                site: 'YouTube',
+                language: data.languageCode || '',
+                wordCount: body.length,
+                image: '',
+                favicon: '',
+                domain: 'youtube.com',
+                html: '',
+                images: [],
+                links: [],
+                textLength: body.length
             };
         }
 
@@ -231,7 +311,7 @@
             // 确保 defuddle 已注入
             await this.ensureDefuddleInjected(tabId);
 
-            return new Promise((resolve, reject) => {
+            const extracted = await new Promise((resolve, reject) => {
                 chrome.scripting.executeScript({
                     target: { tabId },
                     func: (opts) => {
@@ -294,6 +374,55 @@
                             links: [],
                             textLength: d.wordCount || 0
                         });
+                    }
+                });
+            });
+
+            // Defuddle 偶尔只拿到标题/简介（脚本渲染、特殊版式等）。正文过短，
+            // 或明显短于页面可读文本时用 DOM 纯文本兜底，避免
+            // “只提取到 title 和 description”。
+            const body = (extracted.content || '').trim();
+            if (body.length < 600) {
+                const fallback = plainTextToMarkdown(await this.extractReadableText(tabId));
+                const missingBody = body.length < 120;
+                const likelyMetaOnly = fallback.length > body.length * 3;
+                if (fallback.length > body.length && (missingBody || likelyMetaOnly)) {
+                    extracted.content = fallback;
+                    extracted.markdown = fallback;
+                    extracted.textLength = fallback.length;
+                    extracted.wordCount = fallback.length;
+                }
+            }
+            return extracted;
+        }
+
+        /**
+         * 用页面 DOM 兜底读取正文：从常见正文容器里取最长的 innerText。
+         */
+        async extractReadableText(tabId) {
+            return new Promise((resolve) => {
+                chrome.scripting.executeScript({
+                    target: { tabId },
+                    func: () => {
+                        const selectors = [
+                            'article', '[role="article"]', 'main', '[role="main"]',
+                            '.post-content', '.article-content', '.entry-content',
+                            '.markdown-body', '#content', 'body'
+                        ];
+                        let best = '';
+                        for (const selector of selectors) {
+                            const el = document.querySelector(selector);
+                            if (!el) continue;
+                            const text = (el.innerText || el.textContent || '').trim();
+                            if (text.length > best.length) best = text;
+                        }
+                        return best;
+                    }
+                }, (results) => {
+                    if (chrome.runtime.lastError) {
+                        resolve('');
+                    } else {
+                        resolve((results && results[0] && results[0].result) || '');
                     }
                 });
             });

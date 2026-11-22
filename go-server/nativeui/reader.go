@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
 
@@ -174,6 +175,69 @@ func podcastMedia(it Item) (audio, duration, podcast string) {
 	return
 }
 
+var youTubeIDRe = regexp.MustCompile(`^[A-Za-z0-9_-]{6,20}$`)
+
+// videoMedia pulls the YouTube video ID, channel and duration out of an item's
+// metadata, falling back to the watch URL when the metadata predates video_id.
+func videoMedia(it Item) (video, channel, duration string) {
+	if it.Metadata != "" {
+		var meta map[string]any
+		if json.Unmarshal([]byte(it.Metadata), &meta) == nil {
+			pick := func(keys ...string) string {
+				for _, k := range keys {
+					if v, ok := meta[k].(string); ok && strings.TrimSpace(v) != "" {
+						return strings.TrimSpace(v)
+					}
+				}
+				return ""
+			}
+			video = pick("video_id")
+			channel = pick("channel", "author")
+			duration = pick("duration")
+		}
+	}
+	if !youTubeIDRe.MatchString(video) {
+		video = youTubeVideoID(it.URL)
+	}
+	if channel == "" {
+		channel = it.OriginSource
+	}
+	return
+}
+
+// youTubeVideoID extracts the ID from watch, shorts, live, embed and youtu.be
+// URLs. The desktop UI is a separate consumer of the HTTP API, so it keeps its
+// own parser instead of importing the scraping package.
+func youTubeVideoID(raw string) string {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return ""
+	}
+	host := strings.ToLower(u.Hostname())
+	path := strings.Trim(u.Path, "/")
+	valid := func(id string) bool { return youTubeIDRe.MatchString(id) }
+	switch {
+	case host == "youtu.be":
+		if id := strings.SplitN(path, "/", 2)[0]; valid(id) {
+			return id
+		}
+	case host == "youtube.com" || strings.HasSuffix(host, ".youtube.com"):
+		if path == "watch" {
+			if id := u.Query().Get("v"); valid(id) {
+				return id
+			}
+		}
+		for _, prefix := range []string{"shorts/", "live/", "embed/"} {
+			if strings.HasPrefix(path, prefix) {
+				if id := strings.SplitN(strings.TrimPrefix(path, prefix), "/", 2)[0]; valid(id) {
+					return id
+				}
+			}
+		}
+	}
+	return ""
+}
+
 func (a *App) buildReaderHTML(it Item, detail ItemDetail, an *Analysis) string {
 	var b strings.Builder
 	// The native toolbar above the web view already shows the source, title,
@@ -181,9 +245,29 @@ func (a *App) buildReaderHTML(it Item, detail ItemDetail, an *Analysis) string {
 	// body to avoid repeating a second headline.
 	b.WriteString(`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">`)
 	b.WriteString(`<meta name="viewport" content="width=device-width, initial-scale=1">`)
-	b.WriteString(`<meta name="color-scheme" content="light dark"><title>` + html.EscapeString(orDefault(it.Title, "未命名内容")) + `</title><style>`)
+	b.WriteString(`<meta name="color-scheme" content="light dark">`)
+	// The document may be served from a loopback URL so its page has an origin
+	// YouTube embeds accept; the base keeps relative links and images resolving
+	// against the item's own site, as they did when the page was LoadHTML'd.
+	if it.URL != "" {
+		b.WriteString(`<base href="` + html.EscapeString(it.URL) + `">`)
+	}
+	b.WriteString(`<title>` + html.EscapeString(orDefault(it.Title, "未命名内容")) + `</title><style>`)
 	b.WriteString(readerCSS)
 	b.WriteString(`</style></head><body><article>`)
+
+	if video, channel, duration := videoMedia(it); video != "" {
+		b.WriteString(`<section class="player video">`)
+		b.WriteString(`<div class="video-head"><span class="player-kicker">视频 · ` + html.EscapeString(channel) + `</span>`)
+		if duration != "" {
+			b.WriteString(`<span class="player-duration">时长 ` + html.EscapeString(duration) + `</span>`)
+		}
+		b.WriteString(`</div>`)
+		b.WriteString(`<div class="video-frame"><iframe src="https://www.youtube.com/embed/` + url.PathEscape(video) +
+			`?rel=0&amp;playsinline=1" title="` + html.EscapeString(it.Title) +
+			`" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>`)
+		b.WriteString(`</section>`)
+	}
 
 	if audio, duration, podcast := podcastMedia(it); audio != "" {
 		b.WriteString(`<section class="player"><div class="player-kicker">播客 · ` + html.EscapeString(podcast) + `</div>`)
@@ -258,6 +342,11 @@ h1{font-size:29px;line-height:1.28;letter-spacing:-.01em;margin:0 0 10px}
 .player-kicker{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--signal);margin-bottom:10px}
 .player audio{width:100%}
 .player-duration{font-size:10.5px;color:var(--faint);margin-top:8px}
+.video-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
+.video-head .player-kicker{margin-bottom:0}
+.video-head .player-duration{margin-top:0}
+.video-frame{position:relative;width:100%;padding-top:56.25%;background:#000;border-radius:10px;overflow:hidden}
+.video-frame iframe{position:absolute;top:0;left:0;width:100%;height:100%;border:0;display:block}
 .origin{margin-top:34px;padding-top:18px;border-top:1px solid var(--line);font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif;font-size:12px}
 .origin a{color:var(--signal);text-decoration:none}
 @media (max-width:560px){article{padding:20px 20px 60px}h1{font-size:24px}.body{font-size:16px}}

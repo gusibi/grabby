@@ -53,7 +53,8 @@ class CaptureManager {
     async #sendMessageToOffscreen(message) {
         await this.#ensureOffscreenDocument();
         return new Promise((resolve, reject) => {
-            chrome.runtime.sendMessage(message, response => {
+            // target 让后台与其他扩展页面忽略这条消息，只有 offscreen 文档处理。
+            chrome.runtime.sendMessage({ ...message, target: 'offscreen' }, response => {
                 if (chrome.runtime.lastError) {
                     reject(new Error(chrome.runtime.lastError.message));
                 } else if (!response || response.error) {
@@ -100,10 +101,7 @@ class CaptureManager {
                 result = await this.captureArea(tab.id, options.area);
             } else {
                 logger.log('capture', 'info', '开始可见区域截图');
-                // 确保滚动到页面顶部
-                await this.setScrollPosition(tab.id, 0);
-                // 添加短暂延迟以确保页面渲染完成
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // 首屏截图保持页面当前位置，不滚动页面。
                 result = await this.captureVisibleArea(tab.id);
             }
 

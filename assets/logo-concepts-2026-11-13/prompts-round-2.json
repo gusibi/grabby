@@ -1,0 +1,15 @@
+{
+  "tool": "built-in image_gen",
+  "variants": [
+    {
+      "file": "05-clay.png"
+    },
+    {
+      "file": "06-negative-space.png"
+    }
+  ],
+  "incomplete": {
+    "07-pixel": "connection error",
+    "08-paper": "stopped waiting after prolonged generation"
+  }
+}

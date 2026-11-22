@@ -297,6 +297,58 @@ func (d *Database) migrate() error {
 		}
 		version = 7
 	}
+	if version < 8 {
+		tx, err := d.db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+
+		// Per-run item details: trigger, roll-up counters, and the per-entry
+		// text results that power the fetch-log screen and API.
+		for _, column := range []string{
+			"trigger_type TEXT DEFAULT 'manual'",
+			"summary TEXT DEFAULT ''",
+			"items_updated INTEGER DEFAULT 0",
+			"items_skipped INTEGER DEFAULT 0",
+			"items_failed INTEGER DEFAULT 0",
+		} {
+			if _, err := tx.Exec("ALTER TABLE fetch_logs ADD COLUMN " + column); err != nil {
+				return err
+			}
+		}
+
+		if _, err := tx.Exec(`
+			CREATE TABLE IF NOT EXISTS fetch_log_items (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				log_id INTEGER NOT NULL,
+				source_id TEXT NOT NULL,
+				item_id INTEGER,
+				title TEXT DEFAULT '',
+				url TEXT DEFAULT '',
+				category TEXT DEFAULT '',
+				status TEXT NOT NULL,
+				reason TEXT DEFAULT '',
+				error_stage TEXT DEFAULT '',
+				texts TEXT DEFAULT '[]',
+				created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+				FOREIGN KEY(log_id) REFERENCES fetch_logs(id) ON DELETE CASCADE
+			);
+		`); err != nil {
+			return err
+		}
+		if _, err := tx.Exec("CREATE INDEX IF NOT EXISTS idx_log_items_log ON fetch_log_items(log_id, id);"); err != nil {
+			return err
+		}
+
+		if _, err := tx.Exec("PRAGMA user_version = 8"); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

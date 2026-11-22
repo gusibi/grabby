@@ -1,6 +1,7 @@
 package sqlite
 
 import (
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -165,4 +166,53 @@ func intPtr(i int) *int {
 
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+func TestFetchLogMigrationFromVersion7(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "v7.db")
+	legacy, err := NewDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := legacy.InsertSource(Source{ID: "legacy-log", Name: "Legacy", URL: "https://example.com", Type: "rss", Schedule: "@hourly"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, stmt := range []string{
+		"DROP TABLE fetch_log_items",
+		"ALTER TABLE fetch_logs DROP COLUMN trigger_type",
+		"ALTER TABLE fetch_logs DROP COLUMN summary",
+		"ALTER TABLE fetch_logs DROP COLUMN items_updated",
+		"ALTER TABLE fetch_logs DROP COLUMN items_skipped",
+		"ALTER TABLE fetch_logs DROP COLUMN items_failed",
+		"INSERT INTO fetch_logs (id, source_id, status, items_added) VALUES (99, 'legacy-log', 'success', 2)",
+		"PRAGMA user_version = 7",
+	} {
+		if _, err := legacy.db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := legacy.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	db, err := NewDatabase(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	var version int
+	if err := db.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != 8 {
+		t.Fatalf("expected schema v8, got %d (%v)", version, err)
+	}
+	log, err := db.GetFetchLog(99)
+	if err != nil || log == nil || log.Status != "success" || log.ItemsAdded != 2 || log.Trigger != "manual" {
+		t.Fatalf("legacy log was not preserved: %+v (%v)", log, err)
+	}
+	if _, err := db.InsertFetchLogItem(FetchLogItem{LogID: 99, SourceID: "legacy-log", Status: "stored"}); err != nil {
+		t.Fatal(err)
+	}
+	details, err := db.GetFetchLogItems(99)
+	if err != nil || len(details) != 1 || details[0].Status != "stored" {
+		t.Fatalf("new log details could not be read: %+v (%v)", details, err)
+	}
 }

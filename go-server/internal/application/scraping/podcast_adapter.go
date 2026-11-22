@@ -81,6 +81,13 @@ type podcastEpisodeInput struct {
 // by the player when the user presses play, which is also the only time it gets
 // cached. ASR on the audio is therefore never part of the scrape path.
 func (a *PodcastAdapter) Fetch(ctx context.Context, src source.Source) ([]item.ScrapedItem, error) {
+	items, _, err := a.FetchWithReports(ctx, src)
+	return items, err
+}
+
+// FetchWithReports reports show notes, audio and public transcript outcomes
+// separately for each episode.
+func (a *PodcastAdapter) FetchWithReports(ctx context.Context, src source.Source) ([]item.ScrapedItem, []ItemReport, error) {
 	cfg := parseSourceRuntimeConfig(src.Config)
 	maxItems := cfg.MaxItems
 	if maxItems <= 0 {
@@ -97,17 +104,19 @@ func (a *PodcastAdapter) Fetch(ctx context.Context, src source.Source) ([]item.S
 			PodcastName: firstNonEmpty(src.Name, "Podcast"),
 			AudioURL:    rawURL,
 		}
-		it := a.buildPodcastItem(ctx, src.ID, ep)
-		return []item.ScrapedItem{it}, nil
+		return a.processEpisodesWithReports(ctx, src.ID, []podcastEpisodeInput{ep}, 1)
 	}
 
 	// 2. Xiaoyuzhou podcast or single episode page
 	if strings.Contains(strings.ToLower(rawURL), "xiaoyuzhoufm.com") {
 		episodes, err := a.fetchXiaoyuzhouEpisodes(ctx, rawURL)
 		if err != nil {
-			return nil, err
+			return nil, []ItemReport{{Title: src.URL, URL: src.URL, Status: "failed",
+				Reason: "小宇宙页面获取失败: " + err.Error(), ErrorStage: "access",
+				Texts: []source.FetchTextResult{{Kind: "content", Status: "failed", Source: "xiaoyuzhou",
+					URL: src.URL, Reason: err.Error(), Stage: "access"}}}}, err
 		}
-		return a.processEpisodes(ctx, src.ID, episodes, maxItems), nil
+		return a.processEpisodesWithReports(ctx, src.ID, episodes, maxItems)
 	}
 
 	// 3. Apple Podcasts URL -> iTunes Lookup API -> standard RSS feed
@@ -116,7 +125,8 @@ func (a *PodcastAdapter) Fetch(ctx context.Context, src source.Source) ([]item.S
 	if m := applePodcastIDRegex.FindStringSubmatch(rawURL); len(m) > 1 {
 		resolved, err := a.resolveApplePodcastFeed(ctx, m[1])
 		if err != nil {
-			return nil, fmt.Errorf("resolve Apple Podcasts feed: %w", err)
+			return nil, []ItemReport{{Title: src.URL, URL: src.URL, Status: "failed",
+				Reason: "Apple Podcasts feed 解析失败: " + err.Error(), ErrorStage: "access"}}, fmt.Errorf("resolve Apple Podcasts feed: %w", err)
 		}
 		feedURL = resolved
 		if u, err := url.Parse(rawURL); err == nil {
@@ -127,29 +137,145 @@ func (a *PodcastAdapter) Fetch(ctx context.Context, src source.Source) ([]item.S
 	// 4. Standard Podcast RSS Feed
 	episodes, err := a.fetchPodcastRSSEpisodes(ctx, feedURL, targetEpisodeID)
 	if err != nil {
-		return nil, err
+		return nil, []ItemReport{{Title: src.URL, URL: src.URL, Status: "failed",
+			Reason: "播客 RSS 获取失败: " + err.Error(), ErrorStage: "access",
+			Texts: []source.FetchTextResult{{Kind: "content", Status: "failed", Source: "podcast_rss",
+				URL: feedURL, Reason: err.Error(), Stage: "access"}}}}, err
 	}
-	return a.processEpisodes(ctx, src.ID, episodes, maxItems), nil
+	return a.processEpisodesWithReports(ctx, src.ID, episodes, maxItems)
 }
 
-func (a *PodcastAdapter) processEpisodes(ctx context.Context, sourceID string, episodes []podcastEpisodeInput, maxItems int) []item.ScrapedItem {
+func (a *PodcastAdapter) processEpisodesWithReports(ctx context.Context, sourceID string, episodes []podcastEpisodeInput, maxItems int) ([]item.ScrapedItem, []ItemReport, error) {
 	var out []item.ScrapedItem
-	for _, ep := range episodes {
-		if len(out) >= maxItems {
-			break
+	var reports []ItemReport
+	attempts := 0
+	loggedSkips := 0
+	const maxLoggedSkips = 30
+	appendSkip := func(rep ItemReport) {
+		if loggedSkips >= maxLoggedSkips {
+			return
 		}
+		loggedSkips++
+		reports = append(reports, rep)
+	}
+	for _, ep := range episodes {
 		if ep.URL == "" {
 			continue
 		}
-		if a.scraper != nil && a.scraper.db != nil {
-			if exists, err := a.scraper.db.ItemExistsByURL(ep.URL); err == nil && exists {
+		existing := a.findExistingEpisode(ep)
+		if existing != nil {
+			if !podcastNeedsBackfill(existing, ep) {
+				appendSkip(reportForExistingPodcast(existing, "已有节目简介/文字稿，跳过"))
 				continue
 			}
+			if attempts >= maxItems {
+				appendSkip(reportForExistingPodcast(existing, "达到本轮处理上限，稍后补抓"))
+				continue
+			}
+			attempts++
+			incoming, rep := a.buildPodcastItem(ctx, sourceID, ep)
+			it, rep2, err := a.mergePodcastItem(existing, incoming, rep)
+			if err != nil {
+				rep2.Status = "failed"
+				rep2.Reason = "写入内容库失败: " + err.Error()
+				rep2.ErrorStage = "persist"
+				reports = append(reports, rep2)
+				continue
+			}
+			out = append(out, it)
+			reports = append(reports, rep2)
+			continue
 		}
 
-		out = append(out, a.buildPodcastItem(ctx, sourceID, ep))
+		if attempts >= maxItems {
+			appendSkip(ItemReport{Title: firstNonEmpty(ep.Title, ep.URL), URL: ep.URL, Category: "podcast",
+				Status: "skipped", Reason: "达到本轮单集处理上限，稍后补抓"})
+			continue
+		}
+		attempts++
+		it, rep := a.buildPodcastItem(ctx, sourceID, ep)
+		out = append(out, it)
+		reports = append(reports, rep)
 	}
-	return out
+	return out, reports, nil
+}
+
+func (a *PodcastAdapter) findExistingEpisode(ep podcastEpisodeInput) *item.ScrapedItem {
+	if a.scraper == nil || a.scraper.db == nil {
+		return nil
+	}
+	if ep.URL != "" {
+		if ex, _ := a.scraper.db.GetScrapedItemFullByURL(ep.URL); ex != nil {
+			return ex
+		}
+	}
+	if ep.AudioURL != "" && ep.AudioURL != ep.URL {
+		if ex, _ := a.scraper.db.GetScrapedItemFullByURL(ep.AudioURL); ex != nil {
+			return ex
+		}
+	}
+	return nil
+}
+
+func podcastNeedsBackfill(ex *item.ScrapedItem, ep podcastEpisodeInput) bool {
+	meta := parseMetadata(ex.Metadata)
+	switch metaString(meta, "transcript_status") {
+	case "available":
+		// Legacy rows may have status available but no stored transcript text.
+		return metaString(meta, "transcript") == "" && !strings.Contains(ex.Content, "## 播客文字稿")
+	case "failed", "unverified":
+		return true
+	case "no_public_text":
+		return false
+	}
+	// Legacy rows predate transcript_status. A stored transcript is final;
+	// otherwise retry only when the feed actually offers a transcript link.
+	if strings.Contains(ex.Content, "## 播客文字稿") {
+		return false
+	}
+	switch metaString(meta, "transcript_source") {
+	case "podcast_transcript", "web_article", "shownotes_link":
+		return false
+	case "shownotes_only":
+		// Feeds without a Podcast 2.0 transcript can still link a public
+		// transcript from the show notes. Retry legacy rows so the newer
+		// capability can upgrade them in place.
+		return len(transcriptLinksFromShowNotes(ep.ShowNotesHTML, ep.URL)) > 0
+	}
+	return len(ep.TranscriptLinks) > 0
+}
+
+func reportForExistingPodcast(ex *item.ScrapedItem, reason string) ItemReport {
+	meta := parseMetadata(ex.Metadata)
+	status := metaString(meta, "transcript_status")
+	if status == "" {
+		switch metaString(meta, "transcript_source") {
+		case "podcast_transcript", "web_article":
+			status = "available"
+		}
+		if status == "" && metaString(meta, "transcript") != "" {
+			status = "available"
+		}
+		if status == "" {
+			status = "no_public_text"
+		}
+	}
+	texts := []source.FetchTextResult{
+		{Kind: "audio", Status: "kept_existing", Source: "library", URL: metaString(meta, "media_url")},
+		{Kind: "show_notes", Status: "kept_existing", Source: "library", Chars: utf8.RuneCountInString(metaString(meta, "show_notes"))},
+	}
+	switch status {
+	case "available":
+		texts = append(texts, source.FetchTextResult{Kind: "transcript", Status: "kept_existing", Source: "library",
+			URL: metaString(meta, "transcript_url"), Chars: utf8.RuneCountInString(metaString(meta, "transcript"))})
+	case "failed":
+		texts = append(texts, source.FetchTextResult{Kind: "transcript", Status: "failed", Source: "library",
+			URL: metaString(meta, "transcript_url"), Reason: metaString(meta, "transcript_error"), Stage: "access"})
+	default:
+		texts = append(texts, source.FetchTextResult{Kind: "transcript", Status: "no_public_text", Source: "library"})
+	}
+	return ItemReport{Title: ex.Title, URL: ex.URL, Category: ex.Category, ItemID: ex.ID,
+		Status: "skipped", Reason: reason, Texts: texts}
 }
 
 func (a *PodcastAdapter) resolveApplePodcastFeed(ctx context.Context, collectionID string) (string, error) {
@@ -210,11 +336,11 @@ func (a *PodcastAdapter) fetchPodcastRSSEpisodes(ctx context.Context, feedURL st
 		var audioURL string
 		for _, enc := range fi.Enclosures {
 			if enc.URL != "" && (strings.HasPrefix(strings.ToLower(enc.Type), "audio") || isDirectAudioURL(enc.URL) || audioURL == "") {
-				audioURL = enc.URL
+				audioURL = resolveArticleURL(feedURL, enc.URL)
 			}
 		}
 
-		epURL := strings.TrimSpace(fi.Link)
+		epURL := resolveArticleURL(feedURL, strings.TrimSpace(fi.Link))
 		if epURL == "" {
 			epURL = audioURL
 		}
@@ -231,7 +357,7 @@ func (a *PodcastAdapter) fetchPodcastRSSEpisodes(ctx context.Context, feedURL st
 			if trExts, ok := podExts["transcript"]; ok {
 				for _, tr := range trExts {
 					if u := strings.TrimSpace(tr.Attrs["url"]); u != "" {
-						transcriptLinks = append(transcriptLinks, u)
+						transcriptLinks = append(transcriptLinks, resolveArticleURL(feedURL, u))
 					}
 				}
 			}
@@ -424,63 +550,134 @@ func parseXiaoyuzhouHTML(htmlStr, pageURL string) ([]podcastEpisodeInput, error)
 	return out, nil
 }
 
-func (a *PodcastAdapter) buildPodcastItem(ctx context.Context, sourceID string, ep podcastEpisodeInput) item.ScrapedItem {
+func (a *PodcastAdapter) buildPodcastItem(ctx context.Context, sourceID string, ep podcastEpisodeInput) (item.ScrapedItem, ItemReport) {
 	showNotesMD := HTMLToMarkdown(ep.ShowNotesHTML)
 	transcript := ""
+	transcriptStatus := ""
 	transcriptSource := ""
+	transcriptURL := ""
+	transcriptErr := ""
 
-	// Tier 1: Podcast 2.0 <podcast:transcript> link
-	for _, trURL := range ep.TranscriptLinks {
-		if txt, err := a.fetchPodcastTranscript(ctx, trURL); err == nil && strings.TrimSpace(txt) != "" {
-			transcript = txt
-			transcriptSource = "podcast_transcript"
-			break
+	// Tier 1: Podcast 2.0 <podcast:transcript> link. Only this public link is
+	// downloaded; the audio enclosure is never fetched.
+	if len(ep.TranscriptLinks) > 0 {
+		for _, trURL := range ep.TranscriptLinks {
+			txt, err := a.fetchPodcastTranscript(ctx, trURL)
+			if err == nil && strings.TrimSpace(txt) != "" {
+				transcript = txt
+				transcriptStatus = "available"
+				transcriptSource = "podcast_transcript"
+				transcriptURL = trURL
+				transcriptErr = ""
+				break
+			}
+			if err != nil {
+				transcriptErr = err.Error()
+				transcriptURL = trURL
+			}
+		}
+		if transcriptStatus == "" {
+			transcriptStatus = "failed"
+			if transcriptErr == "" {
+				transcriptErr = "transcript link returned empty text"
+			}
 		}
 	}
 
-	// Tier 2: Episode web page transcript (when Show Notes is short and webpage is an article)
-	if transcript == "" && utf8.RuneCountInString(StripHTMLToText(ep.ShowNotesHTML)) < 400 && ep.URL != "" && ep.URL != ep.AudioURL {
+	// Tier 1b: a public transcript linked from the show notes (for example
+	// "Find a full transcript for this episode: <link>"). Reuses the article
+	// extractor; only longer, article-like pages are accepted as transcripts.
+	if transcriptStatus != "available" {
+		for _, link := range transcriptLinksFromShowNotes(ep.ShowNotesHTML, ep.URL) {
+			res, err := ExtractWebArticleDetails(ctx, link)
+			if err == nil && utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) >= 800 {
+				transcript = res.Markdown
+				transcriptStatus = "available"
+				transcriptSource = "shownotes_link"
+				transcriptURL = link
+				transcriptErr = ""
+				break
+			}
+			if transcriptStatus == "" {
+				transcriptStatus = "unverified"
+				transcriptURL = link
+				if err != nil {
+					transcriptErr = err.Error()
+				} else {
+					transcriptErr = "linked transcript page had too little text"
+				}
+			}
+		}
+	}
+
+	// Tier 2: Episode web page transcript (when Show Notes is short and the
+	// page is an article rather than the audio file).
+	if transcriptStatus == "" && utf8.RuneCountInString(StripHTMLToText(ep.ShowNotesHTML)) < 400 && ep.URL != "" && ep.URL != ep.AudioURL {
 		if _, webMD, err := ExtractWebArticle(ctx, ep.URL); err == nil && utf8.RuneCountInString(webMD) >= 800 {
 			transcript = webMD
+			transcriptStatus = "available"
 			transcriptSource = "web_article"
+			transcriptURL = ep.URL
+		} else if err != nil {
+			transcriptStatus = "unverified"
+			transcriptErr = err.Error()
+			transcriptURL = ep.URL
 		}
 	}
-
-	if transcriptSource == "" {
+	if transcriptStatus == "" {
+		transcriptStatus = "no_public_text"
 		transcriptSource = "shownotes_only"
+	}
+	if transcriptStatus != "available" && transcriptSource == "" {
+		transcriptSource = "none"
 	}
 
 	podcastName := firstNonEmpty(ep.PodcastName, "Podcast")
 	title := firstNonEmpty(ep.Title, "Podcast Episode")
-
-	var md strings.Builder
-	md.WriteString(fmt.Sprintf("# %s\n\n", title))
-	md.WriteString(fmt.Sprintf("- **播客**: %s\n", podcastName))
-	if ep.Duration != "" {
-		md.WriteString(fmt.Sprintf("- **时长**: %s\n", ep.Duration))
-	}
-	md.WriteString(fmt.Sprintf("- **单集链接**: %s\n", ep.URL))
-	if ep.AudioURL != "" {
-		md.WriteString(fmt.Sprintf("- **音频链接**: %s\n", ep.AudioURL))
-	}
-	md.WriteString(fmt.Sprintf("- **文字来源**: %s\n", transcriptSource))
-
-	if showNotesMD != "" {
-		md.WriteString("\n## 节目简介 (Show Notes)\n\n")
-		md.WriteString(showNotesMD + "\n")
-	}
-	if transcript != "" {
-		md.WriteString("\n## 播客文字稿 (Transcript)\n\n")
-		md.WriteString(transcript + "\n")
-	}
+	content := buildPodcastMarkdown(title, podcastName, ep.Duration, ep.URL, ep.AudioURL, showNotesMD, transcript, transcriptSource)
 
 	summarySrc := firstNonEmpty(transcript, showNotesMD, title)
-	metaJSON := mustJSON(map[string]any{
+	meta := map[string]any{
 		"podcast":           podcastName,
 		"media_url":         ep.AudioURL,
 		"duration":          ep.Duration,
 		"transcript_source": transcriptSource,
-	})
+		"transcript_status": transcriptStatus,
+		"transcript_url":    transcriptURL,
+		"transcript_error":  sanitizeText(transcriptErr),
+		"show_notes":        showNotesMD,
+		"transcript":        transcript,
+	}
+
+	rep := ItemReport{Title: title, URL: ep.URL, Category: "podcast", Status: "stored"}
+	if showNotesMD != "" {
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "show_notes", Status: "stored", Source: "podcast_feed",
+			Chars: utf8.RuneCountInString(showNotesMD)})
+	} else {
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "show_notes", Status: "no_public_text", Source: "podcast_feed",
+			Reason: "Feed 未提供节目简介"})
+	}
+	if ep.AudioURL != "" {
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "audio", Status: "stored", Source: "audio_enclosure",
+			URL: ep.AudioURL})
+	} else {
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "audio", Status: "no_public_text", Source: "podcast_feed",
+			Reason: "Feed 未提供音频链接"})
+	}
+	switch transcriptStatus {
+	case "available":
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "transcript", Status: "stored",
+			Source: transcriptSource, URL: transcriptURL, Chars: utf8.RuneCountInString(transcript)})
+	case "failed":
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "transcript", Status: "failed",
+			Source: "transcript_link", URL: transcriptURL, Reason: transcriptErr, Stage: "access"})
+	case "unverified":
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "transcript", Status: "unverified",
+			Source: "web_page", URL: transcriptURL, Reason: transcriptErr, Stage: "access"})
+	default:
+		rep.Texts = append(rep.Texts, source.FetchTextResult{Kind: "transcript", Status: "no_public_text",
+			Source: "podcast_feed", Reason: "Feed 未提供公开文字稿"})
+	}
 
 	return item.ScrapedItem{
 		SourceID:     sourceID,
@@ -488,11 +685,172 @@ func (a *PodcastAdapter) buildPodcastItem(ctx context.Context, sourceID string, 
 		Title:        title,
 		URL:          ep.URL,
 		Summary:      truncateSummary(summarySrc, 240),
-		Content:      strings.TrimSpace(md.String()),
+		Content:      content,
 		Category:     "podcast",
 		PublishedAt:  ep.PublishedAt,
-		Metadata:     metaJSON,
+		Metadata:     marshalMetadata(meta),
+	}, rep
+}
+
+func transcriptLinksFromShowNotes(rawHTML, episodeURL string) []string {
+	trimmed := strings.TrimSpace(rawHTML)
+	if trimmed == "" || !strings.Contains(trimmed, "<") {
+		return nil
 	}
+	doc, err := goquery.NewDocumentFromReader(strings.NewReader("<body>" + trimmed + "</body>"))
+	if err != nil {
+		return nil
+	}
+	seen := map[string]bool{}
+	var links []string
+	doc.Find("a[href]").Each(func(_ int, sel *goquery.Selection) {
+		href := strings.TrimSpace(sel.AttrOr("href", ""))
+		if href == "" || strings.HasPrefix(strings.ToLower(href), "javascript:") || isDirectAudioURL(href) {
+			return
+		}
+		contextText := strings.ToLower(sel.Closest("p, li, div").Text())
+		label := strings.ToLower(strings.TrimSpace(sel.Text()))
+		if strings.Contains(contextText, "transcript") || strings.Contains(label, "transcript") ||
+			strings.Contains(strings.ToLower(href), "transcript") {
+			abs := resolveArticleURL(episodeURL, href)
+			if abs != "" && !seen[abs] {
+				seen[abs] = true
+				links = append(links, abs)
+			}
+		}
+	})
+	if len(links) > 3 {
+		links = links[:3]
+	}
+	return links
+}
+
+func buildPodcastMarkdown(title, podcastName, duration, episodeURL, audioURL, showNotesMD, transcript, transcriptSource string) string {
+	var md strings.Builder
+	md.WriteString(fmt.Sprintf("# %s\n\n", title))
+	md.WriteString(fmt.Sprintf("- **播客**: %s\n", podcastName))
+	if duration != "" {
+		md.WriteString(fmt.Sprintf("- **时长**: %s\n", duration))
+	}
+	if episodeURL != "" {
+		md.WriteString(fmt.Sprintf("- **单集链接**: %s\n", episodeURL))
+	}
+	if audioURL != "" {
+		md.WriteString(fmt.Sprintf("- **音频链接**: %s\n", audioURL))
+	}
+	if transcriptSource != "" {
+		md.WriteString(fmt.Sprintf("- **文字来源**: %s\n", transcriptSource))
+	}
+	if strings.TrimSpace(showNotesMD) != "" {
+		md.WriteString("\n## 节目简介 (Show Notes)\n\n")
+		md.WriteString(strings.TrimSpace(showNotesMD) + "\n")
+	}
+	if strings.TrimSpace(transcript) != "" {
+		md.WriteString("\n## 播客文字稿 (Transcript)\n\n")
+		md.WriteString(strings.TrimSpace(transcript) + "\n")
+	}
+	return strings.TrimSpace(md.String())
+}
+
+func podcastTranscriptRank(status string) int {
+	switch status {
+	case "available":
+		return 3
+	case "no_public_text":
+		return 2
+	case "failed":
+		return 1
+	default:
+		return 0
+	}
+}
+
+// mergePodcastItem keeps show notes, audio and any imported transcript when a
+// later run only confirms "still unavailable" or fails temporarily.
+func (a *PodcastAdapter) mergePodcastItem(existing *item.ScrapedItem, incoming item.ScrapedItem, rep ItemReport) (item.ScrapedItem, ItemReport, error) {
+	exMeta := parseMetadata(existing.Metadata)
+	inMeta := parseMetadata(incoming.Metadata)
+
+	mergedShow := preferLonger(metaString(exMeta, "show_notes"), metaString(inMeta, "show_notes"))
+	mergedTranscript := preferLonger(metaString(exMeta, "transcript"), metaString(inMeta, "transcript"))
+	status := metaString(inMeta, "transcript_status")
+	sourceName := metaString(inMeta, "transcript_source")
+	transcriptURL := metaString(inMeta, "transcript_url")
+	transcriptErr := metaString(inMeta, "transcript_error")
+	if podcastTranscriptRank(metaString(exMeta, "transcript_status")) > podcastTranscriptRank(status) ||
+		(podcastTranscriptRank(metaString(exMeta, "transcript_status")) == podcastTranscriptRank(status) &&
+			len(metaString(exMeta, "transcript")) > len(metaString(inMeta, "transcript"))) {
+		status = metaString(exMeta, "transcript_status")
+		sourceName = metaString(exMeta, "transcript_source")
+		transcriptURL = metaString(exMeta, "transcript_url")
+		transcriptErr = metaString(exMeta, "transcript_error")
+	}
+	audio := prefString(metaString(exMeta, "media_url"), metaString(inMeta, "media_url"))
+	duration := prefString(metaString(exMeta, "duration"), metaString(inMeta, "duration"))
+	podcastName := prefString(metaString(exMeta, "podcast"), metaString(inMeta, "podcast"))
+	title := prefString(incoming.Title, existing.Title)
+	sourceID := existing.SourceID
+	if sourceID == "" {
+		sourceID = incoming.SourceID
+	}
+
+	merged := map[string]any{}
+	for k, v := range exMeta {
+		merged[k] = v
+	}
+	for k, v := range inMeta {
+		merged[k] = v
+	}
+	merged["show_notes"] = mergedShow
+	merged["transcript"] = mergedTranscript
+	merged["transcript_status"] = status
+	merged["transcript_source"] = sourceName
+	merged["transcript_url"] = transcriptURL
+	merged["transcript_error"] = transcriptErr
+	merged["media_url"] = audio
+	merged["duration"] = duration
+	merged["podcast"] = podcastName
+
+	content := buildPodcastMarkdown(title, podcastName, duration, existing.URL, audio, mergedShow, mergedTranscript, sourceName)
+	summary := truncateSummary(firstNonEmpty(mergedTranscript, mergedShow, title), 240)
+	published := existing.PublishedAt
+	if published == nil {
+		published = incoming.PublishedAt
+	}
+	changed := content != existing.Content || title != existing.Title ||
+		mergedShow != metaString(exMeta, "show_notes") ||
+		mergedTranscript != metaString(exMeta, "transcript") ||
+		status != metaString(exMeta, "transcript_status")
+	if !changed {
+		rep.ItemID = existing.ID
+		rep.Status = "kept_existing"
+		rep.Reason = "本轮结果未优于已有简介/文字稿，保留原内容"
+		rep.Texts = mergeKeptTexts(rep.Texts)
+		return *existing, rep, nil
+	}
+
+	if err := a.scraper.db.UpdateScrapedItemFromScrape(existing.ID, title, summary, content, existing.Category,
+		marshalMetadata(merged), published); err != nil {
+		return *existing, rep, err
+	}
+	rep.ItemID = existing.ID
+	rep.Title = title
+	rep.Status = "updated"
+	for i := range rep.Texts {
+		if rep.Texts[i].Kind == "transcript" {
+			if status != "available" && metaString(exMeta, "transcript") != "" {
+				rep.Texts[i].Status = "kept_existing"
+				rep.Texts[i].Source = "library"
+			}
+		}
+	}
+	updated := *existing
+	updated.Title = title
+	updated.Summary = summary
+	updated.Content = content
+	updated.Metadata = marshalMetadata(merged)
+	updated.PublishedAt = published
+	return updated, rep, nil
 }
 
 func (a *PodcastAdapter) fetchPodcastTranscript(ctx context.Context, trURL string) (string, error) {

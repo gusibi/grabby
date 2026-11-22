@@ -932,6 +932,20 @@ X-Grabby-Token: your_token
 
 ---
 
+### POST /api/browsers/delete
+
+删除离线浏览器的注册记录及封禁状态。扩展之后可以再次注册。
+
+请求体中的 `conn_id` 使用 `GET /api/browsers` 返回的值。
+
+```json
+{"conn_id": "browser-tools"}
+```
+
+成功响应为 `200` 和 `{"success": true}`。记录已不存在时也返回成功。设备在线时返回 `409`。
+
+---
+
 ## 采集与内容管理接口
 
 这组接口服务于 Grabby 的 RSS/定时采集与 Web 控制台，操作本地数据库中的内容（items）、订阅源（sources）与运行日志。响应体为 JSON，失败时返回相应 4xx/5xx 状态码与错误信息。

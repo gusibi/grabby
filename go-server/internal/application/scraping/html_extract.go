@@ -3,6 +3,7 @@ package scraping
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	stdhtml "html"
 	"io"
@@ -28,17 +29,37 @@ var (
 	tagStripRegex     = regexp.MustCompile(`<[^>]*>`)
 )
 
+// ArticleExtract is the result of opening a public article page. PublishedAt is
+// best-effort: many blogs only expose it through OpenGraph metadata or JSON-LD.
+type ArticleExtract struct {
+	Title       string
+	Markdown    string
+	PublishedAt *time.Time
+	FinalURL    string
+}
+
 // ExtractWebArticle fetches pageURL via HTTP and extracts the article title and
 // clean Markdown body using goquery heuristics.
 func ExtractWebArticle(ctx context.Context, pageURL string) (string, string, error) {
+	res, err := ExtractWebArticleDetails(ctx, pageURL)
+	if err != nil {
+		return "", "", err
+	}
+	return res.Title, res.Markdown, nil
+}
+
+// ExtractWebArticleDetails extracts title, Markdown, publication time and the
+// redirect-resolved URL. Redirects are followed and relative links inside the
+// body are resolved against the final URL.
+func ExtractWebArticleDetails(ctx context.Context, pageURL string) (ArticleExtract, error) {
 	client := &http.Client{Timeout: 15 * time.Second}
 	return extractWebArticleWithClient(ctx, client, pageURL)
 }
 
-func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageURL string) (string, string, error) {
+func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageURL string) (ArticleExtract, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, pageURL, nil)
 	if err != nil {
-		return "", "", err
+		return ArticleExtract{}, err
 	}
 	req.Header.Set("User-Agent", "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36")
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
@@ -46,17 +67,17 @@ func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageU
 
 	resp, err := client.Do(req)
 	if err != nil {
-		return "", "", err
+		return ArticleExtract{}, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", "", fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, pageURL)
+		return ArticleExtract{}, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, pageURL)
 	}
 
 	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLFetchBytes))
 	if err != nil {
-		return "", "", err
+		return ArticleExtract{}, err
 	}
 
 	baseURL := resp.Request.URL
@@ -64,13 +85,20 @@ func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageU
 		baseURL, _ = url.Parse(pageURL)
 	}
 
-	return extractArticleFromHTMLBytes(bodyBytes, baseURL)
+	res, err := extractArticleFromHTMLBytes(bodyBytes, baseURL)
+	if err != nil {
+		return ArticleExtract{}, err
+	}
+	if baseURL != nil {
+		res.FinalURL = baseURL.String()
+	}
+	return res, nil
 }
 
-func extractArticleFromHTMLBytes(bodyBytes []byte, baseURL *url.URL) (string, string, error) {
+func extractArticleFromHTMLBytes(bodyBytes []byte, baseURL *url.URL) (ArticleExtract, error) {
 	doc, err := goquery.NewDocumentFromReader(bytes.NewReader(bodyBytes))
 	if err != nil {
-		return "", "", err
+		return ArticleExtract{}, err
 	}
 
 	title := strings.TrimSpace(doc.Find(`meta[property="og:title"]`).AttrOr("content", ""))
@@ -80,6 +108,7 @@ func extractArticleFromHTMLBytes(bodyBytes []byte, baseURL *url.URL) (string, st
 	if title == "" {
 		title = strings.TrimSpace(doc.Find("title").First().Text())
 	}
+	published := extractPublishedAt(doc)
 
 	// Remove non-content noise before measuring candidates.
 	doc.Find("script, style, noscript, iframe, svg, nav, footer, aside, form, .sidebar, .advertisement, .ads, .comments, #comments, .comment-list, .social-share, .related-posts").Remove()
@@ -117,7 +146,7 @@ func extractArticleFromHTMLBytes(bodyBytes []byte, baseURL *url.URL) (string, st
 	}
 
 	if bestSel == nil || bestSel.Length() == 0 {
-		return title, "", nil
+		return ArticleExtract{Title: title, PublishedAt: published}, nil
 	}
 
 	var buf strings.Builder
@@ -126,7 +155,100 @@ func extractArticleFromHTMLBytes(bodyBytes []byte, baseURL *url.URL) (string, st
 	}
 
 	md := multiNewlineRegex.ReplaceAllString(strings.TrimSpace(buf.String()), "\n\n")
-	return title, md, nil
+	return ArticleExtract{Title: title, Markdown: md, PublishedAt: published}, nil
+}
+
+func extractPublishedAt(doc *goquery.Document) *time.Time {
+	candidates := []string{
+		`meta[property="article:published_time"]`,
+		`meta[property="og:article:published_time"]`,
+		`meta[name="article:published_time"]`,
+		`meta[name="pubdate"]`,
+		`meta[name="date"]`,
+		`meta[itemprop="datePublished"]`,
+	}
+	for _, sel := range candidates {
+		if raw := strings.TrimSpace(doc.Find(sel).AttrOr("content", "")); raw != "" {
+			if t, ok := parsePublishedTime(raw); ok {
+				return &t
+			}
+		}
+	}
+	if raw, ok := doc.Find("time[datetime]").First().Attr("datetime"); ok {
+		if t, ok := parsePublishedTime(raw); ok {
+			return &t
+		}
+	}
+	// JSON-LD is common on company blogs (for example Next.js sites).
+	var jsonLD *time.Time
+	doc.Find(`script[type="application/ld+json"]`).EachWithBreak(func(_ int, s *goquery.Selection) bool {
+		raw := strings.TrimSpace(s.Text())
+		if raw == "" {
+			return true
+		}
+		if t, ok := publishedFromJSONLD(raw); ok {
+			jsonLD = &t
+			return false
+		}
+		return true
+	})
+	if jsonLD != nil {
+		return jsonLD
+	}
+	return nil
+}
+
+func publishedFromJSONLD(raw string) (time.Time, bool) {
+	var root any
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
+		return time.Time{}, false
+	}
+	var walk func(any) (time.Time, bool)
+	walk = func(v any) (time.Time, bool) {
+		switch node := v.(type) {
+		case []any:
+			for _, child := range node {
+				if t, ok := walk(child); ok {
+					return t, true
+				}
+			}
+		case map[string]any:
+			if s, ok := node["datePublished"].(string); ok && strings.TrimSpace(s) != "" {
+				if t, ok := parsePublishedTime(s); ok {
+					return t, true
+				}
+			}
+			for _, child := range node {
+				if t, ok := walk(child); ok {
+					return t, true
+				}
+			}
+		}
+		return time.Time{}, false
+	}
+	return walk(root)
+}
+
+func parsePublishedTime(raw string) (time.Time, bool) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}, false
+	}
+	layouts := []string{
+		time.RFC3339Nano,
+		time.RFC3339,
+		"2006-01-02T15:04:05",
+		"2006-01-02 15:04:05",
+		"2006-01-02",
+		time.RFC1123Z,
+		time.RFC1123,
+	}
+	for _, layout := range layouts {
+		if t, err := time.Parse(layout, raw); err == nil {
+			return t, true
+		}
+	}
+	return time.Time{}, false
 }
 
 // HTMLToMarkdown converts an HTML fragment (such as RSS Show Notes) into clean Markdown.

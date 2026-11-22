@@ -217,6 +217,12 @@ func (c *Client) logs(sourceID string) ([]FetchLog, error) {
 	return l, err
 }
 
+func (c *Client) logDetail(id int64) (FetchLogDetail, error) {
+	var d FetchLogDetail
+	err := c.get(fmt.Sprintf("/api/logs/%d", id), &d)
+	return d, err
+}
+
 func (c *Client) captures() ([]ExtractRecord, error) {
 	var e ExtractList
 	err := c.get("/api/captures/extract?limit=20", &e)

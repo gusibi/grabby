@@ -1,8 +1,10 @@
 package nativeui
 
 import (
+	"encoding/json"
 	"fmt"
 	"image/png"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -11,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/egoist/mygo"
 	"github.com/egoist/mygo/ui"
 )
 
@@ -435,6 +438,94 @@ func TestReaderHTMLDoesNotRepeatTitle(t *testing.T) {
 	}
 }
 
+func TestReaderHTMLEmbedsYouTubePlayer(t *testing.T) {
+	a := fixtureApp()
+	it := Item{
+		ID: 42, SourceID: "yt", OriginSource: "Matt Pocock", Category: "youtube",
+		Title:    "Mario Zechner: STOP Running Away From Understanding",
+		URL:      "https://www.youtube.com/watch?v=Vo33extKAeA",
+		Metadata: `{"video_id":"Vo33extKAeA","channel":"Matt Pocock","duration":"12:30"}`,
+	}
+	doc := a.buildReaderHTML(it, ItemDetail{Item: it, HTMLContent: "<p>简介</p>"}, nil)
+	for _, want := range []string{
+		"https://www.youtube.com/embed/Vo33extKAeA",
+		"视频 · Matt Pocock",
+		"时长 12:30",
+		"<p>简介</p>",
+		`<base href="https://www.youtube.com/watch?v=Vo33extKAeA">`,
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("reader HTML misses %q", want)
+		}
+	}
+	if strings.Contains(doc, "<audio") {
+		t.Fatal("a video item got the podcast player")
+	}
+}
+
+func TestReaderHTMLFindsVideoWithoutMetadata(t *testing.T) {
+	a := fixtureApp()
+	it := Item{
+		ID: 43, OriginSource: "Grabby", Category: "youtube",
+		Title: "旧条目", URL: "https://youtu.be/Vo33extKAeA?t=30",
+		Metadata: `{"channel":"旧频道"}`,
+	}
+	doc := a.buildReaderHTML(it, ItemDetail{Item: it, HTMLContent: "<p>body</p>"}, nil)
+	if !strings.Contains(doc, "https://www.youtube.com/embed/Vo33extKAeA") {
+		t.Fatal("reader HTML misses the player for a youtu.be URL")
+	}
+	if !strings.Contains(doc, "视频 · 旧频道") {
+		t.Fatal("reader HTML misses the channel from metadata")
+	}
+}
+
+func TestYouTubeVideoID(t *testing.T) {
+	cases := map[string]string{
+		"https://www.youtube.com/watch?v=Vo33extKAeA":    "Vo33extKAeA",
+		"https://m.youtube.com/watch?v=Vo33extKAeA&t=12": "Vo33extKAeA",
+		"https://youtu.be/Vo33extKAeA?si=abc":            "Vo33extKAeA",
+		"https://www.youtube.com/shorts/Vo33extKAeA":     "Vo33extKAeA",
+		"https://www.youtube.com/live/Vo33extKAeA":       "Vo33extKAeA",
+		"https://example.com/watch?v=Vo33extKAeA":        "",
+		"https://www.youtube.com/@mattpocockuk/videos":   "",
+		"": "",
+	}
+	for raw, want := range cases {
+		if got := youTubeVideoID(raw); got != want {
+			t.Errorf("youTubeVideoID(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}
+
+func TestReaderServerPublishesDocument(t *testing.T) {
+	s := newReaderServer()
+	if s == nil {
+		t.Skip("loopback listener unavailable")
+	}
+	url := s.publish("<!doctype html><p>阅读器文档</p>")
+	if !strings.HasPrefix(url, "http://127.0.0.1:") {
+		t.Fatalf("document URL %q is not a loopback page", url)
+	}
+	resp, err := http.Get(url)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || !strings.Contains(string(body), "阅读器文档") {
+		t.Fatalf("GET %s = %d %q", url, resp.StatusCode, body)
+	}
+	if ct := resp.Header.Get("Content-Type"); !strings.HasPrefix(ct, "text/html") {
+		t.Fatalf("Content-Type %q", ct)
+	}
+	if resp2, err := http.Get(s.base + "/r/unknown"); err == nil {
+		resp2.Body.Close()
+		if resp2.StatusCode != http.StatusNotFound {
+			t.Fatalf("unknown document = %d, want 404", resp2.StatusCode)
+		}
+	}
+}
+
 // TestScreenshotsWide renders the pages at a large window, where a page
 // narrower than the window should sit centered rather than hug the left.
 func TestScreenshotsWide(t *testing.T) {
@@ -538,5 +629,74 @@ func TestDailyKeepsUserChoice(t *testing.T) {
 	}
 	if a.daily == nil || a.daily.Success {
 		t.Fatal("the empty report should be shown for the chosen day")
+	}
+}
+
+func TestSourceSwitchUpdatesCurrentPage(t *testing.T) {
+	requests := make(chan int, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/api/sources/feed/toggle" {
+			http.NotFound(w, r)
+			return
+		}
+		var body struct {
+			Enabled int `json:"enabled"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		requests <- body.Enabled
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(server.Close)
+
+	a := fixtureApp()
+	a.client = NewClient(server.URL)
+	a.view, a.loadedView, a.reader.Open = "sources", "sources", false
+	a.win = &mygo.Window{}
+	tester := ui.NewTester(a.View, 1280, 840)
+	tester.Frame()
+	if err := tester.Click("启用订阅源 Grabby Feed"); err != nil {
+		t.Fatal(err)
+	}
+
+	select {
+	case enabled := <-requests:
+		if enabled != 0 {
+			t.Fatalf("toggle sent enabled=%d, want 0", enabled)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("click did not send a toggle request")
+	}
+	tester.Frame()
+	texts := tester.Texts()
+	for i, label := range texts {
+		if label == "已启用" && i > 0 && texts[i-1] == "0" {
+			return
+		}
+	}
+	t.Fatalf("API received enabled=0 but the page did not update the enabled count: %q", texts)
+}
+
+func TestOfflineBrowserDeleteOpensConfirmation(t *testing.T) {
+	a := fixtureApp()
+	a.view = "devices"
+	tester := ui.NewTester(a.View, 1280, 840)
+	tester.Frame()
+	if tester.HasText("删除") {
+		t.Fatal("online device has a delete action")
+	}
+	a.browsers[0].Online = false
+	a.browsers[0].Banned = true
+	tester.Frame()
+	if err := tester.Click("删除"); err != nil {
+		t.Fatal(err)
+	}
+	if !a.confirm.Open || a.confirm.Title != "删除设备" || !strings.Contains(a.confirm.Message, "Chrome") {
+		t.Fatalf("unexpected confirmation: %+v", a.confirm)
+	}
+	if len(a.browsers) != 1 {
+		t.Fatal("opening a confirmation removed the device")
 	}
 }

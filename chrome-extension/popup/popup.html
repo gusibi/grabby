@@ -7,77 +7,105 @@
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
-  <div class="popup-container">
-    <header class="popup-header">
-      <div class="header-top">
-        <h1>Grabby</h1>
-        <div class="connection-status disconnected">
-          <span id="statusDot" class="status-dot disconnected"></span>
-          <span id="statusText">未连接</span>
-        </div>
+  <div class="app">
+    <header class="app-header">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">G</span>
+        <span class="brand-copy">
+          <span class="brand-name">Grabby</span>
+          <span class="brand-sub">网页剪藏助手</span>
+        </span>
       </div>
-      <div id="serverInfo" class="server-info">服务器: 未配置</div>
+      <div class="connection-status" id="connectionPill">
+        <span id="statusDot" class="status-dot disconnected"></span>
+        <span id="statusText">未连接</span>
+      </div>
     </header>
-    
-    <div class="card">
-      <div class="action-buttons">
-        <button id="connectBtn" class="btn primary">
-          <span>🔌 连接服务器</span>
-        </button>
-        <button id="disconnectBtn" class="btn secondary" disabled>
-          <span>断开连接</span>
-        </button>
-      </div>
+
+    <div class="server-line">
+      <span class="server-label">SERVER</span>
+      <span id="serverInfo" class="server-info" title="">未配置</span>
+      <button id="connectBtn" class="link-btn" type="button">连接</button>
+      <button id="disconnectBtn" class="link-btn" type="button" disabled>断开</button>
     </div>
-    
-    <div class="card">
-      <div class="content-actions">
-        <div class="action-group">
-          <button id="captureBtn" class="btn secondary">
-            <span>📷 截图当前页面</span>
-          </button>
-          <div class="option-group">
-            <input type="checkbox" id="fullPageCapture" checked>
-            <label for="fullPageCapture">全页面截图</label>
-          </div>
-        </div>
-        
-        <div class="action-group">
-          <button id="extractBtn" class="btn primary">
-            <span>📋 提取当前页面内容</span>
-          </button>
-        </div>
-      </div>
-    </div>
-    
-    <div id="resultPreview" class="result-preview" style="display: none;">
-      <div class="preview-header">
-        <h3>结果预览</h3>
-        <div class="preview-actions">
-          <button id="saveResultBtn" class="btn small primary">
-            <span>💾 保存</span>
-          </button>
-          <button id="copyResultBtn" class="btn small secondary">
-            <span>📋 复制</span>
-          </button>
-          <button id="closePreviewBtn" class="btn small secondary">
-            <span>✖</span>
-          </button>
-        </div>
-      </div>
-      <div id="previewContent" class="preview-content"></div>
-    </div>
-    
-    <footer class="popup-footer">
-      <button id="openOptionsBtn" class="btn text">
-        <span>⚙️ 设置</span>
+
+    <div class="actions">
+      <button id="captureBtn" class="action-btn" type="button">
+        <span class="action-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z"/>
+            <circle cx="12" cy="13" r="3.4"/>
+          </svg>
+        </span>
+        <span class="action-copy">
+          <span class="action-title">截图</span>
+          <span class="action-sub">当前首屏</span>
+        </span>
       </button>
-      <button id="openLogsBtn" class="btn text">
-        <span>📝 查看日志</span>
+
+      <button id="extractBtn" class="action-btn primary" type="button">
+        <span class="action-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8Z"/>
+            <path d="M14 3v5h5"/>
+            <path d="M9 13h6M9 17h6"/>
+          </svg>
+        </span>
+        <span class="action-copy">
+          <span class="action-title">提取内容</span>
+          <span class="action-sub">全文转 Markdown</span>
+        </span>
+      </button>
+    </div>
+
+    <section id="resultPreview" class="result-panel">
+      <div class="result-head">
+        <div class="result-heading">
+          <span class="eyebrow">结果预览</span>
+          <span id="resultMeta" class="result-meta">等待操作</span>
+        </div>
+        <div class="preview-actions">
+          <button id="saveResultBtn" class="icon-btn" type="button" title="保存" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/>
+            </svg>
+          </button>
+          <button id="copyResultBtn" class="icon-btn" type="button" title="复制" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="9" width="12" height="12" rx="2"/>
+              <path d="M5 15V5a2 2 0 0 1 2-2h10"/>
+            </svg>
+          </button>
+          <button id="closePreviewBtn" class="icon-btn" type="button" title="清除结果" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M18 6 6 18M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div id="previewContent" class="result-body"></div>
+    </section>
+
+    <footer class="popup-footer">
+      <button id="openOptionsBtn" class="footer-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3"/>
+          <path d="M1 14h6M9 8h6M17 16h6"/>
+        </svg>
+        <span>设置</span>
+      </button>
+      <button id="openLogsBtn" class="footer-btn" type="button">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M8 6h13M8 12h13M8 18h13"/>
+          <circle cx="4" cy="6" r=".9"/><circle cx="4" cy="12" r=".9"/><circle cx="4" cy="18" r=".9"/>
+        </svg>
+        <span>查看日志</span>
       </button>
     </footer>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
   </div>
-  
+
   <script src="popup.js" type="module"></script>
 </body>
 </html>

@@ -3,9 +3,15 @@
  * 用于处理需要DOM操作的截图功能
  */
 
-// 监听来自后台脚本的消息
+// 监听来自后台脚本的消息。
+// 每个弹出页、后台和本 offscreen 文档都会收到 runtime 消息，而第一个调用
+// sendResponse 的监听器决定结果。因此这里只认领 target 指向自己的消息，
+// 其余消息直接忽略，否则会把截图/提取等请求抢先回成“未知操作”。
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-    if (!message || !message.action) {
+    if (!message || message.target !== 'offscreen') {
+        return;
+    }
+    if (!message.action) {
         sendResponse({ error: '无效的消息格式' });
         return true;
     }

@@ -7,7 +7,7 @@ DIST_DIR := dist
 VERSION := $(shell cat $(EXTENSION_DIR)/manifest.json | grep '"version"' | sed 's/.*"version": "\([^"]*\)".*/\1/')
 PACKAGE_NAME := grabby-v$(VERSION).zip
 
-.PHONY: all build package clean install dev build-go run-go clean-go run build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop build-cli clean-cli
+.PHONY: all build package clean install dev build-go run-go clean-go run test-go acceptance build-desktop run-desktop clean-desktop package-macos-app app app-stop app-log stop-desktop build-cli clean-cli
 
 # ==================== Chrome Extension ====================
 
@@ -94,6 +94,16 @@ run-go: build-go
 run:
 	@echo "==> 启动 Go MCP Server..."
 	cd $(GO_SERVER_DIR) && go run .
+
+# Go 回归测试
+test-go:
+	@echo "==> 运行 Go 回归测试..."
+	cd $(GO_SERVER_DIR) && go test -count=1 ./...
+
+# 订阅文本采集一键验收（本地固定样本 + 临时 SQLite，无需公网）
+acceptance:
+	@echo "==> 运行订阅文本采集验收..."
+	./scripts/acceptance.sh
 
 # 清理 Go 构建产物
 clean-go:
@@ -217,6 +227,8 @@ help:
 	@echo "  make build-go       - 构建 Go MCP Server"
 	@echo "  make run-go         - 构建并运行 Go MCP Server"
 	@echo "  make run            - 直接运行 Go MCP Server"
+	@echo "  make test-go        - 运行 Go 回归测试"
+	@echo "  make acceptance     - 订阅文本采集一键验收（本地固定样本）"
 	@echo "  make clean-go       - 清理 Go 构建产物"
 	@echo ""
 	@echo "=== CLI ==="

@@ -98,6 +98,17 @@ func HandleWebSocketBrowser(wm *browserws.WebSocketManager, registry *browserreg
 
 		conn := browserws.NewWSConn(ws, logger)
 		wm.Connect(connID, conn)
+		// A registration can be removed while this request upgrades. Once
+		// the connection is visible to the registry's offline check, validate
+		// again before exposing it to browser routing.
+		if !registry.Validate(connID, browserName) {
+			_ = conn.WriteJSON(capture.BrowserResponse{
+				Type: "auth_response", Success: false, Error: "Browser is not registered",
+			})
+			_ = conn.Close()
+			wm.Disconnect(connID)
+			return
+		}
 		if err := wm.RegisterBrowserName(connID, browserName); err != nil {
 			logger.Warn("WebSocket rejected after upgrade", zap.Error(err))
 			_ = conn.WriteJSON(capture.BrowserResponse{

@@ -157,7 +157,43 @@ type FetchLog struct {
 	Status       string     `json:"status"`
 	ItemsFound   int        `json:"items_found"`
 	ItemsAdded   int        `json:"items_added"`
+	ItemsUpdated int        `json:"items_updated"`
+	ItemsSkipped int        `json:"items_skipped"`
+	ItemsFailed  int        `json:"items_failed"`
+	Trigger      string     `json:"trigger"`
+	Summary      string     `json:"summary"`
 	ErrorMessage string     `json:"error_message"`
+}
+
+type FetchTextResult struct {
+	Kind     string `json:"kind"`
+	Status   string `json:"status"`
+	Source   string `json:"source"`
+	URL      string `json:"url"`
+	Language string `json:"language"`
+	Chars    int    `json:"chars"`
+	Reason   string `json:"reason"`
+	Stage    string `json:"stage"`
+}
+
+type FetchLogItem struct {
+	ID         int64             `json:"id"`
+	LogID      int64             `json:"log_id"`
+	SourceID   string            `json:"source_id"`
+	ItemID     int64             `json:"item_id"`
+	Title      string            `json:"title"`
+	URL        string            `json:"url"`
+	Category   string            `json:"category"`
+	Status     string            `json:"status"`
+	Reason     string            `json:"reason"`
+	ErrorStage string            `json:"error_stage"`
+	Texts      []FetchTextResult `json:"texts"`
+}
+
+type FetchLogDetail struct {
+	Success bool           `json:"success"`
+	Log     FetchLog       `json:"log"`
+	Items   []FetchLogItem `json:"items"`
 }
 
 type Browser struct {

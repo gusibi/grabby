@@ -2,6 +2,7 @@ package nativeui
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/egoist/mygo/ui"
 )
@@ -35,7 +36,7 @@ func (a *App) devicesView(c *ui.Context) ui.Element {
 				})
 			})
 
-			ui.Text(c, "已连接设备").FontSize(17).FontWeight(650).LetterSpacing(-0.3)
+			ui.Text(c, "已注册设备").FontSize(17).FontWeight(650).LetterSpacing(-0.3)
 			if len(a.browsers) == 0 {
 				flatPanel(c, func() {
 					a.connectionHelp(c)
@@ -98,6 +99,29 @@ func (a *App) deviceRow(c *ui.Context, b Browser) {
 			quietButton(c, "封禁").FontSize(11).TextColor(t.Danger).OnClick(func() {
 				a.ask("封禁设备", "「"+orDefault(b.Name, b.ConnID)+"」将不能再次注册，直到解除封禁。", "封禁", func() error {
 					return a.client.browserAction("ban", b.ConnID)
+				})
+			})
+		}
+		if !b.Online {
+			quietButton(c, "删除").FontSize(11).TextColor(t.Danger).OnClick(func() {
+				name := orDefault(b.Name, b.ConnID)
+				a.ask("删除设备", "将删除「"+name+"」的注册记录和封禁状态。扩展再次注册时，设备会重新出现。", "删除", func() error {
+					if err := a.client.browserAction("delete", b.ConnID); err != nil {
+						return err
+					}
+					a.win.Update(func() {
+						a.browsers = slices.DeleteFunc(a.browsers, func(device Browser) bool {
+							return device.ConnID == b.ConnID
+						})
+						switch a.loading {
+						case "devices", "today", "library", "apihub":
+							a.seq++
+							a.loading = ""
+							a.ensureData()
+						}
+						a.toasts = append(a.toasts, toastMsg{Text: "设备已删除"})
+					})
+					return nil
 				})
 			})
 		}

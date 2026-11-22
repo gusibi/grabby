@@ -102,6 +102,8 @@ async function loadSettingsAndConnect() {
 
 // 处理消息
 function handleMessage(message, sender, sendResponse) {
+    // 截图合成请求由 offscreen 文档处理；这里若也应答，会与它抢同一条响应。
+    if (message && message.target === 'offscreen') return;
 
     switch (message.action) {
         case 'connect':
@@ -957,6 +959,150 @@ async function handleUiActionCommand(data) {
     }
 }
 
+// youtubeTranscriptPageScript 在页面 MAIN world 中执行（executeScript 会序列化
+// 函数体，因此只能使用页面上的全局对象）。返回视频元信息与按 30 秒分段的字幕。
+async function youtubeTranscriptPageScript() {
+    const extractJsonAfter = (text, marker) => {
+        const idx = text.indexOf(marker);
+        if (idx < 0) return null;
+        const start = text.indexOf('{', idx + marker.length);
+        if (start < 0) return null;
+        let depth = 0;
+        let inStr = false;
+        let esc = false;
+        for (let i = start; i < text.length; i++) {
+            const ch = text[i];
+            if (inStr) {
+                if (esc) esc = false;
+                else if (ch === '\\') esc = true;
+                else if (ch === '"') inStr = false;
+                continue;
+            }
+            if (ch === '"') inStr = true;
+            else if (ch === '{') depth++;
+            else if (ch === '}') {
+                depth--;
+                if (depth === 0) {
+                    try { return JSON.parse(text.slice(start, i + 1)); } catch (_) { return null; }
+                }
+            }
+        }
+        return null;
+    };
+    let pr = window.ytInitialPlayerResponse || null;
+    if (!pr) {
+        for (const s of document.scripts) {
+            const txt = s.textContent || '';
+            if (txt.includes('ytInitialPlayerResponse')) {
+                pr = extractJsonAfter(txt, 'ytInitialPlayerResponse');
+                if (pr) break;
+            }
+        }
+    }
+    if (!pr) return null;
+    const vd = pr.videoDetails || {};
+    const tracks = pr.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
+    let picked = tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('zh'))
+        || tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'))
+        || tracks[0]
+        || null;
+
+    const fmtTime = (ms) => {
+        const totalSec = Math.max(0, Math.floor(ms / 1000));
+        const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
+        const s = String(totalSec % 60).padStart(2, '0');
+        return `[${m}:${s}]`;
+    };
+
+    let transcript = '';
+    if (picked && picked.baseUrl) {
+        try {
+            const jsonUrl = picked.baseUrl.includes('fmt=')
+                ? picked.baseUrl.replace(/fmt=[^&]+/, 'fmt=json3')
+                : picked.baseUrl + '&fmt=json3';
+            const resp = await fetch(jsonUrl, { credentials: 'include' });
+            if (resp.ok) {
+                const data = await resp.json();
+                const events = Array.isArray(data?.events) ? data.events : [];
+                const lines = [];
+                let bucketStart = -1;
+                let bucketWords = [];
+                for (const ev of events) {
+                    const segs = Array.isArray(ev?.segs) ? ev.segs : [];
+                    const text = segs.map((s) => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
+                    if (!text) continue;
+                    const tMs = Number(ev.tStartMs || 0);
+                    if (bucketStart < 0) bucketStart = tMs;
+                    if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
+                        lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
+                        bucketStart = tMs;
+                        bucketWords = [text];
+                    } else {
+                        bucketWords.push(text);
+                    }
+                }
+                if (bucketWords.length > 0) {
+                    lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
+                }
+                transcript = lines.join('\n\n');
+            }
+        } catch (_) {}
+
+        if (!transcript) {
+            try {
+                const resp = await fetch(picked.baseUrl, { credentials: 'include' });
+                if (resp.ok) {
+                    const xmlText = await resp.text();
+                    const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
+                    const nodes = Array.from(doc.querySelectorAll('text'));
+                    const lines = [];
+                    let bucketStart = -1;
+                    let bucketWords = [];
+                    for (const n of nodes) {
+                        const txt = (n.textContent || '').replace(/\s+/g, ' ').trim();
+                        if (!txt) continue;
+                        const tMs = Math.floor(Number(n.getAttribute('start') || 0) * 1000);
+                        if (bucketStart < 0) bucketStart = tMs;
+                        if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
+                            lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
+                            bucketStart = tMs;
+                            bucketWords = [txt];
+                        } else {
+                            bucketWords.push(txt);
+                        }
+                    }
+                    if (bucketWords.length > 0) {
+                        lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
+                    }
+                    transcript = lines.join('\n\n');
+                }
+            } catch (_) {}
+        }
+    }
+
+    return {
+        videoId: vd.videoId || '',
+        title: vd.title || document.title || '',
+        author: vd.author || '',
+        channelId: vd.channelId || '',
+        shortDescription: vd.shortDescription || '',
+        lengthSeconds: vd.lengthSeconds || '',
+        transcript,
+        languageCode: picked ? (picked.languageCode || '') : '',
+        hasCaptions: tracks.length > 0
+    };
+}
+
+// extractYouTubeTranscript 在指定标签页读取 YouTube 视频信息与字幕。
+async function extractYouTubeTranscript(tabId) {
+    const [{ result } = {}] = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: youtubeTranscriptPageScript,
+    });
+    return result || null;
+}
+
 // ===== runPageScript 命令：白名单页面脚本 =====
 // 设计见 docs/browser-executor-plan.md §4.1。
 // 只允许执行内置、静态的脚本，绝不接受任意 JS 字符串；脚本名走 name，
@@ -978,146 +1124,20 @@ async function handleRunPageScriptCommand(data) {
         const tab = await navigateToUrl(data.url, data.visible === true, { waitForStable: !fastInitialState });
         targetTabId = tab.id;
 
-        const [{ result } = {}] = await chrome.scripting.executeScript({
-            target: { tabId: targetTabId },
-            world: 'MAIN',
-            // 注意：func 被序列化注入，访问不到外部闭包；白名单必须内联在函数体内。
-            func: async (name, params) => {
-                switch (name) {
-                    case 'youtube.initialPlayerResponse':
-                        return window.ytInitialPlayerResponse ?? null;
-                    case 'youtube.extractTranscript': {
-                        const extractJsonAfter = (text, marker) => {
-                            const idx = text.indexOf(marker);
-                            if (idx < 0) return null;
-                            const start = text.indexOf('{', idx + marker.length);
-                            if (start < 0) return null;
-                            let depth = 0;
-                            let inStr = false;
-                            let esc = false;
-                            for (let i = start; i < text.length; i++) {
-                                const ch = text[i];
-                                if (inStr) {
-                                    if (esc) esc = false;
-                                    else if (ch === '\\') esc = true;
-                                    else if (ch === '"') inStr = false;
-                                    continue;
-                                }
-                                if (ch === '"') inStr = true;
-                                else if (ch === '{') depth++;
-                                else if (ch === '}') {
-                                    depth--;
-                                    if (depth === 0) {
-                                        try { return JSON.parse(text.slice(start, i + 1)); } catch (_) { return null; }
-                                    }
-                                }
-                            }
-                            return null;
-                        };
-                        let pr = window.ytInitialPlayerResponse || null;
-                        if (!pr) {
-                            for (const s of document.scripts) {
-                                const txt = s.textContent || '';
-                                if (txt.includes('ytInitialPlayerResponse')) {
-                                    pr = extractJsonAfter(txt, 'ytInitialPlayerResponse');
-                                    if (pr) break;
-                                }
-                            }
-                        }
-                        if (!pr) return null;
-                        const vd = pr.videoDetails || {};
-                        const tracks = pr.captions?.playerCaptionsTracklistRenderer?.captionTracks || [];
-                        let picked = tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('zh'))
-                            || tracks.find((t) => (t.languageCode || '').toLowerCase().startsWith('en'))
-                            || tracks[0]
-                            || null;
-
-                        const fmtTime = (ms) => {
-                            const totalSec = Math.max(0, Math.floor(ms / 1000));
-                            const m = String(Math.floor(totalSec / 60)).padStart(2, '0');
-                            const s = String(totalSec % 60).padStart(2, '0');
-                            return `[${m}:${s}]`;
-                        };
-
-                        let transcript = '';
-                        if (picked && picked.baseUrl) {
-                            try {
-                                const jsonUrl = picked.baseUrl.includes('fmt=')
-                                    ? picked.baseUrl.replace(/fmt=[^&]+/, 'fmt=json3')
-                                    : picked.baseUrl + '&fmt=json3';
-                                const resp = await fetch(jsonUrl, { credentials: 'include' });
-                                if (resp.ok) {
-                                    const data = await resp.json();
-                                    const events = Array.isArray(data?.events) ? data.events : [];
-                                    const lines = [];
-                                    let bucketStart = -1;
-                                    let bucketWords = [];
-                                    for (const ev of events) {
-                                        const segs = Array.isArray(ev?.segs) ? ev.segs : [];
-                                        const text = segs.map((s) => s.utf8 || '').join('').replace(/\s+/g, ' ').trim();
-                                        if (!text) continue;
-                                        const tMs = Number(ev.tStartMs || 0);
-                                        if (bucketStart < 0) bucketStart = tMs;
-                                        if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
-                                            lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
-                                            bucketStart = tMs;
-                                            bucketWords = [text];
-                                        } else {
-                                            bucketWords.push(text);
-                                        }
-                                    }
-                                    if (bucketWords.length > 0) {
-                                        lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
-                                    }
-                                    transcript = lines.join('\n\n');
-                                }
-                            } catch (_) {}
-
-                            if (!transcript) {
-                                try {
-                                    const resp = await fetch(picked.baseUrl, { credentials: 'include' });
-                                    if (resp.ok) {
-                                        const xmlText = await resp.text();
-                                        const doc = new DOMParser().parseFromString(xmlText, 'text/xml');
-                                        const nodes = Array.from(doc.querySelectorAll('text'));
-                                        const lines = [];
-                                        let bucketStart = -1;
-                                        let bucketWords = [];
-                                        for (const n of nodes) {
-                                            const txt = (n.textContent || '').replace(/\s+/g, ' ').trim();
-                                            if (!txt) continue;
-                                            const tMs = Math.floor(Number(n.getAttribute('start') || 0) * 1000);
-                                            if (bucketStart < 0) bucketStart = tMs;
-                                            if (tMs - bucketStart >= 30000 && bucketWords.length > 0) {
-                                                lines.push(`${fmtTime(bucketStart)} ${bucketWords.join(' ')}`);
-                                                bucketStart = tMs;
-                                                bucketWords = [txt];
-                                            } else {
-                                                bucketWords.push(txt);
-                                            }
-                                        }
-                                        if (bucketWords.length > 0) {
-                                            lines.push(`${fmtTime(Math.max(0, bucketStart))} ${bucketWords.join(' ')}`);
-                                        }
-                                        transcript = lines.join('\n\n');
-                                    }
-                                } catch (_) {}
-                            }
-                        }
-
-                        return {
-                            videoId: vd.videoId || '',
-                            title: vd.title || document.title || '',
-                            author: vd.author || '',
-                            channelId: vd.channelId || '',
-                            shortDescription: vd.shortDescription || '',
-                            lengthSeconds: vd.lengthSeconds || '',
-                            transcript,
-                            languageCode: picked ? (picked.languageCode || '') : '',
-                            hasCaptions: tracks.length > 0
-                        };
-                    }
-                    case 'youtube.resolveChannel': {
+        // 文字稿提取较长且要被弹窗复用，单独走 extractYouTubeTranscript。
+        let result;
+        if (scriptName === 'youtube.extractTranscript') {
+            result = await extractYouTubeTranscript(targetTabId);
+        } else {
+            const [{ result: injected } = {}] = await chrome.scripting.executeScript({
+                target: { tabId: targetTabId },
+                world: 'MAIN',
+                // 注意：func 被序列化注入，访问不到外部闭包；白名单必须内联在函数体内。
+                func: async (name, params) => {
+                    switch (name) {
+                        case 'youtube.initialPlayerResponse':
+                            return window.ytInitialPlayerResponse ?? null;
+                        case 'youtube.resolveChannel': {
                         let channelId = document.querySelector('meta[itemprop="channelId"]')?.getAttribute('content') || '';
                         const title = window.ytInitialData?.metadata?.channelMetadataRenderer?.title
                             || document.querySelector('meta[property="og:title"]')?.getAttribute('content')
@@ -1246,9 +1266,11 @@ async function handleRunPageScriptCommand(data) {
                     default:
                         return { __error: 'script not allowed: ' + name };
                 }
-            },
-            args: [scriptName, scriptParams]
-        });
+                },
+                args: [scriptName, scriptParams]
+            });
+            result = injected;
+        }
 
         if (result && result.__error) throw new Error(result.__error);
 

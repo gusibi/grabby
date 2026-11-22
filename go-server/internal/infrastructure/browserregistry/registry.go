@@ -12,7 +12,10 @@ import (
 	"go-server/internal/domain/browser"
 )
 
-var ErrBrowserRegistryConflict = errors.New("browser registration conflict")
+var (
+	ErrBrowserRegistryConflict = errors.New("browser registration conflict")
+	ErrBrowserOnline           = errors.New("browser is online")
+)
 
 type browserRegistryFile struct {
 	Browsers []browser.BrowserRegistration `json:"browsers"`
@@ -156,6 +159,27 @@ func (br *BrowserRegistry) Unban(connectID string) error {
 
 	reg.Banned = false
 	return br.save()
+}
+
+// RemoveOffline forgets a registration if it has no active connection.
+func (br *BrowserRegistry) RemoveOffline(connectID string, isOnline func(string) bool) error {
+	br.mu.Lock()
+	defer br.mu.Unlock()
+
+	reg, ok := br.browsers[connectID]
+	if !ok {
+		return nil
+	}
+	if isOnline(connectID) {
+		return ErrBrowserOnline
+	}
+
+	delete(br.browsers, connectID)
+	if err := br.save(); err != nil {
+		br.browsers[connectID] = reg
+		return err
+	}
+	return nil
 }
 
 func (br *BrowserRegistry) List() []browser.BrowserRegistration {

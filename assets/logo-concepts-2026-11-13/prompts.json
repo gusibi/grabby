@@ -1,0 +1,19 @@
+{
+  "tool": "built-in image_gen",
+  "reference": "User-supplied pug photo",
+  "status": "Three generated concepts; 3D concept failed due to connection errors; existing application assets not replaced",
+  "variants": [
+    {
+      "file": "01-flat.png",
+      "prompt": "Use case: logo-brand. Make ONE square Grabby desktop app logo concept. Reference photo depicts user's actual pug: retain folded dark ears, fawn forehead wrinkles, large round dark eyes, black muzzle mask, earnest cute expression. App gathers web content and AI organizes and summarizes reading. Metaphor: pug fetching useful information as ONE simple content card with two bold lines. Crisp legible silhouette at small app icon size. No letters, words, watermark, grid, mockup or decorative objects. Minimal flat graphic logo, bold smooth espresso outlines, very few perfectly flat colors, tan and black pug HEAD ONLY gently fetching one cream content card in mouth. Burnt orange full square background. Economical graphic shapes, no gradients, no texture, large silhouette, no body or paws."
+    },
+    {
+      "file": "03-sticker.png",
+      "prompt": "Use case: logo-brand. Make ONE square Grabby desktop app logo concept. Reference photo depicts user's actual pug: retain folded dark ears, fawn forehead wrinkles, large round dark eyes, black muzzle mask, earnest cute expression. App gathers web content and AI organizes and summarizes reading. Metaphor: pug fetching useful information as ONE simple content card with two bold lines. Crisp legible silhouette at small app icon size. No letters, words, watermark, grid, mockup or decorative objects. Retro screenprint sticker-style app icon, expressive slightly worried tan black-muzzled pug with large eyes, oversized head, small paws clutching one cream folded information card, heavy organic dark brown contours, limited mustard cream espresso palette, cream sticker outline on muted brick-red square backdrop, minimal paper grain."
+    },
+    {
+      "file": "04-geometric.png",
+      "prompt": "Use case: logo-brand. Create ONE square app icon concept for Grabby, a desktop app that collects web content, aggregates a personal reading library, and uses AI to classify and summarize it. Input image is a SUBJECT REFERENCE: the user's actual pug puppy. Preserve its recognizable fawn/tan head, folded dark ears, black muzzle mask, huge round dark eyes, forehead wrinkles, and earnest slightly worried cute expression. Reinterpret as an original polished logo, not photo tracing. Theme: a helpful pug fetching useful information. Include just ONE simple small content card held in mouth or paws, with 2 bold abstract lines and a folded corner, symbolizing web content. The pug must dominate, simple strong silhouette readable at 32px. No lettering, no text, no watermark, no UI mockup, no presentation board, no multiple alternatives in the image. Full square composition with appropriate margins.\nStyle: sophisticated minimalist geometric technology brand logo. Distill reference pug face into simple rounded interlocking geometric masses with distinctive dark muzzle, drooping ears and large dark eyes, fawn head, elegant precise negative space, minimal detail. A small pale content card sits neatly between its muzzle and paws; card fold suggests collection. Dark navy full square background, warm tan dog with restrained icy-blue card accent. Flat crisp vector-like shapes, no glow, no circuitry, no gradients, no generic robot, no ornate detail."
+    }
+  ]
+}

@@ -18,6 +18,8 @@ import (
 type Source = source.Source
 type SourceForm = source.SourceForm
 type FetchLog = source.FetchLog
+type FetchLogItem = source.FetchLogItem
+type FetchTextResult = source.FetchTextResult
 type ScrapedItem = item.ScrapedItem
 type ScrapedItemWithAI = item.ScrapedItemWithAI
 type ItemsFilter = item.ItemsFilter

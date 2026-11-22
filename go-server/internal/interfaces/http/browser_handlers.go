@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -41,6 +42,7 @@ func RegisterBrowserHandlers(api *echo.Group, deps Dependencies) {
 	api.POST("/browsers/kick", h.kick)
 	api.POST("/browsers/ban", h.ban)
 	api.POST("/browsers/unban", h.unban)
+	api.POST("/browsers/delete", h.delete)
 
 	api.POST("/extract", h.extract)
 	api.POST("/screenshot", h.screenshot)
@@ -142,9 +144,9 @@ func (h *browserHandlers) register(c echo.Context) error {
 }
 
 func (h *browserHandlers) kick(c echo.Context) error {
-	connID, err := bindConnID(c)
-	if err != nil {
-		return err
+	connID, ok := bindConnID(c)
+	if !ok {
+		return nil
 	}
 	if err := h.deps.WSManager.Kick(connID); err != nil {
 		return detailErr(c, http.StatusNotFound, err.Error())
@@ -153,9 +155,9 @@ func (h *browserHandlers) kick(c echo.Context) error {
 }
 
 func (h *browserHandlers) ban(c echo.Context) error {
-	connID, err := bindConnID(c)
-	if err != nil {
-		return err
+	connID, ok := bindConnID(c)
+	if !ok {
+		return nil
 	}
 	// First, kick/disconnect the browser if it's currently connected.
 	_ = h.deps.WSManager.Kick(connID)
@@ -166,9 +168,9 @@ func (h *browserHandlers) ban(c echo.Context) error {
 }
 
 func (h *browserHandlers) unban(c echo.Context) error {
-	connID, err := bindConnID(c)
-	if err != nil {
-		return err
+	connID, ok := bindConnID(c)
+	if !ok {
+		return nil
 	}
 	if err := h.deps.BrowserRegistry.Unban(connID); err != nil {
 		return detailErr(c, http.StatusInternalServerError, err.Error())
@@ -176,19 +178,37 @@ func (h *browserHandlers) unban(c echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"success": true})
 }
 
-// bindConnID binds and validates the `conn_id` field shared by kick/ban/unban.
-// On a bad body it writes the error response and returns a non-nil error.
-func bindConnID(c echo.Context) (string, error) {
+func (h *browserHandlers) delete(c echo.Context) error {
+	connID, ok := bindConnID(c)
+	if !ok {
+		return nil
+	}
+	err := h.deps.BrowserRegistry.RemoveOffline(connID, h.deps.WSManager.HasConnection)
+	if errors.Is(err, browserregistry.ErrBrowserOnline) {
+		return detailErr(c, http.StatusConflict, "设备已在线，请断开连接后再删除")
+	}
+	if err != nil {
+		h.deps.Logger.Error("Failed to delete browser registration", zap.Error(err))
+		return detailErr(c, http.StatusInternalServerError, "无法保存设备注册列表")
+	}
+	return c.JSON(http.StatusOK, map[string]any{"success": true})
+}
+
+// bindConnID writes a bad-request response for malformed browser actions.
+func bindConnID(c echo.Context) (string, bool) {
 	var req struct {
 		ConnID string `json:"conn_id"`
 	}
 	if err := c.Bind(&req); err != nil {
-		return "", detailErr(c, http.StatusBadRequest, "Invalid request body")
+		_ = detailErr(c, http.StatusBadRequest, "Invalid request body")
+		return "", false
 	}
-	if req.ConnID == "" {
-		return "", detailErr(c, http.StatusBadRequest, "conn_id is required")
+	id := strings.TrimSpace(req.ConnID)
+	if id == "" {
+		_ = detailErr(c, http.StatusBadRequest, "conn_id is required")
+		return "", false
 	}
-	return req.ConnID, nil
+	return id, true
 }
 
 // --- browser-data primitives ---

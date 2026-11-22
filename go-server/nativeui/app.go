@@ -105,9 +105,10 @@ type App struct {
 
 	layout int // 0 grid, 1 list
 
-	reader   Reader
-	readerWV *mygo.WebView
-	appIcon  ui.ImageSource
+	reader     Reader
+	readerWV   *mygo.WebView
+	readerDocs *readerServer
+	appIcon    ui.ImageSource
 
 	dailyDate   string
 	dailyType   string
@@ -115,12 +116,23 @@ type App struct {
 	dailyBusy   bool
 	dailyPicked bool // the user chose a day and type; stop following the newest
 
+	sourceToggles    map[string]bool
 	sourceDialogOpen bool
 	sourceEditing    *SourceForm
 	sourceIsEdit     bool
 	sourceLogOpen    bool
 	sourceLogs       []FetchLog
 	sourceLogTitle   string
+	sourceLogDetail  *FetchLogDetail
+	sourceLogLoading int64
+
+	sourceFullContent     bool
+	sourceListSelector    string
+	sourceArticleSelector string
+	sourceArticlePattern  string
+	sourceMaxItems        string
+	sourceMaxBackfill     string
+	sourceConfigExtra     map[string]any
 
 	aiDraft        *AISettings
 	aiProfileIndex int
@@ -201,6 +213,7 @@ func (a *App) Start(win *mygo.Window) {
 		return
 	}
 	a.readerWV = wv
+	a.readerDocs = newReaderServer()
 	wv.Page().OnWillNavigate(func(e *mygo.NavigateEvent) {
 		if e.URL == "" || strings.HasPrefix(e.URL, "about:") {
 			return
@@ -888,9 +901,7 @@ func (a *App) openReader(it Item) {
 			}
 			a.reader.Item = &item
 			a.reader.Analysis = an
-			if a.readerWV != nil {
-				a.readerWV.Page().LoadHTML(a.buildReaderHTML(item, detail, an), item.URL)
-			}
+			a.loadReader(a.buildReaderHTML(item, detail, an), item.URL)
 			if item.ReadStatus == 0 {
 				_ = a.client.markRead(item.ID, true)
 				a.applyLocalRead(item.ID)

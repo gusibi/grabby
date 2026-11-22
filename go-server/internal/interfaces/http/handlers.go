@@ -43,6 +43,7 @@ func RegisterHandlers(openAPI, api *echo.Group, deps Dependencies) {
 	api.POST("/sources/:id/run", h.runSource)
 
 	api.GET("/logs", h.listLogs)
+	api.GET("/logs/:id", h.getLogDetail)
 	openAPI.GET("/stats", h.stats)
 }
 
@@ -314,11 +315,22 @@ func (h *contentHandlers) runSource(c echo.Context) error {
 	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
 	defer cancel()
 
-	added, err := h.deps.Scraper.ScrapeSource(ctx, *src)
+	added, logID, err := h.deps.Scraper.RunSource(ctx, *src, "manual")
 	if err != nil {
 		return detailErr(c, http.StatusInternalServerError, err.Error())
 	}
-	return c.JSON(http.StatusOK, map[string]any{"success": true, "items_added": added})
+	resp := map[string]any{"success": true, "items_added": added}
+	if l, lerr := h.deps.DB.GetFetchLog(logID); lerr == nil && l != nil {
+		resp["log_id"] = l.ID
+		resp["status"] = l.Status
+		resp["trigger"] = l.Trigger
+		resp["items_found"] = l.ItemsFound
+		resp["items_updated"] = l.ItemsUpdated
+		resp["items_skipped"] = l.ItemsSkipped
+		resp["items_failed"] = l.ItemsFailed
+		resp["summary"] = l.Summary
+	}
+	return c.JSON(http.StatusOK, resp)
 }
 
 // --- logs & stats ---
@@ -329,6 +341,35 @@ func (h *contentHandlers) listLogs(c echo.Context) error {
 		return detailErr(c, http.StatusInternalServerError, err.Error())
 	}
 	return c.JSON(http.StatusOK, logs)
+}
+
+// getLogDetail returns one run plus every discovered/processed entry and the
+// per-text results (feed body, original page, description, captions,
+// transcript). It is the API behind the desktop fetch-log detail view.
+func (h *contentHandlers) getLogDetail(c echo.Context) error {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		return detailErr(c, http.StatusBadRequest, "Invalid ID format")
+	}
+	log, err := h.deps.DB.GetFetchLog(id)
+	if err != nil {
+		return detailErr(c, http.StatusInternalServerError, err.Error())
+	}
+	if log == nil {
+		return detailErr(c, http.StatusNotFound, "Fetch log not found")
+	}
+	items, err := h.deps.DB.GetFetchLogItems(id)
+	if err != nil {
+		return detailErr(c, http.StatusInternalServerError, err.Error())
+	}
+	if items == nil {
+		items = []source.FetchLogItem{}
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success": true,
+		"log":     log,
+		"items":   items,
+	})
 }
 
 func (h *contentHandlers) stats(c echo.Context) error {

@@ -166,7 +166,13 @@ func (s *Scheduler) scheduleSource(src source.Source) {
 	entryID, err := s.cron.AddFunc(src.Schedule, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
 		defer cancel()
-		_, _ = s.scraper.ScrapeSource(ctx, src)
+		// Reload before each run so conditional GET headers (ETag/Last-Modified)
+		// and edited config take effect for scheduled fetches.
+		latest, err := s.db.GetSource(src.ID)
+		if err != nil || latest == nil || latest.Enabled != 1 {
+			return
+		}
+		_, _ = s.scraper.ScrapeSourceWithTrigger(ctx, *latest, "scheduled")
 	})
 
 	if err != nil {
