@@ -257,3 +257,58 @@ func TestSetSourceItemsCategory(t *testing.T) {
 		t.Fatalf("auto category should be a no-op")
 	}
 }
+
+func TestCountItemsBySource(t *testing.T) {
+	db := newTestDB(t)
+	for _, s := range []Source{
+		{ID: "alpha", Name: "Alpha", Type: "rss", URL: "https://example.com/a", Schedule: "0 * * * *", Enabled: 1, Config: "{}"},
+		{ID: "beta", Name: "Beta", Type: "rss", URL: "https://example.com/b", Schedule: "0 * * * *", Enabled: 1, Config: "{}"},
+		{ID: "empty", Name: "Empty", Type: "rss", URL: "https://example.com/e", Schedule: "0 * * * *", Enabled: 1, Config: "{}"},
+	} {
+		if err := db.InsertSource(s); err != nil {
+			t.Fatalf("InsertSource(%s): %v", s.ID, err)
+		}
+	}
+
+	insert := func(sourceID, url string) int64 {
+		t.Helper()
+		id, err := db.InsertScrapedItem(ScrapedItem{
+			SourceID: sourceID, Title: url, URL: url, Category: "article", Metadata: "{}",
+		})
+		if err != nil {
+			t.Fatalf("InsertScrapedItem(%s): %v", url, err)
+		}
+		return id
+	}
+	insert("alpha", "https://example.com/a1")
+	alphaRead := insert("alpha", "https://example.com/a2")
+	betaRead := insert("beta", "https://example.com/b1")
+	if err := db.MarkItemRead(alphaRead, 1); err != nil {
+		t.Fatalf("MarkItemRead(alpha): %v", err)
+	}
+	if err := db.MarkItemRead(betaRead, 1); err != nil {
+		t.Fatalf("MarkItemRead(beta): %v", err)
+	}
+
+	counts, err := db.CountItemsBySource()
+	if err != nil {
+		t.Fatalf("CountItemsBySource: %v", err)
+	}
+	byID := map[string]SourceCount{}
+	for _, c := range counts {
+		byID[c.ID] = c
+	}
+	if got := byID["alpha"]; got.Total != 2 || got.Unread != 1 {
+		t.Fatalf("alpha = %+v, want total 2 unread 1", got)
+	}
+	if got := byID["beta"]; got.Total != 1 || got.Unread != 0 {
+		t.Fatalf("beta = %+v, want total 1 unread 0", got)
+	}
+	if got := byID["empty"]; got.Total != 0 || got.Unread != 0 {
+		t.Fatalf("empty = %+v, want zeros", got)
+	}
+	// Busy-and-unread sources sort first so the filter puts them in reach.
+	if len(counts) == 0 || counts[0].ID != "alpha" {
+		t.Fatalf("first source = %+v, want alpha (unread first)", counts)
+	}
+}

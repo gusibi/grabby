@@ -16,6 +16,7 @@ type Filter struct {
 	Category       string
 	ContentType    string
 	SourceCategory string
+	SourceID       string
 	AICategory     string
 	ScoreMin       int
 	Since          string // RFC3339 cutoff; today's feed starts at midnight
@@ -127,6 +128,8 @@ type App struct {
 	sourceLogLoading int64
 
 	sourceFullContent     bool
+	sourceCrawlLinks      bool
+	sourceAdvancedOpen    bool
 	sourceListSelector    string
 	sourceArticleSelector string
 	sourceArticlePattern  string
@@ -505,6 +508,16 @@ func (a *App) header(c *ui.Context) {
 }
 
 func (a *App) headerSubtitle() string {
+	if f := a.filters[a.view]; f != nil && f.SourceID != "" {
+		sub := "只看 · " + a.sourceDisplayName(f.SourceID)
+		if total, unread := a.sourceContentCount(f.SourceID); total > 0 {
+			sub += fmt.Sprintf(" · %d 条内容", total)
+			if unread > 0 {
+				sub += fmt.Sprintf("，%d 未读", unread)
+			}
+		}
+		return sub
+	}
 	switch a.view {
 	case "today":
 		return time.Now().Format("2006 年 1 月 2 日") + " · 本地优先的阅读台"
@@ -991,6 +1004,20 @@ func (a *App) markRead(it Item, read bool) {
 			if !read {
 				a.stats.UnreadCount++
 			}
+			// Keep the source filter's unread badges in step with the item.
+			for i := range a.stats.SourceCounts {
+				sc := &a.stats.SourceCounts[i]
+				if sc.ID != it.SourceID {
+					continue
+				}
+				if read && sc.Unread > 0 {
+					sc.Unread--
+				}
+				if !read {
+					sc.Unread++
+				}
+				break
+			}
 		})
 	}()
 }
@@ -1095,6 +1122,12 @@ func (a *App) filter(c *ui.Context, view string) {
 				a.reloadItems(view)
 			})
 		}
+		if f.SourceID != "" {
+			pill(c, "订阅源: "+truncate(a.sourceDisplayName(f.SourceID), 18), true).OnClick(func() {
+				f.SourceID = ""
+				a.reloadItems(view)
+			})
+		}
 		if f.Query != "" {
 			pill(c, "搜索: "+truncate(f.Query, 18), true).OnClick(func() {
 				f.Query = ""
@@ -1102,7 +1135,7 @@ func (a *App) filter(c *ui.Context, view string) {
 				a.reloadItems(view)
 			})
 		}
-		if f.Mode != "all" || f.Query != "" || f.AICategory != "" || f.SourceCategory != "" {
+		if f.Mode != "all" || f.Query != "" || f.AICategory != "" || f.SourceCategory != "" || f.SourceID != "" {
 			quietButton(c, "清除筛选").FontSize(11.5).OnClick(func() {
 				*f = *newFilter()
 				a.searchDraft = ""

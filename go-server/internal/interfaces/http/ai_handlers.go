@@ -78,6 +78,7 @@ func (h *AIHandlers) HandleQuality(c echo.Context) error {
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
 		AICategory:     c.QueryParam("category"),
 		SourceCategory: c.QueryParam("source_category"),
+		SourceID:       c.QueryParam("source_id"),
 		ContentType:    c.QueryParam("content_type"),
 		ScoreMin:       scoreMin,
 		Days:           days,
@@ -126,6 +127,7 @@ func (h *AIHandlers) HandleItems(c echo.Context) error {
 	items, nextCursor, err := h.db.GetScrapedItemsWithAI(item.AIItemsFilter{
 		AICategory:     c.QueryParam("category"),
 		SourceCategory: c.QueryParam("source_category"),
+		SourceID:       c.QueryParam("source_id"),
 		ScoreMin:       scoreMin,
 		Limit:          limit,
 		Cursor:         c.QueryParam("cursor"),

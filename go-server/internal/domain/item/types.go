@@ -43,6 +43,7 @@ type ItemsFilter struct {
 type AIItemsFilter struct {
 	AICategory     string
 	SourceCategory string
+	SourceID       string
 	ContentType    string
 	ScoreMin       int
 	Days           int
@@ -50,6 +51,16 @@ type AIItemsFilter struct {
 	Since  time.Time
 	Limit  int
 	Cursor string
+}
+
+// SourceCount is one subscription source with how much content it holds. It
+// feeds the library's "订阅源" filter, where unread counts make busy sources
+// easy to pick without opening each one.
+type SourceCount struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Total  int    `json:"total"`
+	Unread int    `json:"unread"`
 }
 
 // ScrapedItemWithAI represents a scraped item along with its AI analysis details.

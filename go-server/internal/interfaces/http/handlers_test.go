@@ -85,3 +85,68 @@ func TestGetItemRendersEscapedMarkdownAndHTML(t *testing.T) {
 		t.Fatalf("InsertScrapedItem returned id %d", itemID)
 	}
 }
+
+func TestListItemsFiltersBySourceAndStatsExposeCounts(t *testing.T) {
+	db, err := sqlite.NewDatabase(":memory:")
+	if err != nil {
+		t.Fatalf("NewDatabase: %v", err)
+	}
+	defer db.Close()
+
+	for _, s := range []sqlite.Source{
+		{ID: "src-a", Name: "Source A", Type: "rss", URL: "https://example.com/a", Schedule: "0 * * * *", Enabled: 1, Config: "{}"},
+		{ID: "src-b", Name: "Source B", Type: "rss", URL: "https://example.com/b", Schedule: "0 * * * *", Enabled: 1, Config: "{}"},
+	} {
+		if err := db.InsertSource(s); err != nil {
+			t.Fatalf("InsertSource(%s): %v", s.ID, err)
+		}
+	}
+	for _, it := range []sqlite.ScrapedItem{
+		{SourceID: "src-a", Title: "A one", URL: "https://example.com/a1", Category: "article", Metadata: "{}"},
+		{SourceID: "src-b", Title: "B one", URL: "https://example.com/b1", Category: "article", Metadata: "{}"},
+	} {
+		if _, err := db.InsertScrapedItem(it); err != nil {
+			t.Fatalf("InsertScrapedItem(%s): %v", it.URL, err)
+		}
+	}
+
+	h := &contentHandlers{deps: Dependencies{DB: db, Logger: zap.NewNop()}}
+	e := echo.New()
+
+	req := httptest.NewRequest(http.MethodGet, "/open/api/items?source_id=src-a", nil)
+	rec := httptest.NewRecorder()
+	if err := h.listItems(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("listItems: %v", err)
+	}
+	var page struct {
+		Items []sqlite.ScrapedItem `json:"items"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &page); err != nil {
+		t.Fatalf("decode items: %v", err)
+	}
+	if len(page.Items) != 1 || page.Items[0].SourceID != "src-a" {
+		t.Fatalf("items = %+v, want only src-a", page.Items)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/open/api/stats", nil)
+	rec = httptest.NewRecorder()
+	if err := h.stats(e.NewContext(req, rec)); err != nil {
+		t.Fatalf("stats: %v", err)
+	}
+	var stats struct {
+		SourceCounts []sqlite.SourceCount `json:"source_counts"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &stats); err != nil {
+		t.Fatalf("decode stats: %v", err)
+	}
+	byID := map[string]sqlite.SourceCount{}
+	for _, c := range stats.SourceCounts {
+		byID[c.ID] = c
+	}
+	if got := byID["src-a"]; got.Total != 1 || got.Name != "Source A" {
+		t.Fatalf("source_counts[src-a] = %+v", got)
+	}
+	if got := byID["src-b"]; got.Total != 1 || got.Name != "Source B" {
+		t.Fatalf("source_counts[src-b] = %+v", got)
+	}
+}

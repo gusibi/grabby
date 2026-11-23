@@ -24,6 +24,7 @@ type ScrapedItem = item.ScrapedItem
 type ScrapedItemWithAI = item.ScrapedItemWithAI
 type ItemsFilter = item.ItemsFilter
 type AIItemsFilter = item.AIItemsFilter
+type SourceCount = item.SourceCount
 type AIAnalysis = ai.AIAnalysis
 type AIDailyReport = ai.AIDailyReport
 type AICategoryStat = ai.AICategoryStat

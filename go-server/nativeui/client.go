@@ -318,6 +318,9 @@ func (c *Client) items(filter Filter, cursor string) (ItemsPage, error) {
 	if filter.SourceCategory != "" {
 		path += "&source_category=" + q(filter.SourceCategory)
 	}
+	if filter.SourceID != "" {
+		path += "&source_id=" + q(filter.SourceID)
+	}
 	if filter.Since != "" {
 		path += "&since=" + q(filter.Since)
 	}
@@ -336,6 +339,9 @@ func (c *Client) qualityItems(filter Filter, cursor string) (ItemsPage, error) {
 	}
 	if filter.SourceCategory != "" {
 		path += "&source_category=" + q(filter.SourceCategory)
+	}
+	if filter.SourceID != "" {
+		path += "&source_id=" + q(filter.SourceID)
 	}
 	if filter.ContentType != "" {
 		path += "&content_type=" + q(filter.ContentType)

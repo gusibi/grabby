@@ -629,24 +629,51 @@ func (s *Scraper) scrapeRSSWithContext(ctx context.Context, src *source.Source, 
 			})
 		case fullEnabled && needDeep && targetURL != "":
 			deepAttempts++
-			fullText, pageTitle, pending, extErr := s.fetchOriginalArticle(ctx, targetURL)
+			res, pending, extErr := s.fetchOriginalArticle(ctx, targetURL)
 			browserPending = pending
 			if browserPending {
 				meta["content_source"] = "feed_summary"
 				meta["full_content_status"] = "deferred"
 				meta["full_content_url"] = targetURL
 				rep.Texts = append(rep.Texts, pendingArticleText(targetURL))
-			} else if extErr == nil && utf8.RuneCountInString(fullText) >= 200 {
-				scrapedItem.Content = fullText
-				if scrapedItem.Title == "" && pageTitle != "" {
-					scrapedItem.Title = pageTitle
+			} else if extErr == nil && utf8.RuneCountInString(res.Markdown) >= 200 {
+				scrapedItem.Content = res.Markdown
+				if scrapedItem.Title == "" && res.Title != "" {
+					scrapedItem.Title = res.Title
 				}
 				meta["content_source"] = "web_page"
+				sourceName := "web_page"
+				if res.IsPDF {
+					meta["content_source"] = "pdf_text"
+					sourceName = "pdf_text"
+					meta["pdf_url"] = targetURL
+					meta["pdf_pages"] = res.PDFPages
+				}
 				meta["full_content_status"] = "fetched"
 				meta["full_content_url"] = targetURL
 				rep.Texts = append(rep.Texts, source.FetchTextResult{
-					Kind: "content", Status: "stored", Source: "web_page", URL: targetURL,
-					Chars: utf8.RuneCountInString(fullText),
+					Kind: "content", Status: "stored", Source: sourceName, URL: targetURL,
+					Chars: utf8.RuneCountInString(res.Markdown),
+				})
+			} else if res.IsPDF {
+				// The link is a PDF but its text layer is empty or unreadable
+				// (a scan, or an encrypted/malformed file). Keep the feed
+				// summary and point the reader at the file itself.
+				reason := "PDF 没有可提取的文字层，已保留 Feed 简介"
+				if extErr != nil && !errors.Is(extErr, ErrPDFNoText) {
+					reason = "PDF 解析失败，已保留 Feed 简介: " + extErr.Error()
+				}
+				meta["content_source"] = "pdf"
+				meta["full_content_status"] = "pdf"
+				meta["pdf_url"] = targetURL
+				meta["pdf_pages"] = res.PDFPages
+				meta["full_content_url"] = targetURL
+				meta["full_content_error"] = sanitizeText(reason)
+				meta["full_content_attempted_at"] = time.Now().UnixNano()
+				rep.Texts = append(rep.Texts, source.FetchTextResult{
+					Kind: "content", Status: "stored", Source: "pdf", URL: targetURL,
+					Reason: reason,
+					Chars:  utf8.RuneCountInString(StripHTMLToText(content)),
 				})
 			} else {
 				reason := "empty or short article text"
@@ -731,26 +758,30 @@ func (s *Scraper) scrapeRSSWithContext(ctx context.Context, src *source.Source, 
 }
 
 // fetchOriginalArticle extracts a public article via HTTP, then falls back to
-// the browser executor for hosts that require JS/session cookies.
-func (s *Scraper) fetchOriginalArticle(ctx context.Context, pageURL string) (string, string, bool, error) {
+// the browser executor for hosts that require JS/session cookies. PDFs skip the
+// browser fallback: a browser cannot improve on the file's own text layer.
+func (s *Scraper) fetchOriginalArticle(ctx context.Context, pageURL string) (ArticleExtract, bool, error) {
 	queueAvailable := s.taskQueue != nil && s.taskQueue.IsRunning()
 	if !RequiresBrowserExtract(pageURL) {
 		res, err := ExtractWebArticleDetails(ctx, pageURL)
+		if res.IsPDF {
+			return res, false, err
+		}
 		if err == nil && utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) >= 200 {
-			return res.Markdown, res.Title, false, nil
+			return res, false, nil
 		}
 		if !queueAvailable && s.wsManager == nil {
 			if err != nil {
-				return "", "", false, err
+				return res, false, err
 			}
-			return res.Markdown, res.Title, false, fmt.Errorf("extracted article was shorter than 200 characters")
+			return res, false, fmt.Errorf("extracted article was shorter than 200 characters")
 		}
 	}
 	if queueAvailable {
-		return "", "", true, nil
+		return ArticleExtract{}, true, nil
 	}
 	markdown, title, err := s.extractPageViaBrowser(ctx, pageURL)
-	return markdown, title, false, err
+	return ArticleExtract{Markdown: markdown, Title: title}, false, err
 }
 
 func pendingArticleText(target string) source.FetchTextResult {
@@ -834,6 +865,11 @@ func rssNeedsBackfill(existing *item.ScrapedItem) bool {
 	if status == "fetched" {
 		return false
 	}
+	// A PDF without a text layer will not improve on the next run; the reader
+	// links the file instead of retrying the download every scrape.
+	if metaString(meta, "content_source") == "pdf" || status == "pdf" {
+		return false
+	}
 	if status == "failed" || status == "deferred" {
 		return true
 	}
@@ -850,7 +886,7 @@ func (s *Scraper) backfillRSSItem(ctx context.Context, existing *item.ScrapedIte
 		target = existing.URL
 	}
 	meta := parseMetadata(existing.Metadata)
-	fullText, pageTitle, browserPending, err := s.fetchOriginalArticle(ctx, target)
+	res, browserPending, err := s.fetchOriginalArticle(ctx, target)
 	if browserPending {
 		run.queueBrowser(ScrapeTask{SourceID: run.sourceID, URL: target, ItemID: existing.ID}, ItemReport{
 			Title: existing.Title, URL: existing.URL, Category: existing.Category, ItemID: existing.ID,
@@ -861,20 +897,27 @@ func (s *Scraper) backfillRSSItem(ctx context.Context, existing *item.ScrapedIte
 		})
 		return
 	}
-	if err == nil && utf8.RuneCountInString(fullText) >= 200 {
+	if err == nil && utf8.RuneCountInString(res.Markdown) >= 200 {
 		meta["content_source"] = "web_page"
+		sourceName := "web_page"
+		if res.IsPDF {
+			meta["content_source"] = "pdf_text"
+			sourceName = "pdf_text"
+			meta["pdf_url"] = target
+			meta["pdf_pages"] = res.PDFPages
+		}
 		meta["full_content_status"] = "fetched"
 		meta["full_content_url"] = target
 		delete(meta, "full_content_error")
 		title := existing.Title
 		if title == "" {
-			title = pageTitle
+			title = res.Title
 		}
-		if uerr := s.db.UpdateScrapedItemFromScrape(existing.ID, title, existing.Summary, fullText, existing.Category,
+		if uerr := s.db.UpdateScrapedItemFromScrape(existing.ID, title, existing.Summary, res.Markdown, existing.Category,
 			marshalMetadata(meta), existing.PublishedAt); uerr != nil {
 			run.add(ItemReport{Title: existing.Title, URL: existing.URL, Category: existing.Category, ItemID: existing.ID,
 				Status: "failed", Reason: "补全写入内容库失败: " + uerr.Error(), ErrorStage: "persist",
-				Texts: []source.FetchTextResult{{Kind: "content", Status: "failed", Source: "web_page", URL: target,
+				Texts: []source.FetchTextResult{{Kind: "content", Status: "failed", Source: sourceName, URL: target,
 					Reason: uerr.Error(), Stage: "persist"}}})
 			return
 		}
@@ -882,11 +925,34 @@ func (s *Scraper) backfillRSSItem(ctx context.Context, existing *item.ScrapedIte
 			Status: "updated", Reason: "已补全原文正文",
 			Texts: []source.FetchTextResult{
 				{Kind: "summary", Status: "kept_existing", Source: "feed", Chars: utf8.RuneCountInString(existing.Summary)},
-				{Kind: "content", Status: "updated", Source: "web_page", URL: target, Chars: utf8.RuneCountInString(fullText)},
+				{Kind: "content", Status: "updated", Source: sourceName, URL: target, Chars: utf8.RuneCountInString(res.Markdown)},
 			}})
 		if s.aiEngine != nil {
 			s.aiEngine.Enqueue(existing.ID)
 		}
+		return
+	}
+
+	if res.IsPDF {
+		reason := "PDF 没有可提取的文字层，保留已有内容"
+		if err != nil && !errors.Is(err, ErrPDFNoText) {
+			reason = "PDF 解析失败，保留已有内容: " + err.Error()
+		}
+		meta["content_source"] = "pdf"
+		meta["full_content_status"] = "pdf"
+		meta["pdf_url"] = target
+		meta["pdf_pages"] = res.PDFPages
+		meta["full_content_url"] = target
+		meta["full_content_error"] = sanitizeText(reason)
+		meta["full_content_attempted_at"] = time.Now().UnixNano()
+		_ = s.db.UpdateScrapedItemFromScrape(existing.ID, "", existing.Summary, "", existing.Category,
+			marshalMetadata(meta), nil)
+		run.add(ItemReport{Title: existing.Title, URL: existing.URL, Category: existing.Category, ItemID: existing.ID,
+			Status: "kept_existing", Reason: reason,
+			Texts: []source.FetchTextResult{
+				{Kind: "content", Status: "kept_existing", Source: "pdf", URL: target,
+					Reason: reason, Chars: utf8.RuneCountInString(existing.Content)},
+			}})
 		return
 	}
 
@@ -1042,12 +1108,15 @@ func (s *Scraper) ingestWebPage(ctx context.Context, pageURL string, kind string
 
 	var title, md string
 	var httpErr error
+	var res ArticleExtract
 
 	if !RequiresBrowserExtract(pageURL) {
-		title, md, httpErr = ExtractWebArticle(ctx, pageURL)
+		res, httpErr = ExtractWebArticleDetails(ctx, pageURL)
+		title, md = res.Title, res.Markdown
 	}
 
-	if (httpErr != nil || utf8.RuneCountInString(strings.TrimSpace(md)) < 150) && s.wsManager != nil {
+	// A PDF's text layer is final; the browser would only return noise.
+	if !res.IsPDF && (httpErr != nil || utf8.RuneCountInString(strings.TrimSpace(md)) < 150) && s.wsManager != nil {
 		if connID, err := s.wsManager.ResolveBrowserConnID(""); err == nil {
 			extCtx, cancel := context.WithTimeout(ctx, 50*time.Second)
 			defer cancel()
@@ -1072,6 +1141,23 @@ func (s *Scraper) ingestWebPage(ctx context.Context, pageURL string, kind string
 	}
 
 	if strings.TrimSpace(md) == "" {
+		if res.IsPDF {
+			// A scanned PDF still deserves a library entry with its link.
+			return item.ScrapedItem{
+				SourceID:     "__realtime__",
+				OriginSource: origin,
+				Title:        firstNonEmpty(title, PDFTitleFromURL(pageURL), pageURL),
+				URL:          pageURL,
+				Summary:      pdfSummary(res.PDFPages),
+				Category:     category,
+				Metadata: marshalMetadata(map[string]any{
+					"transcript_source": "web_extract",
+					"content_source":    "pdf",
+					"pdf_url":           pageURL,
+					"pdf_pages":         res.PDFPages,
+				}),
+			}, nil
+		}
 		if httpErr != nil {
 			return item.ScrapedItem{}, fmt.Errorf("failed to extract webpage: %w", httpErr)
 		}
@@ -1082,6 +1168,12 @@ func (s *Scraper) ingestWebPage(ctx context.Context, pageURL string, kind string
 		title = pageURL
 	}
 
+	meta := map[string]any{"transcript_source": "web_extract"}
+	if res.IsPDF {
+		meta["content_source"] = "pdf_text"
+		meta["pdf_url"] = pageURL
+		meta["pdf_pages"] = res.PDFPages
+	}
 	return item.ScrapedItem{
 		SourceID:     "__realtime__",
 		OriginSource: origin,
@@ -1090,7 +1182,7 @@ func (s *Scraper) ingestWebPage(ctx context.Context, pageURL string, kind string
 		Summary:      truncateSummary(md, 240),
 		Content:      md,
 		Category:     category,
-		Metadata:     `{"transcript_source":"web_extract"}`,
+		Metadata:     marshalMetadata(meta),
 	}, nil
 }
 
@@ -1265,6 +1357,7 @@ func (s *Scraper) ScrapeAPIWithRun(ctx context.Context, src source.Source, run *
 }
 
 var mdLinkRegex = regexp.MustCompile(`\[[^\]]+\]\((https?://[^)]+)\)`)
+var mdTextLinkRegex = regexp.MustCompile(`\[([^\]]*)\]\((https?://[^)\s]+)\)`)
 var htmlLinkRegex = regexp.MustCompile(`href=["'](https?://[^"']+)["']`)
 
 func extractLinks(content string) []string {
@@ -1414,6 +1507,16 @@ func (s *Scraper) ScrapeWebWithRun(ctx context.Context, src *source.Source, run 
 		}
 
 		res, err := ExtractWebArticleDetails(ctx, articleURL)
+		if res.IsPDF {
+			// A PDF link is itself the article. Store it even when the text
+			// layer is empty so the reader can point at the file; a browser
+			// extraction would only add noise here.
+			id, _ := s.storePDFItem(src, res, articleURL, category, cand.Title, run)
+			if id > 0 {
+				itemsAdded++
+			}
+			continue
+		}
 		if (err != nil || utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) < 200) && s.wsManager != nil {
 			if md, title, berr := s.extractPageViaBrowser(ctx, articleURL); berr == nil {
 				res.Markdown, res.Title = md, firstNonEmpty(title, res.Title)
@@ -1488,6 +1591,18 @@ func (s *Scraper) scrapeSingleWebPage(ctx context.Context, src *source.Source, c
 	}
 
 	res, err := ExtractWebArticleDetails(ctx, src.URL)
+	category := NewClassifier().Classify(src.URL, src.DefaultCategory)
+	if res.IsPDF {
+		id, perr := s.storePDFItem(src, res, src.URL, category, src.Name, run)
+		if perr != nil {
+			return 0, perr
+		}
+		if id == 0 {
+			run.overrideStatus = "no_new_items"
+			return 0, nil
+		}
+		return 1, nil
+	}
 	if (err != nil || utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) < 200) && s.wsManager != nil {
 		if md, title, berr := s.extractPageViaBrowser(ctx, src.URL); berr == nil {
 			res.Markdown, res.Title = md, firstNonEmpty(title, res.Title)
@@ -1510,7 +1625,6 @@ func (s *Scraper) scrapeSingleWebPage(ctx context.Context, src *source.Source, c
 	}
 
 	title := firstNonEmpty(res.Title, src.Name, src.URL)
-	category := NewClassifier().Classify(src.URL, src.DefaultCategory)
 	it := item.ScrapedItem{
 		SourceID:     src.ID,
 		OriginSource: NewClassifier().ExtractOrigin(src.URL, src.Name),
@@ -1542,40 +1656,141 @@ func (s *Scraper) scrapeSingleWebPage(ctx context.Context, src *source.Source, c
 	return 1, nil
 }
 
+// storePDFItem saves a PDF link as a library item. The text layer, when
+// present, becomes the item content; otherwise the item keeps a short summary
+// and the reader renders a document card that opens the file. Returns the new
+// item ID, or 0 when the URL already exists (a concurrent run won the race).
+func (s *Scraper) storePDFItem(src *source.Source, res ArticleExtract, itemURL, category, fallbackTitle string, run *scrapeRun) (int64, error) {
+	text := strings.TrimSpace(res.Markdown)
+	title := firstNonEmpty(res.Title, fallbackTitle, PDFTitleFromURL(itemURL), itemURL)
+	summary := truncateSummary(text, 240)
+	if summary == "" {
+		summary = pdfSummary(res.PDFPages)
+	}
+	meta := map[string]any{
+		"content_source": "pdf_text",
+		"article_url":    itemURL,
+		"pdf_url":        itemURL,
+		"pdf_pages":      res.PDFPages,
+	}
+	if text == "" {
+		meta["content_source"] = "pdf"
+	}
+	it := item.ScrapedItem{
+		SourceID:     src.ID,
+		OriginSource: NewClassifier().ExtractOrigin(itemURL, src.Name),
+		Title:        title,
+		URL:          itemURL,
+		Summary:      summary,
+		Content:      text,
+		Category:     category,
+		PublishedAt:  res.PublishedAt,
+		Metadata:     marshalMetadata(meta),
+	}
+	id, err := s.db.InsertScrapedItem(it)
+	if err != nil {
+		run.add(ItemReport{Title: title, URL: itemURL, Category: category, Status: "failed",
+			Reason: "写入内容库失败: " + err.Error(), ErrorStage: "persist",
+			Texts: []source.FetchTextResult{{Kind: "content", Status: "failed", Source: "pdf",
+				URL: itemURL, Reason: err.Error(), Stage: "persist"}}})
+		return 0, err
+	}
+	if id == 0 {
+		run.add(ItemReport{Title: title, URL: itemURL, Category: category, Status: "skipped",
+			Reason: "PDF 已存在（并发写入）"})
+		return 0, nil
+	}
+	run.add(ItemReport{Title: title, URL: itemURL, Category: category, ItemID: id, Status: "stored",
+		Reason: "PDF 文档已收录",
+		Texts: []source.FetchTextResult{{Kind: "content", Status: "stored", Source: "pdf",
+			URL: itemURL, Chars: utf8.RuneCountInString(text)}}})
+	if s.aiEngine != nil && text != "" {
+		s.aiEngine.Enqueue(id)
+	}
+	return id, nil
+}
+
 // candidatesFromMarkdown is the browser-executor fallback for listing pages
 // whose HTML is not readable over plain HTTP. It applies the same filters as
 // the DOM path; selectors cannot be evaluated on markdown, so URL rules and
-// chrome filtering still apply.
+// chrome filtering still apply. Auto (crawl_links) discovery also uses the
+// markdown link text to drop chrome and image links.
 func candidatesFromMarkdown(markdown string, base *url.URL, listURL string, cfg WebConfig) []listCandidate {
-	links := extractLinks(markdown)
-	seen := map[string]bool{}
+	auto := cfg.autoListMode()
+	dedupe := !auto
 	listKey := canonicalLinkKey(listURL)
+	seen := map[string]bool{}
 	var out []listCandidate
-	for _, link := range links {
+
+	add := func(link, title string) (listCandidate, bool) {
 		abs := resolveArticleURL(listURL, link)
 		u, err := url.Parse(abs)
 		if err != nil {
-			continue
+			return listCandidate{}, false
 		}
 		key := canonicalLinkKey(abs)
-		if key == "" || key == listKey || seen[key] || !sameSite(base, u) {
-			continue
+		if key == "" || key == listKey || (dedupe && seen[key]) || !sameSite(base, u) {
+			return listCandidate{}, false
 		}
 		if nonArticlePathRegex.MatchString(u.Path) || assetPathRegex.MatchString(strings.ToLower(u.Path)) {
-			continue
+			return listCandidate{}, false
+		}
+		if auto && isPaginationURL(u) {
+			return listCandidate{}, false
 		}
 		if p := strings.TrimSpace(cfg.ArticleURLPattern); p != "" {
 			if re, err := regexp.Compile(p); err == nil && !re.MatchString(abs) {
-				continue
+				return listCandidate{}, false
 			}
 		}
 		if p := strings.TrimSpace(cfg.ExcludeURLPattern); p != "" {
 			if re, err := regexp.Compile(p); err == nil && re.MatchString(abs) {
-				continue
+				return listCandidate{}, false
 			}
 		}
-		seen[key] = true
-		out = append(out, listCandidate{URL: abs})
+		title = collapseSpace(title)
+		if auto && (title == "" || !plausibleAutoTitle(title)) {
+			return listCandidate{}, false
+		}
+		candidate := listCandidate{URL: abs, Title: title}
+		if dedupe {
+			seen[key] = true
+		}
+		out = append(out, candidate)
+		return candidate, true
+	}
+
+	if auto {
+		var discovered []discoveredLink
+		for _, link := range markdownTextLinks(markdown) {
+			if candidate, ok := add(link.URL, link.Title); ok {
+				discovered = append(discovered, discoveredLink{URL: candidate.URL, Title: candidate.Title})
+			}
+		}
+		return autoPickCandidates(discovered)
+	}
+
+	for _, link := range extractLinks(markdown) {
+		add(link, "")
+	}
+	return out
+}
+
+// markdownTextLinks parses [text](url) links with their visible text, skipping
+// images (![alt](url)) since photos are not articles.
+func markdownTextLinks(markdown string) []listCandidate {
+	matches := mdTextLinkRegex.FindAllStringSubmatchIndex(markdown, -1)
+	out := make([]listCandidate, 0, len(matches))
+	for _, m := range matches {
+		if m[0] > 0 && markdown[m[0]-1] == '!' {
+			continue
+		}
+		text := strings.TrimSpace(markdown[m[2]:m[3]])
+		link := strings.TrimSpace(markdown[m[4]:m[5]])
+		if link == "" {
+			continue
+		}
+		out = append(out, listCandidate{URL: link, Title: text})
 	}
 	return out
 }

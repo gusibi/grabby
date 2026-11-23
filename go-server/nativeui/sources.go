@@ -60,6 +60,13 @@ func (a *App) sourcesView(c *ui.Context) ui.Element {
 func (a *App) sourceRow(c *ui.Context, s Source) {
 	t := c.Theme()
 	meta := joinNonEmpty("定时 "+orDefault(s.Schedule, "—"), "默认类型 "+orDefault(s.DefaultCategory, "自动"))
+	if total, unread := a.sourceContentCount(s.ID); total > 0 {
+		if unread > 0 {
+			meta = joinNonEmpty(meta, fmt.Sprintf("%d 条内容 · %d 未读", total, unread))
+		} else {
+			meta = joinNonEmpty(meta, fmt.Sprintf("%d 条内容", total))
+		}
+	}
 	if s.LastFetchAt != nil {
 		status := ""
 		if s.LastFetchStatus != nil {
@@ -100,6 +107,14 @@ func (a *App) sourceRow(c *ui.Context, s Source) {
 		ui.Text(c, s.URL).FontSize(10.5).TextColor(textFaint(c)).MaxLines(1).Font("monospace")
 		ui.Row(c).Gap(2).AlignItems(ui.Center).Padding(0, 0, 2, 0).Children(func() {
 			ui.Text(c, meta).FontSize(10.5).TextColor(textFaint(c)).Grow(1).MaxLines(1)
+			action("查看内容", false, func() {
+				f := newFilter()
+				f.SourceID = s.ID
+				a.filters["library"] = f
+				a.searchDraft = ""
+				a.navigate("library")
+				a.reloadView("library")
+			})
 			action("立即抓取", false, func() {
 				a.runAsync("已开始抓取: "+s.Name, func() error { return a.client.runSource(s.ID) })
 			})
@@ -233,6 +248,14 @@ func (a *App) loadSourceConfigDraft(raw string) {
 	a.sourceListSelector = configString(cfg, "list_selector")
 	a.sourceArticleSelector = configString(cfg, "article_link_selector")
 	a.sourceArticlePattern = configString(cfg, "article_url_pattern")
+	// Older sources expressed list mode only through selectors. Treat those as
+	// "crawl links" so the simple switch reflects what the source actually does.
+	crawl, _ := cfg["crawl_links"].(bool)
+	if a.sourceListSelector != "" || a.sourceArticleSelector != "" || a.sourceArticlePattern != "" {
+		crawl = true
+	}
+	a.sourceCrawlLinks = crawl
+	a.sourceAdvancedOpen = false
 	a.sourceMaxItems = ""
 	if n, ok := cfg["max_items"].(float64); ok && n > 0 {
 		a.sourceMaxItems = fmt.Sprint(int(n))
@@ -245,8 +268,8 @@ func (a *App) loadSourceConfigDraft(raw string) {
 	a.sourceConfigExtra = map[string]any{}
 	for k, v := range cfg {
 		switch k {
-		case "full_content", "fetch_full_via_scrape", "list_selector", "article_link_selector",
-			"article_url_pattern", "max_items", "max_backfill":
+		case "full_content", "fetch_full_via_scrape", "crawl_links", "list_selector",
+			"article_link_selector", "article_url_pattern", "max_items", "max_backfill":
 			continue
 		}
 		a.sourceConfigExtra[k] = v
@@ -265,6 +288,9 @@ func (a *App) buildSourceConfig() string {
 	}
 	cfg["full_content"] = a.sourceFullContent
 	cfg["fetch_full_via_scrape"] = a.sourceFullContent
+	if a.sourceCrawlLinks {
+		cfg["crawl_links"] = true
+	}
 	if v := strings.TrimSpace(a.sourceListSelector); v != "" {
 		cfg["list_selector"] = v
 	}
@@ -301,7 +327,7 @@ func (a *App) sourceDialog(c *ui.Context) {
 	ui.Modal(c, &a.sourceDialogOpen, func() {
 		ui.Column(c).MinWidth(560).MaxWidth(640).Padding(6).Gap(16).Children(func() {
 			ui.Text(c, map[bool]string{true: "编辑订阅源", false: "添加数据源"}[editing]).FontSize(20).FontWeight(700).LetterSpacing(-0.3)
-			hint(c, "RSS / API / 网页抓取源会由 cron 定时执行，抓取结果进入内容库并触发 AI 分析。")
+			hint(c, "填好名称和 URL 即可保存；抓取结果会进入内容库并触发 AI 分析。")
 
 			ui.Form(c, func() {
 				ui.Field(c, "名称", func() {
@@ -315,7 +341,7 @@ func (a *App) sourceDialog(c *ui.Context) {
 						break
 					}
 				}
-				typeLabels := []string{"RSS", "播客", "视频", "API", "网页抓取"}
+				typeLabels := []string{"RSS", "播客", "视频", "API", "网页 / 文章"}
 				typeLabel := typeLabels[typeIdx]
 				ui.Field(c, "类型", func() {
 					if ui.Select(c, &typeLabel, typeLabels).MaxWidth(200).Changed() {
@@ -334,14 +360,8 @@ func (a *App) sourceDialog(c *ui.Context) {
 					}
 					ui.TextInput(c, &f.URL).Placeholder(placeholder).MaxWidth(420)
 				})
-				ui.Field(c, "定时", func() {
-					ui.TextInput(c, &f.Schedule).Placeholder("0 * * * *").Font("monospace").MaxWidth(200)
-				})
 				ui.Field(c, "主题分组", func() {
 					ui.TextInput(c, &f.Category).Placeholder("AI / 科技新闻 / 设计").MaxWidth(420)
-				})
-				ui.Field(c, "内容类型", func() {
-					ui.TextInput(c, &f.DefaultCategory).Placeholder("auto / article / blog / podcast / youtube").MaxWidth(420)
 				})
 				if f.Type == "rss" {
 					ui.Field(c, "抓取全文", func() {
@@ -351,37 +371,52 @@ func (a *App) sourceDialog(c *ui.Context) {
 						})
 					})
 				}
-				if f.Type == "rss" {
-					ui.Field(c, "补抓上限", func() {
-						ui.TextInput(c, &a.sourceMaxBackfill).Placeholder("默认 15").MaxWidth(120)
-					})
-				}
 				if f.Type == "web_scrape" {
-					ui.Field(c, "列表区域", func() {
-						ui.TextInput(c, &a.sourceListSelector).Placeholder("可选 CSS 选择器，例如 main 或 .post-list").MaxWidth(420)
-					})
-					ui.Field(c, "文章链接", func() {
-						ui.TextInput(c, &a.sourceArticleSelector).Placeholder("可选 CSS 选择器，例如 a.post-link").MaxWidth(420)
-					})
-					ui.Field(c, "链接规则", func() {
-						ui.TextInput(c, &a.sourceArticlePattern).Placeholder(`可选正则，例如 /news/[^/]+$`).MaxWidth(420)
+					ui.Field(c, "抓取页面中的链接", func() {
+						ui.Column(c).Gap(4).Children(func() {
+							ui.Switch(c, &a.sourceCrawlLinks)
+							hint(c, "打开后会把本页正文里的链接分别保存成文章；导航、分类和图片链接会自动跳过。")
+						})
 					})
 				}
-				if f.Type == "web_scrape" || f.Type == "youtube" || f.Type == "podcast" {
-					ui.Field(c, "每轮上限", func() {
-						placeholder := "默认 20"
-						if f.Type == "youtube" || f.Type == "podcast" {
-							placeholder = "默认 10"
-						}
-						ui.TextInput(c, &a.sourceMaxItems).Placeholder(placeholder).MaxWidth(120)
+				ui.Collapsible(c, "高级选项（一般不需要）", &a.sourceAdvancedOpen, func() {
+					ui.Field(c, "定时", func() {
+						ui.TextInput(c, &f.Schedule).Placeholder("0 * * * *").Font("monospace").MaxWidth(200)
 					})
-				}
-				ui.Field(c, "ID", func() {
-					if editing {
-						ui.TextInput(c, &f.ID).ReadOnly(true).MaxWidth(420)
-					} else {
-						ui.TextInput(c, &f.ID).Placeholder("留空则按名称生成").MaxWidth(420)
+					ui.Field(c, "内容类型", func() {
+						ui.TextInput(c, &f.DefaultCategory).Placeholder("auto / article / blog / podcast / youtube").MaxWidth(420)
+					})
+					if f.Type == "rss" {
+						ui.Field(c, "补抓上限", func() {
+							ui.TextInput(c, &a.sourceMaxBackfill).Placeholder("默认 15").MaxWidth(120)
+						})
 					}
+					if f.Type == "web_scrape" {
+						ui.Field(c, "列表区域", func() {
+							ui.TextInput(c, &a.sourceListSelector).Placeholder("可选 CSS 选择器，例如 main 或 .post-list").MaxWidth(420)
+						})
+						ui.Field(c, "文章链接", func() {
+							ui.TextInput(c, &a.sourceArticleSelector).Placeholder("可选 CSS 选择器，例如 a.post-link").MaxWidth(420)
+						})
+						ui.Field(c, "链接规则", func() {
+							ui.TextInput(c, &a.sourceArticlePattern).Placeholder(`可选正则，例如 /news/[^/]+$`).MaxWidth(420)
+						})
+						ui.Field(c, "每轮上限", func() {
+							ui.TextInput(c, &a.sourceMaxItems).Placeholder("默认 20").MaxWidth(120)
+						})
+					}
+					if f.Type == "youtube" || f.Type == "podcast" {
+						ui.Field(c, "每轮上限", func() {
+							ui.TextInput(c, &a.sourceMaxItems).Placeholder("默认 10").MaxWidth(120)
+						})
+					}
+					ui.Field(c, "ID", func() {
+						if editing {
+							ui.TextInput(c, &f.ID).ReadOnly(true).MaxWidth(420)
+						} else {
+							ui.TextInput(c, &f.ID).Placeholder("留空则按名称生成").MaxWidth(420)
+						}
+					})
 				})
 			})
 			if f.Type == "" {

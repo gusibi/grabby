@@ -479,6 +479,45 @@ func TestReaderHTMLFindsVideoWithoutMetadata(t *testing.T) {
 	}
 }
 
+func TestReaderHTMLShowsPDFCard(t *testing.T) {
+	a := fixtureApp()
+	it := Item{
+		ID: 45, Title: "Annual Report", URL: "https://example.com/paper.pdf",
+		Metadata: `{"content_source":"pdf_text","pdf_url":"https://example.com/paper.pdf","pdf_pages":12}`,
+	}
+	doc := a.buildReaderHTML(it, ItemDetail{Item: it, HTMLContent: "<p>extracted text</p>"}, nil)
+	for _, want := range []string{
+		`class="pdf-card"`,
+		"PDF 文档 · 12 页",
+		"已提取 PDF 的文字版",
+		`href="https://example.com/paper.pdf"`,
+		"打开 PDF 原文",
+		"<p>extracted text</p>",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("reader HTML misses %q", want)
+		}
+	}
+}
+
+func TestReaderHTMLShowsPDFCardWithoutTextLayer(t *testing.T) {
+	a := fixtureApp()
+	// Legacy items carry no pdf metadata; the .pdf link is enough to show the
+	// document card, and the feed summary remains as the body.
+	it := Item{ID: 46, Title: "Scanned Memo", URL: "https://example.com/scan.pdf", Summary: "扫描件摘要"}
+	doc := a.buildReaderHTML(it, ItemDetail{Item: it, SummaryHTML: "<p>扫描件摘要</p>"}, nil)
+	for _, want := range []string{
+		"PDF 文档",
+		"没有可提取的文字层",
+		"打开 PDF 原文",
+		"<p>扫描件摘要</p>",
+	} {
+		if !strings.Contains(doc, want) {
+			t.Fatalf("reader HTML misses %q", want)
+		}
+	}
+}
+
 func TestYouTubeVideoID(t *testing.T) {
 	cases := map[string]string{
 		"https://www.youtube.com/watch?v=Vo33extKAeA":    "Vo33extKAeA",
@@ -698,5 +737,40 @@ func TestOfflineBrowserDeleteOpensConfirmation(t *testing.T) {
 	}
 	if len(a.browsers) != 1 {
 		t.Fatal("opening a confirmation removed the device")
+	}
+}
+
+func TestLibraryFiltersBySubscriptionSource(t *testing.T) {
+	a := fixtureApp()
+	a.view, a.reader.Open = "library", false
+	a.stats.SourceCounts = []SourceCount{
+		{ID: "hi-news", Name: "嗨 news", Total: 12, Unread: 5},
+		{ID: "podcast", Name: "Grabby 电台", Total: 3, Unread: 0},
+		{ID: "empty", Name: "空源", Total: 0, Unread: 0},
+	}
+	a.filters["library"].SourceID = "hi-news"
+
+	if got := a.headerSubtitle(); got != "只看 · 嗨 news · 12 条内容，5 未读" {
+		t.Fatalf("header subtitle = %q, want 只看 · 嗨 news · 12 条内容，5 未读", got)
+	}
+
+	tester := ui.NewTester(a.View, 1280, 840)
+	tester.Frame()
+	// The source select shows the active subscription, not "全部订阅源", and
+	// sources with no content are left out of its options.
+	if !tester.HasText("订阅源") || !tester.HasText("嗨 news · 5 未读") {
+		t.Fatal("library page is missing the subscription-source filter")
+	}
+
+	labels, ids := a.sourceFilterOptions("hi-news")
+	joined := strings.Join(labels, "\n")
+	if !strings.Contains(joined, "Grabby 电台 · 3 条") {
+		t.Fatalf("source options = %q, want sources that have content", labels)
+	}
+	if strings.Contains(joined, "空源") {
+		t.Fatalf("source options = %q, should hide sources with no content", labels)
+	}
+	if ids[0] != "" || ids[1] != "hi-news" {
+		t.Fatalf("source ids = %v, want all first then the selected source", ids)
 	}
 }

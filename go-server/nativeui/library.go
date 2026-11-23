@@ -35,7 +35,7 @@ func (a *App) library(c *ui.Context) ui.Element {
 				a.libraryStats(c)
 				items := a.currentItems()
 				if len(items) == 0 {
-					emptyState(c, "没有符合条件的内容", "换个来源或类型，或点「清除筛选」。")
+					emptyState(c, "没有符合条件的内容", "换个订阅源或类型，或点「清除筛选」。")
 					return
 				}
 				if a.layout == 1 {
@@ -56,9 +56,9 @@ func (a *App) library(c *ui.Context) ui.Element {
 	})
 }
 
-// contentTypeRow filters a feed by content type and source category. Today
-// and the library keep independent filters, so the row reads whichever view
-// asks for it.
+// contentTypeRow filters a feed by subscription source, content type and source
+// category. Today and the library keep independent filters, so the row reads
+// whichever view asks for it.
 func (a *App) contentTypeRow(c *ui.Context, view string) {
 	f := a.filters[view]
 	if f == nil {
@@ -67,7 +67,24 @@ func (a *App) contentTypeRow(c *ui.Context, view string) {
 	types := []struct{ id, label string }{
 		{"", "全部类型"}, {"article", "文章"}, {"podcast", "播客"}, {"youtube", "视频"}, {"tweet", "推文"},
 	}
+	sourceLabels, sourceIDs := a.sourceFilterOptions(f.SourceID)
 	ui.Row(c).Gap(5).Wrap().AlignItems(ui.Center).Children(func() {
+		if len(sourceLabels) > 1 {
+			ui.Text(c, "订阅源").FontSize(10.5).TextColor(textFaint(c)).LetterSpacing(0.3).Padding(0, 5, 0, 3)
+			idx := 0
+			for i, id := range sourceIDs {
+				if id == f.SourceID {
+					idx = i
+					break
+				}
+			}
+			selected := sourceLabels[idx]
+			if ui.Select(c, &selected, sourceLabels).MaxWidth(240).Changed() {
+				f.SourceID = sourceIDs[typeIdxFor(selected, sourceLabels)]
+				a.reloadItems(view)
+			}
+			ui.Divider(c).Vertical().Height(14)
+		}
 		ui.Text(c, "类型").FontSize(10.5).TextColor(textFaint(c)).LetterSpacing(0.3).Padding(0, 5, 0, 3)
 		for _, ty := range types {
 			ty := ty
@@ -81,7 +98,7 @@ func (a *App) contentTypeRow(c *ui.Context, view string) {
 		}
 		if len(a.stats.SourceCategories) > 0 {
 			ui.Divider(c).Vertical().Height(14)
-			ui.Text(c, "来源").FontSize(10.5).TextColor(textFaint(c)).LetterSpacing(0.3).Padding(0, 8, 0, 3)
+			ui.Text(c, "主题").FontSize(10.5).TextColor(textFaint(c)).LetterSpacing(0.3).Padding(0, 8, 0, 3)
 			for _, name := range a.stats.SourceCategories {
 				if name == "" {
 					continue
@@ -99,6 +116,58 @@ func (a *App) contentTypeRow(c *ui.Context, view string) {
 			}
 		}
 	})
+}
+
+// sourceFilterOptions builds the subscription-source choices. Sources with no
+// content are hidden unless one is already selected, so the select stays short.
+// Labels carry unread counts and are made unique even when two feeds share a
+// name, because Select reports the chosen label.
+func (a *App) sourceFilterOptions(selectedID string) ([]string, []string) {
+	labels := []string{"全部订阅源"}
+	ids := []string{""}
+	seen := map[string]int{}
+	for _, sc := range a.stats.SourceCounts {
+		if sc.Total == 0 && sc.ID != selectedID {
+			continue
+		}
+		label := sc.Name
+		switch {
+		case sc.Unread > 0:
+			label = fmt.Sprintf("%s · %d 未读", sc.Name, sc.Unread)
+		default:
+			label = fmt.Sprintf("%s · %d 条", sc.Name, sc.Total)
+		}
+		seen[label]++
+		if seen[label] > 1 {
+			label = fmt.Sprintf("%s (%d)", label, seen[label])
+		}
+		labels = append(labels, label)
+		ids = append(ids, sc.ID)
+	}
+	return labels, ids
+}
+
+func (a *App) sourceDisplayName(id string) string {
+	for _, sc := range a.stats.SourceCounts {
+		if sc.ID == id {
+			return sc.Name
+		}
+	}
+	for _, s := range a.sources {
+		if s.ID == id {
+			return s.Name
+		}
+	}
+	return id
+}
+
+func (a *App) sourceContentCount(id string) (total, unread int) {
+	for _, sc := range a.stats.SourceCounts {
+		if sc.ID == id {
+			return sc.Total, sc.Unread
+		}
+	}
+	return 0, 0
 }
 
 func (a *App) feedGrid(c *ui.Context, items []Item, cols int) {
@@ -166,6 +235,9 @@ func (a *App) itemCard(c *ui.Context, it Item) {
 				if it.ContentTypeLabel() != "" {
 					softChip(c, it.ContentTypeLabel())
 				}
+				if file, _ := itemPDF(it); file != "" {
+					softChip(c, "PDF")
+				}
 				ui.Spacer(c).Grow(1)
 				if it.QualityScore > 0 {
 					scoreMark(c, it.QualityScore)
@@ -204,6 +276,9 @@ func (a *App) itemRow(c *ui.Context, it Item) {
 					ui.Text(c, shortSourceLabel(it)).FontSize(10.5).TextColor(t.Accent).FontWeight(600).LetterSpacing(0.2).MaxLines(1)
 					if it.AICategory != "" {
 						ui.Text(c, "· "+it.AICategory).FontSize(10.5).TextColor(textSoft(c)).MaxLines(1)
+					}
+					if file, _ := itemPDF(it); file != "" {
+						ui.Text(c, "· PDF").FontSize(10.5).TextColor(t.Accent).FontWeight(600).MaxLines(1)
 					}
 				})
 				ui.Text(c, orDefault(it.Title, "未命名内容")).FontSize(13.5).FontWeight(600).MaxLines(1).LetterSpacing(-0.1)

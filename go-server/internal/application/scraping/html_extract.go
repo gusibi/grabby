@@ -31,11 +31,15 @@ var (
 
 // ArticleExtract is the result of opening a public article page. PublishedAt is
 // best-effort: many blogs only expose it through OpenGraph metadata or JSON-LD.
+// IsPDF marks a link that resolved to a PDF; Markdown then holds its extracted
+// text layer (empty when the PDF is a scan).
 type ArticleExtract struct {
 	Title       string
 	Markdown    string
 	PublishedAt *time.Time
 	FinalURL    string
+	IsPDF       bool
+	PDFPages    int
 }
 
 // ExtractWebArticle fetches pageURL via HTTP and extracts the article title and
@@ -75,7 +79,7 @@ func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageU
 		return ArticleExtract{}, fmt.Errorf("HTTP %d fetching %s", resp.StatusCode, pageURL)
 	}
 
-	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxHTMLFetchBytes))
+	bodyBytes, err := io.ReadAll(io.LimitReader(resp.Body, maxPDFFetchBytes))
 	if err != nil {
 		return ArticleExtract{}, err
 	}
@@ -84,14 +88,35 @@ func extractWebArticleWithClient(ctx context.Context, client *http.Client, pageU
 	if baseURL == nil {
 		baseURL, _ = url.Parse(pageURL)
 	}
+	finalURL := ""
+	if baseURL != nil {
+		finalURL = baseURL.String()
+	}
+
+	// A PDF is binary: parsing it as HTML produces either nothing or a page of
+	// control characters, which used to be stored as article text. Extract its
+	// text layer instead and mark the result so the reader can offer the file.
+	contentType := resp.Header.Get("Content-Type")
+	if isPDFContentType(contentType) || IsPDFURL(finalURL) || IsPDFURL(pageURL) || LooksLikePDFData(bodyBytes) {
+		doc, pdfErr := ExtractPDFText(bodyBytes)
+		res := ArticleExtract{
+			Title:    doc.Title,
+			Markdown: doc.Markdown,
+			FinalURL: finalURL,
+			IsPDF:    true,
+			PDFPages: doc.Pages,
+		}
+		if pdfErr != nil {
+			return res, pdfErr
+		}
+		return res, nil
+	}
 
 	res, err := extractArticleFromHTMLBytes(bodyBytes, baseURL)
 	if err != nil {
 		return ArticleExtract{}, err
 	}
-	if baseURL != nil {
-		res.FinalURL = baseURL.String()
-	}
+	res.FinalURL = finalURL
 	return res, nil
 }
 

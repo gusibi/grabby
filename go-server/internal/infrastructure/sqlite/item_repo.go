@@ -656,6 +656,31 @@ func (d *Database) GetDistinctSourceCategories() ([]string, error) {
 	return categories, rows.Err()
 }
 
+func (d *Database) CountItemsBySource() ([]SourceCount, error) {
+	rows, err := d.db.Query(`
+		SELECT s.id, s.name, COUNT(i.id) AS total,
+		       COALESCE(SUM(CASE WHEN i.read_status = 0 THEN 1 ELSE 0 END), 0) AS unread
+		FROM sources s
+		LEFT JOIN scraped_items i ON i.source_id = s.id
+		GROUP BY s.id, s.name
+		ORDER BY unread DESC, total DESC, s.name ASC
+	`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var counts []SourceCount
+	for rows.Next() {
+		var c SourceCount
+		if err := rows.Scan(&c.ID, &c.Name, &c.Total, &c.Unread); err != nil {
+			return nil, err
+		}
+		counts = append(counts, c)
+	}
+	return counts, rows.Err()
+}
+
 func (d *Database) GetLatestScrapedItem() (int64, string, error) {
 	var id int64
 	var title string

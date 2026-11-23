@@ -102,6 +102,13 @@ type Health struct {
 	Timestamp        time.Time `json:"timestamp"`
 }
 
+type SourceCount struct {
+	ID     string `json:"id"`
+	Name   string `json:"name"`
+	Total  int    `json:"total"`
+	Unread int    `json:"unread"`
+}
+
 type Stats struct {
 	TotalCount           int            `json:"total_count"`
 	UnreadCount          int            `json:"unread_count"`
@@ -110,6 +117,7 @@ type Stats struct {
 	Categories           map[string]int `json:"categories"`
 	SourceCategories     []string       `json:"source_categories"`
 	SourceCategoryUnread map[string]int `json:"source_category_unread"`
+	SourceCounts         []SourceCount  `json:"source_counts"`
 }
 
 type AICategory struct {

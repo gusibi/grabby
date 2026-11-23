@@ -18,9 +18,10 @@ Grabby 现在把四类订阅的文本统一归档到同一个内容库，并为�
 
 「订阅源」→「添加数据源」：
 
-- 类型可选 RSS / 播客 / 视频 / API / 网页抓取。
+- 类型可选 RSS / 播客 / 视频 / API / 网页 / 文章。
 - RSS 可打开「抓取全文」；网页抓取始终保存文章页正文（列表订阅的用途）。
-- 网页抓取可填「列表区域」「文章链接」「链接规则」「每轮上限」，用于适配不同博客列表结构。
+- 网页 / 文章有一个「抓取页面中的链接」开关：打开后自动把本页正文里的链接分别保存为文章，导航、分类、分页和图片链接会自动跳过，不需要写 CSS 选择器。
+- 需要精确控制站点结构时，可在「高级选项」里填「列表区域」「文章链接」「链接规则」「每轮上限」。
 - 保存后可在同一入口编辑、启停、立即抓取、查看日志。
 
 ### HTTP API
@@ -34,13 +35,13 @@ curl -X POST http://127.0.0.1:5040/api/sources \
        "default_category":"article","category":"科技",
        "config":"{\"full_content\":true,\"max_backfill\":15}"}'
 
-# 博客列表：用配置适配站点，不需要域名分支
+# 博客列表：打开 crawl_links 即可自动发现正文里的文章链接
 curl -X POST http://127.0.0.1:5040/api/sources \
   -H 'Content-Type: application/json' \
   -d '{"id":"anthropic","name":"Anthropic News","type":"web_scrape",
        "url":"https://www.anthropic.com/news","schedule":"0 */4 * * *",
        "default_category":"blog",
-       "config":"{\"list_selector\":\"#main-content\",\"article_url_pattern\":\"/news/[a-z0-9-]+$\",\"max_items\":5}"}'
+       "config":"{\"crawl_links\":true,\"max_items\":5}"}'
 
 # YouTube 频道（@handle 或 /channel/UC... 均可）
 curl -X POST http://127.0.0.1:5040/api/sources \
@@ -62,9 +63,11 @@ curl -X POST http://127.0.0.1:5040/api/sources \
 RSS / 网页抓取：
 
 - `full_content`：抓取全文。兼容旧字段 `fetch_full_via_scrape`（任一为 true 即开启）。
+- 原文链接是 PDF 时：自动提取 PDF 文字层作为正文，元数据记 `content_source=pdf_text`、`pdf_url`、`pdf_pages`；扫描件等无法提取文字的 PDF 保留 Feed 简介，记 `content_source=pdf`，阅读器提供「打开 PDF 原文」入口，下一次抓取不会重复下载。
+- `crawl_links`：网页 / 文章订阅的简单列表模式。打开后自动从页面正文发现文章链接，并跳过导航、分类、分页和图片链接；不需要配选择器。
 - `max_items`：网页列表每轮最多处理多少篇文章。
 - `max_backfill`：每轮最多补抓多少条原文（RSS 新条目与旧摘要条目共用此上限，默认 15）。
-- `list_selector`：博客列表的区域（CSS 选择器）。
+- `list_selector`：博客列表的区域（CSS 选择器，可选；配了就优先于自动发现）。
 - `article_link_selector`：列表区域内文章链接的选择器（可选）。
 - `article_url_pattern` / `exclude_url_pattern`：文章链接正则（可选）。
 - `use_browser`：强制用浏览器执行器打开列表页（可选）。浏览器返回 Markdown，发现链接时使用 URL 规则。CSS 选择器适用于 HTTP 获取的 HTML。
@@ -131,6 +134,7 @@ GET /open/api/items/{item_id}
 ## 4. 阅读
 
 - RSS / 博客：内容详情与阅读器显示正文；摘要条目也会保留 Feed 摘要和原文链接。
+- PDF：阅读器顶部显示 PDF 文档卡片（页数、打开原文按钮）。能提取文字时正文是 PDF 的文字版；扫描件或加密文件则说明原因并只保留链接。
 - YouTube：正文中分别有「视频简介」和「视频文字稿 (Transcript)」两节；元数据记录 `caption_status`、`caption_source`、`caption_language`、`caption_languages`。
 - 播客：正文中分别有「节目简介 (Show Notes)」和「播客文字稿 (Transcript)」；阅读器根据 `media_url` 提供播放器，音频按需拉取。
 

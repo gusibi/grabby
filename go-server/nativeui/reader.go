@@ -290,6 +290,24 @@ func (a *App) buildReaderHTML(it Item, detail ItemDetail, an *Analysis) string {
 		b.WriteString(`</section>`)
 	}
 
+	pdfURL, pdfPages := itemPDF(it)
+	if pdfURL != "" {
+		hasText := strings.TrimSpace(detail.HTMLContent) != "" || strings.TrimSpace(it.Content) != ""
+		b.WriteString(`<section class="pdf-card">`)
+		kicker := "PDF 文档"
+		if pdfPages > 0 {
+			kicker = fmt.Sprintf("PDF 文档 · %d 页", pdfPages)
+		}
+		b.WriteString(`<div class="pdf-kicker">` + html.EscapeString(kicker) + `</div>`)
+		note := "这份 PDF 没有可提取的文字层（可能是扫描件），请打开原文阅读。"
+		if hasText {
+			note = "Grabby 已提取 PDF 的文字版，下面的排版可能与原文不同。"
+		}
+		b.WriteString(`<p class="pdf-note">` + note + `</p>`)
+		b.WriteString(`<a class="pdf-open" href="` + html.EscapeString(pdfURL) + `" target="_blank" rel="noreferrer">打开 PDF 原文 →</a>`)
+		b.WriteString(`</section>`)
+	}
+
 	body := detail.HTMLContent
 	if strings.TrimSpace(body) == "" {
 		if strings.TrimSpace(detail.SummaryHTML) != "" {
@@ -301,11 +319,40 @@ func (a *App) buildReaderHTML(it Item, detail ItemDetail, an *Analysis) string {
 		}
 	}
 	b.WriteString(`<div class="body">` + body + `</div>`)
+	originLabel := "在浏览器中打开原文 →"
+	if pdfURL != "" {
+		originLabel = "打开 PDF 原文 →"
+	}
 	if it.URL != "" {
-		b.WriteString(`<div class="origin"><a href="` + html.EscapeString(it.URL) + `" target="_blank" rel="noreferrer">在浏览器中打开原文 →</a></div>`)
+		b.WriteString(`<div class="origin"><a href="` + html.EscapeString(it.URL) + `" target="_blank" rel="noreferrer">` + originLabel + `</a></div>`)
 	}
 	b.WriteString(`</article></body></html>`)
 	return b.String()
+}
+
+// itemPDF reports the PDF behind an item. Newer items record the file in
+// metadata (content_source "pdf" means no text layer); items stored before
+// that can still be recognised by a .pdf link.
+func itemPDF(it Item) (string, int) {
+	var meta struct {
+		PDFURL   string `json:"pdf_url"`
+		PDFPages int    `json:"pdf_pages"`
+	}
+	if strings.TrimSpace(it.Metadata) != "" {
+		_ = json.Unmarshal([]byte(it.Metadata), &meta)
+	}
+	if meta.PDFURL == "" && looksLikePDFURL(it.URL) {
+		meta.PDFURL = it.URL
+	}
+	return meta.PDFURL, meta.PDFPages
+}
+
+func looksLikePDFURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	return strings.HasSuffix(strings.ToLower(u.Path), ".pdf")
 }
 
 const readerCSS = `
@@ -342,6 +389,10 @@ h1{font-size:29px;line-height:1.28;letter-spacing:-.01em;margin:0 0 10px}
 .player-kicker{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--signal);margin-bottom:10px}
 .player audio{width:100%}
 .player-duration{font-size:10.5px;color:var(--faint);margin-top:8px}
+.pdf-card{border:1px solid var(--line);background:var(--soft);border-radius:14px;padding:16px 18px;margin:0 0 26px;font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC",sans-serif}
+.pdf-kicker{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--signal);margin-bottom:8px}
+.pdf-note{font-size:13px;line-height:1.6;color:var(--muted);margin:0 0 12px}
+.pdf-open{display:inline-block;background:var(--signal);color:#fff;font-size:12.5px;font-weight:600;text-decoration:none;padding:7px 14px;border-radius:9px}
 .video-head{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:10px}
 .video-head .player-kicker{margin-bottom:0}
 .video-head .player-duration{margin-top:0}

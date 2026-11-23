@@ -151,6 +151,99 @@ func TestAcceptanceRSSFullContentDisabledDoesNotRequestArticle(t *testing.T) {
 	}
 }
 
+func TestAcceptanceRSSPDFLinks(t *testing.T) {
+	// Long enough to be accepted as article text, unlike the tiny fixture
+	// used by the extraction unit test.
+	longPDF := buildTestPDF("BT /F1 12 Tf 72 720 Td (" + longText("PDF ARTICLE BODY", 16) + ") Tj ET")
+	scanPDF := buildTestPDF("")
+	var pdfHits atomic.Int32
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/feed.xml":
+			_, _ = w.Write([]byte(rssFeed(
+				rssItem("Annual Report", srv.URL+"/paper.pdf", "<p>Read the report.</p>", "") +
+					rssItem("Scanned Memo", srv.URL+"/scan.pdf", "<p>A scanned memo.</p>", ""),
+			)))
+		case "/paper.pdf":
+			pdfHits.Add(1)
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = w.Write(longPDF)
+		case "/scan.pdf":
+			pdfHits.Add(1)
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = w.Write(scanPDF)
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	db, _ := newBenchmarkDB(t)
+	scraper := newFastScraper(db)
+	src := source.Source{ID: "rss-pdf", Name: "RSS PDF", Type: "rss", URL: srv.URL + "/feed.xml",
+		Schedule: "0 * * * *", Enabled: 1, DefaultCategory: "article", Config: `{"full_content":true}`}
+	insertTestSource(t, db, src)
+
+	if _, err := scrapeFresh(t, db, scraper, src.ID, "manual"); err != nil {
+		t.Fatalf("scrape: %v", err)
+	}
+	items := itemsBySource(t, db, src.ID)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2: %+v", len(items), items)
+	}
+	var report, scan *sqlite.ScrapedItem
+	for i := range items {
+		switch {
+		case strings.Contains(items[i].URL, "/paper.pdf"):
+			report = &items[i]
+		case strings.Contains(items[i].URL, "/scan.pdf"):
+			scan = &items[i]
+		}
+	}
+	if report == nil || scan == nil {
+		t.Fatalf("missing PDF items: %+v", items)
+	}
+	if !strings.Contains(report.Content, "PDF ARTICLE BODY") {
+		t.Fatalf("PDF text was not stored as content: %q", report.Content)
+	}
+	for _, want := range []string{`"content_source":"pdf_text"`, `"pdf_url":"` + srv.URL + `/paper.pdf"`, `"pdf_pages":1`} {
+		if !strings.Contains(report.Metadata, want) {
+			t.Fatalf("report metadata misses %s: %s", want, report.Metadata)
+		}
+	}
+	if !strings.Contains(scan.Content, "A scanned memo") {
+		t.Fatalf("scan should keep the feed summary: %q", scan.Content)
+	}
+	if !strings.Contains(scan.Metadata, `"content_source":"pdf"`) || !strings.Contains(scan.Metadata, `"pdf_url"`) {
+		t.Fatalf("scan metadata should mark a text-less PDF: %s", scan.Metadata)
+	}
+	if got := pdfHits.Load(); got != 2 {
+		t.Fatalf("PDF downloads = %d, want 2", got)
+	}
+
+	log := latestFetchLog(t, db, src.ID)
+	entries := fetchLogItems(t, db, log.ID)
+	reportText := requireTextStatus(t, findLogItem(entries, "/paper.pdf"), "content", "stored")
+	if reportText.Source != "pdf_text" {
+		t.Fatalf("report content source = %q, want pdf_text", reportText.Source)
+	}
+	scanText := requireTextStatus(t, findLogItem(entries, "/scan.pdf"), "content", "stored")
+	if scanText.Source != "pdf" || !strings.Contains(scanText.Reason, "文字层") {
+		t.Fatalf("scan content result = %+v", scanText)
+	}
+
+	// A text-less PDF will not improve on retry; the next run must not
+	// download it again.
+	if _, err := scrapeFresh(t, db, scraper, src.ID, "manual"); err != nil {
+		t.Fatalf("second scrape: %v", err)
+	}
+	if got := pdfHits.Load(); got != 2 {
+		t.Fatalf("PDFs re-downloaded on the next run: hits = %d", got)
+	}
+}
+
 func TestAcceptanceRSSFailureThen304BackfillPreservesUserState(t *testing.T) {
 	longBody := longText("RECOVERED ARTICLE BODY", 14)
 	var articleOK atomic.Bool

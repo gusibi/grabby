@@ -234,3 +234,134 @@ func TestAcceptanceBlogSinglePageCompatibility(t *testing.T) {
 		t.Fatalf("single page duplicated on second poll: %d", n)
 	}
 }
+
+func TestAcceptanceCrawlLinksAutoDiscovery(t *testing.T) {
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/news":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><body>
+<header class="site-header"><a href="/">Home</a><a href="/news/about">About</a></header>
+<main>
+  <h1>News</h1>
+  <section>
+    <article>
+      <header><a href="/news/announcements">Announcements</a></header>
+      <a href="/news/alpha"><h2>Alpha Article</h2><p>Alpha summary</p></a>
+      <a href="/news/alpha"><img alt="Alpha photo"></a>
+    </article>
+    <article>
+      <header><a href="/news/product">Product</a></header>
+      <a href="/news/beta"><h3>Beta Article</h3></a>
+      <a href="/photos/gallery">Photo gallery</a>
+    </article>
+  </section>
+  <nav><a href="/news/alpha">Alpha Article</a></nav>
+</main>
+<footer><a href="/privacy">Privacy</a><a href="/news/gamma">Gamma in footer</a></footer>
+</body></html>`))
+		case "/news/alpha", "/news/beta":
+			name := strings.TrimPrefix(r.URL.Path, "/news/")
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(articleHTML("Article "+name, longText("BODY "+name, 10))))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	db, _ := newBenchmarkDB(t)
+	scraper := newFastScraper(db)
+	src := source.Source{ID: "auto-crawl", Name: "Auto Crawl", Type: "web_scrape", URL: srv.URL + "/news",
+		Schedule: "0 * * * *", Enabled: 1, DefaultCategory: "auto",
+		Config: `{"crawl_links":true,"max_items":10}`}
+	insertTestSource(t, db, src)
+	if _, err := scrapeFresh(t, db, scraper, src.ID, "manual"); err != nil {
+		t.Fatalf("scrape: %v", err)
+	}
+
+	items := itemsBySource(t, db, src.ID)
+	if len(items) != 2 {
+		t.Fatalf("items = %d, want 2 article links: %+v", len(items), items)
+	}
+	for _, it := range items {
+		if !strings.HasSuffix(it.URL, "/news/alpha") && !strings.HasSuffix(it.URL, "/news/beta") {
+			t.Fatalf("non-article link was stored: %s", it.URL)
+		}
+		if !strings.Contains(it.Content, "BODY "+strings.TrimPrefix(it.URL[strings.LastIndex(it.URL, "/")+1:], "")) {
+			t.Fatalf("unexpected article body for %s: %q", it.URL, it.Content)
+		}
+	}
+	if log := latestFetchLog(t, db, src.ID); log.Status != "success" {
+		t.Fatalf("log status = %q, want success: %s", log.Status, log.Summary)
+	}
+}
+
+func TestAcceptanceBlogListIncludesPDFLinks(t *testing.T) {
+	textPDF := buildTestPDF("BT /F1 12 Tf 72 720 Td (" + longText("PDF LIST BODY", 16) + ") Tj ET")
+	scanPDF := buildTestPDF("")
+
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/papers":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(`<html><body><main class="post-list">
+  <a href="/files/annual-report.pdf">Annual Report</a>
+  <a href="/files/scanned-notes.pdf">Scanned Notes</a>
+  <a href="/news/text-article">Text Article</a>
+</main></body></html>`))
+		case "/files/annual-report.pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = w.Write(textPDF)
+		case "/files/scanned-notes.pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			_, _ = w.Write(scanPDF)
+		case "/news/text-article":
+			w.Header().Set("Content-Type", "text/html")
+			_, _ = w.Write([]byte(articleHTML("Text Article", longText("TEXT ARTICLE BODY", 12))))
+		default:
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer srv.Close()
+
+	db, _ := newBenchmarkDB(t)
+	scraper := newFastScraper(db)
+	src := source.Source{ID: "pdf-list", Name: "PDF List", Type: "web_scrape", URL: srv.URL + "/papers",
+		Schedule: "0 * * * *", Enabled: 1, DefaultCategory: "auto",
+		Config: `{"crawl_links":true,"max_items":10}`}
+	insertTestSource(t, db, src)
+	if _, err := scrapeFresh(t, db, scraper, src.ID, "manual"); err != nil {
+		t.Fatalf("scrape: %v", err)
+	}
+
+	items := itemsBySource(t, db, src.ID)
+	if len(items) != 3 {
+		t.Fatalf("items = %d, want 3 (two PDFs and one article): %+v", len(items), items)
+	}
+	var report, scan bool
+	for _, it := range items {
+		switch {
+		case strings.HasSuffix(it.URL, "/files/annual-report.pdf"):
+			report = true
+			if !strings.Contains(it.Content, "PDF LIST BODY") {
+				t.Fatalf("PDF text not stored: %q", it.Content)
+			}
+			for _, want := range []string{`"content_source":"pdf_text"`, `"pdf_url"`, `"pdf_pages":1`} {
+				if !strings.Contains(it.Metadata, want) {
+					t.Fatalf("PDF metadata misses %s: %s", want, it.Metadata)
+				}
+			}
+		case strings.HasSuffix(it.URL, "/files/scanned-notes.pdf"):
+			scan = true
+			if !strings.Contains(it.Metadata, `"content_source":"pdf"`) {
+				t.Fatalf("scanned PDF should still be stored with a link: %s", it.Metadata)
+			}
+		}
+	}
+	if !report || !scan {
+		t.Fatalf("missing PDF items: report=%v scan=%v items=%+v", report, scan, items)
+	}
+}

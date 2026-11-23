@@ -93,6 +93,7 @@ func (h *contentHandlers) listItems(c echo.Context) error {
 		Category:       c.QueryParam("category"),
 		ContentType:    c.QueryParam("content_type"),
 		SourceCategory: c.QueryParam("source_category"),
+		SourceID:       c.QueryParam("source_id"),
 		Origin:         c.QueryParam("origin"),
 		Q:              c.QueryParam("q"),
 		Starred:        starred,
@@ -380,6 +381,7 @@ func (h *contentHandlers) stats(c echo.Context) error {
 	catCounts, _ := db.CountItemsByCategory()
 	sourceCatUnread, _ := db.CountItemsBySourceCategory()
 	allSourceCats, _ := db.GetDistinctSourceCategories()
+	sourceCounts, _ := db.CountItemsBySource()
 	now := time.Now()
 	todayCount, _ := db.CountItemsSince(time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location()))
 
@@ -391,6 +393,7 @@ func (h *contentHandlers) stats(c echo.Context) error {
 		"categories":             catCounts,
 		"source_categories":      allSourceCats,
 		"source_category_unread": sourceCatUnread,
+		"source_counts":          sourceCounts,
 	})
 }
 

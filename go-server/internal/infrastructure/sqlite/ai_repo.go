@@ -105,6 +105,11 @@ func (d *Database) GetScrapedItemsWithAI(f AIItemsFilter) ([]ScrapedItemWithAI, 
 		args = append(args, f.SourceCategory)
 	}
 
+	if f.SourceID != "" {
+		query += " AND i.source_id = ?"
+		args = append(args, f.SourceID)
+	}
+
 	if f.ContentType != "" && f.ContentType != "all" {
 		query, args = appendContentTypeFilter(query, args, f.ContentType)
 	}
