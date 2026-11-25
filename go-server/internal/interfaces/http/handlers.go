@@ -188,6 +188,8 @@ func effectiveSourceCategory(src source.Source) string {
 	switch src.Type {
 	case "podcast", "youtube":
 		return src.Type
+	case "twitter":
+		return "tweet"
 	}
 	return ""
 }

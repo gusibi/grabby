@@ -67,3 +67,56 @@ func TestRenderDoesNotDecodeInlineCodeEscapes(t *testing.T) {
 		t.Errorf("Render() = %q, inline code escape became a real element", got)
 	}
 }
+
+func TestRenderFrontMatterAsCollapsibleTable(t *testing.T) {
+	raw := "---\n" +
+		"title: \"Interstate Weather\"\n" +
+		"source: \"https://www.interstateweather.com/\"\n" +
+		"description: \"Driving weather along US highways\"\n" +
+		"site: \"interstateweather.com\"\n" +
+		"captured_at: \"2026-11-25T06:00:31.288Z\"\n" +
+		"---\n\n" +
+		"Today\n\nForecast body."
+
+	got := Render(raw)
+	if strings.Contains(got, "<hr") || strings.Contains(got, "<h2") {
+		t.Fatalf("frontmatter leaked into markdown heading/hr: %q", got)
+	}
+	for _, want := range []string{
+		`<details class="gb-frontmatter">`,
+		`<summary>页面元信息 · 5 项</summary>`,
+		`<th>标题</th><td>Interstate Weather</td>`,
+		`<th>来源链接</th><td><a href="https://www.interstateweather.com/"`,
+		`<p>Today</p>`,
+		`<p>Forecast body.</p>`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("Render() missing %q in %q", want, got)
+		}
+	}
+	if strings.Contains(got, "<details class=\"gb-frontmatter\" open") {
+		t.Errorf("frontmatter details should be collapsed by default: %q", got)
+	}
+}
+
+func TestExtractFrontMatterIgnoresHorizontalRule(t *testing.T) {
+	raw := "---\n\nJust a normal paragraph after a rule."
+	fields, body := ExtractFrontMatter(raw)
+	if len(fields) != 0 {
+		t.Fatalf("expected no frontmatter fields, got %+v", fields)
+	}
+	if body != raw {
+		t.Fatalf("expected body unchanged, got %q", body)
+	}
+}
+
+func TestRenderFrontMatterEscapesDangerousValues(t *testing.T) {
+	raw := "---\ntitle: \"<script>alert(1)</script>\"\nsource: \"javascript:alert(1)\"\n---\n\nBody"
+	got := Render(raw)
+	if strings.Contains(got, "<script>") || strings.Contains(got, `href="javascript:`) {
+		t.Fatalf("Render() leaked dangerous frontmatter values: %q", got)
+	}
+	if !strings.Contains(got, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Fatalf("escaped title missing: %q", got)
+	}
+}

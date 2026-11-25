@@ -13,6 +13,7 @@ package render
 
 import (
 	"bytes"
+	"fmt"
 	"html"
 	"regexp"
 	"strings"
@@ -23,6 +24,24 @@ import (
 	"github.com/yuin/goldmark/parser"
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 )
+
+// FrontMatterField is a single key-value entry parsed from YAML frontmatter.
+type FrontMatterField struct {
+	Key   string
+	Value string
+}
+
+var frontMatterKeyRe = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+var frontMatterLabels = map[string]string{
+	"title":       "标题",
+	"source":      "来源链接",
+	"author":      "作者",
+	"description": "简介",
+	"published":   "发布时间",
+	"site":        "站点",
+	"captured_at": "抓取时间",
+}
 
 var (
 	md = goldmark.New(
@@ -59,19 +78,121 @@ func newSanitizer() *bluemonday.Policy {
 }
 
 // Render converts mixed Markdown/HTML into a sanitized HTML fragment.
+// Leading YAML frontmatter is stripped from the Markdown body (preventing
+// goldmark from turning it into <hr> + Setext <h2>) and rendered as a
+// default-collapsed metadata table above the article body.
 func Render(content string) string {
 	content = normalize(content)
 	if content == "" {
 		return ""
 	}
 
+	fields, body := ExtractFrontMatter(content)
+	prefix := renderFrontMatterHTML(fields)
+	if body == "" {
+		return prefix
+	}
+
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(content), &buf); err != nil {
+	if err := md.Convert([]byte(body), &buf); err != nil {
 		// A renderer failure should not blank the reader. Fall back to a
 		// sanitized escaped paragraph.
-		return sanitizer.Sanitize("<p>" + html.EscapeString(content) + "</p>")
+		return prefix + sanitizer.Sanitize("<p>"+html.EscapeString(body)+"</p>")
 	}
-	return sanitizer.Sanitize(buf.String())
+	return prefix + sanitizer.Sanitize(buf.String())
+}
+
+// ExtractFrontMatter parses and strips a leading YAML frontmatter block
+// (`---\nkey: value\n---`). If content does not start with valid frontmatter,
+// it returns (nil, content).
+func ExtractFrontMatter(content string) ([]FrontMatterField, string) {
+	s := strings.TrimPrefix(strings.ReplaceAll(content, "\r\n", "\n"), "\uFEFF")
+	s = strings.TrimLeft(s, " \t\n")
+	if !strings.HasPrefix(s, "---\n") {
+		return nil, content
+	}
+	rest := s[len("---\n"):]
+	lines := strings.Split(rest, "\n")
+
+	closeIdx := -1
+	var fields []FrontMatterField
+	for i, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "---" {
+			closeIdx = i
+			break
+		}
+		if trimmed == "" {
+			if i == 0 {
+				return nil, content
+			}
+			continue
+		}
+		colon := strings.IndexByte(line, ':')
+		if colon <= 0 {
+			return nil, content
+		}
+		key := strings.TrimSpace(line[:colon])
+		if !frontMatterKeyRe.MatchString(key) {
+			return nil, content
+		}
+		val := unquoteFrontMatterValue(strings.TrimSpace(line[colon+1:]))
+		if val != "" {
+			fields = append(fields, FrontMatterField{Key: key, Value: val})
+		}
+	}
+	if closeIdx < 0 || len(fields) == 0 {
+		return nil, content
+	}
+	body := strings.TrimSpace(strings.Join(lines[closeIdx+1:], "\n"))
+	return fields, body
+}
+
+func unquoteFrontMatterValue(v string) string {
+	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
+		inner := v[1 : len(v)-1]
+		inner = strings.ReplaceAll(inner, `\"`, `"`)
+		inner = strings.ReplaceAll(inner, `\\`, `\`)
+		return inner
+	}
+	if len(v) >= 2 && v[0] == '\'' && v[len(v)-1] == '\'' {
+		return strings.ReplaceAll(v[1:len(v)-1], `''`, `'`)
+	}
+	return v
+}
+
+func renderFrontMatterHTML(fields []FrontMatterField) string {
+	if len(fields) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString(`<details class="gb-frontmatter"><summary>`)
+	b.WriteString(fmt.Sprintf("页面元信息 · %d 项", len(fields)))
+	b.WriteString(`</summary><table><tbody>`)
+	for _, f := range fields {
+		label := frontMatterLabels[strings.ToLower(f.Key)]
+		if label == "" {
+			label = f.Key
+		}
+		b.WriteString(`<tr><th>` + html.EscapeString(label) + `</th><td>`)
+		if isSafeHTTPURL(f.Value) {
+			esc := html.EscapeString(f.Value)
+			b.WriteString(`<a href="` + esc + `" target="_blank" rel="nofollow noreferrer">` + esc + `</a>`)
+		} else {
+			b.WriteString(html.EscapeString(f.Value))
+		}
+		b.WriteString(`</td></tr>`)
+	}
+	b.WriteString(`</tbody></table></details>`)
+	return b.String()
+}
+
+func isSafeHTTPURL(s string) bool {
+	if strings.ContainsAny(s, " \t\r\n") {
+		return false
+	}
+	lower := strings.ToLower(s)
+	return strings.HasPrefix(lower, "http://") || strings.HasPrefix(lower, "https://")
 }
 
 // normalize decodes HTML entities when the payload looks like escaped block

@@ -82,6 +82,21 @@ type AnalysisEnvelope struct {
 	Analysis *Analysis `json:"analysis"`
 }
 
+// TranslationResult is the reader's one-click translation: the title plus one
+// string per body block, aligned by index with the source document.
+type TranslationResult struct {
+	Title        string   `json:"title"`
+	Translations []string `json:"translations"`
+	ModelUsed    string   `json:"model_used"`
+}
+
+// ChatMessage is one turn of the reader conversation sent to the AI.
+type ChatMessage struct {
+	Role    string `json:"role"`
+	Content string `json:"content"`
+	Hidden  bool   `json:"-"`
+}
+
 type Analysis struct {
 	ID            int64     `json:"id"`
 	ItemID        int64     `json:"item_id"`
@@ -290,6 +305,12 @@ type AISettings struct {
 	MorningReportEnabled bool              `json:"morning_report_enabled"`
 	EveningReportEnabled bool              `json:"evening_report_enabled"`
 
+	TranslationProfileID      string `json:"translation_profile_id"`
+	TranslationModel          string `json:"translation_model"`
+	TranslationTargetLanguage string `json:"translation_target_language"`
+	InterpretationProfileID   string `json:"interpretation_profile_id"`
+	InterpretationModel       string `json:"interpretation_model"`
+
 	ASRMode         string `json:"asr_mode"`
 	ASRProvider     string `json:"asr_provider"`
 	ASRBaseURL      string `json:"asr_base_url"`
@@ -384,4 +405,16 @@ type TestResult struct {
 	LatencyMS int64  `json:"latency_ms"`
 	Score     int    `json:"score"`
 	Summary   string `json:"summary"`
+}
+
+// EffectiveModels returns the profile's model list, tolerating profiles that
+// only set the single Model field.
+func (p ProviderProfile) EffectiveModels() []string {
+	if len(p.Models) > 0 {
+		return p.Models
+	}
+	if p.Model != "" {
+		return []string{p.Model}
+	}
+	return nil
 }

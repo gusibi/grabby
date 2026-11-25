@@ -60,6 +60,15 @@ type AISettings struct {
 	MorningReportEnabled bool                `json:"morning_report_enabled"`
 	EveningReportEnabled bool                `json:"evening_report_enabled"`
 
+	// Reader enhancements. Translation and interpretation may use a dedicated
+	// (profile, model) pair instead of the analysis route. Empty values follow
+	// the active profile's first model.
+	TranslationProfileID      string `json:"translation_profile_id"`
+	TranslationModel          string `json:"translation_model"`
+	TranslationTargetLanguage string `json:"translation_target_language"`
+	InterpretationProfileID   string `json:"interpretation_profile_id"`
+	InterpretationModel       string `json:"interpretation_model"`
+
 	// ASR (Audio/Video Speech-to-Text) settings
 	ASRMode         string `json:"asr_mode"`          // "auto" | "cloud" | "local" | "disabled"
 	ASRProvider     string `json:"asr_provider"`      // "groq" | "siliconflow" | "openai" | "custom"
@@ -211,6 +220,15 @@ func NormalizeAISettings(settings AISettings) AISettings {
 	if settings.EveningReportTime == "" {
 		settings.EveningReportTime = "22:30"
 	}
+
+	settings.TranslationProfileID = strings.TrimSpace(settings.TranslationProfileID)
+	settings.TranslationModel = strings.TrimSpace(settings.TranslationModel)
+	settings.TranslationTargetLanguage = strings.TrimSpace(settings.TranslationTargetLanguage)
+	if settings.TranslationTargetLanguage == "" {
+		settings.TranslationTargetLanguage = "简体中文"
+	}
+	settings.InterpretationProfileID = strings.TrimSpace(settings.InterpretationProfileID)
+	settings.InterpretationModel = strings.TrimSpace(settings.InterpretationModel)
 
 	seenIDs := make(map[string]struct{}, len(settings.Profiles))
 	for i := range settings.Profiles {

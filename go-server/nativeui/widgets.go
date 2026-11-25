@@ -23,9 +23,21 @@ func cardSurface(c *ui.Context, radius float32) ui.Element {
 // quietButton is the secondary action: no face until the pointer arrives, so
 // an inspector full of actions reads as text instead of a wall of gray boxes.
 func quietButton(c *ui.Context, label string) ui.Element {
+	return quietButtonDisabled(c, label, false)
+}
+
+// quietButtonDisabled is quietButton with an explicit disabled state, for an
+// action that only makes sense while another one is running.
+func quietButtonDisabled(c *ui.Context, label string, disabled bool) ui.Element {
 	t := c.Theme()
 	b := ui.ButtonBase(c).Padding(5, 10).Radius(8).FontSize(12.5).FontWeight(500).
-		TextColor(t.Text).Transition(ui.ElementTransition{Duration: 120 * time.Millisecond})
+		TextColor(t.Text).Disabled(disabled).
+		Transition(ui.ElementTransition{Duration: 120 * time.Millisecond})
+	if disabled {
+		b.TextColor(t.TextMuted)
+		b.Children(func() { ui.Text(c, label) })
+		return b
+	}
 	switch {
 	case b.Pressed():
 		b.Background(t.SurfacePressed)

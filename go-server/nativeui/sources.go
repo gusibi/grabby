@@ -179,6 +179,8 @@ func sourceTypeLabel(t string) string {
 		return "播客"
 	case "youtube":
 		return "视频"
+	case "twitter":
+		return "推特 / X"
 	case "web_scrape":
 		return "网页"
 	case "api":
@@ -264,12 +266,21 @@ func (a *App) loadSourceConfigDraft(raw string) {
 	if n, ok := cfg["max_backfill"].(float64); ok && n > 0 {
 		a.sourceMaxBackfill = fmt.Sprint(int(n))
 	}
+	a.sourceMinLikes = ""
+	if n, ok := cfg["min_likes"].(float64); ok && n > 0 {
+		a.sourceMinLikes = fmt.Sprint(int(n))
+	}
+	a.sourceMinViews = ""
+	if n, ok := cfg["min_views"].(float64); ok && n > 0 {
+		a.sourceMinViews = fmt.Sprint(int(n))
+	}
 	// Preserve keys the form does not expose (headers, transcribe_audio, ...).
 	a.sourceConfigExtra = map[string]any{}
 	for k, v := range cfg {
 		switch k {
 		case "full_content", "fetch_full_via_scrape", "crawl_links", "list_selector",
-			"article_link_selector", "article_url_pattern", "max_items", "max_backfill":
+			"article_link_selector", "article_url_pattern", "max_items", "max_backfill",
+			"min_likes", "min_views":
 			continue
 		}
 		a.sourceConfigExtra[k] = v
@@ -310,6 +321,16 @@ func (a *App) buildSourceConfig() string {
 			cfg["max_backfill"] = n
 		}
 	}
+	if v := strings.TrimSpace(a.sourceMinLikes); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg["min_likes"] = n
+		}
+	}
+	if v := strings.TrimSpace(a.sourceMinViews); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			cfg["min_views"] = n
+		}
+	}
 	b, err := json.Marshal(cfg)
 	if err != nil {
 		return "{}"
@@ -334,23 +355,28 @@ func (a *App) sourceDialog(c *ui.Context) {
 					ui.TextInput(c, &f.Name).AutoFocus().Placeholder("例如：少数派").MaxWidth(420)
 				})
 				typeIdx := 0
-				typeValues := []string{"rss", "podcast", "youtube", "api", "web_scrape"}
+				typeValues := []string{"rss", "twitter", "podcast", "youtube", "api", "web_scrape"}
 				for i, v := range typeValues {
 					if f.Type == v {
 						typeIdx = i
 						break
 					}
 				}
-				typeLabels := []string{"RSS", "播客", "视频", "API", "网页 / 文章"}
+				typeLabels := []string{"RSS", "推特 / X", "播客", "视频", "API", "网页 / 文章"}
 				typeLabel := typeLabels[typeIdx]
 				ui.Field(c, "类型", func() {
 					if ui.Select(c, &typeLabel, typeLabels).MaxWidth(200).Changed() {
 						f.Type = typeValues[typeIdxFor(typeLabel, typeLabels)]
+						if f.Type == "twitter" && strings.TrimSpace(f.URL) == "" {
+							f.URL = "https://x.com/home"
+						}
 					}
 				})
 				ui.Field(c, "URL", func() {
 					placeholder := "https://example.com/feed.xml"
 					switch f.Type {
+					case "twitter":
+						placeholder = "https://x.com/home（支持首页时间线、搜索页或点赞页）"
 					case "youtube":
 						placeholder = "https://www.youtube.com/@handle/videos 或频道 ID"
 					case "podcast":
@@ -360,6 +386,45 @@ func (a *App) sourceDialog(c *ui.Context) {
 					}
 					ui.TextInput(c, &f.URL).Placeholder(placeholder).MaxWidth(420)
 				})
+				if f.Type == "twitter" {
+					ui.Field(c, "抓取频率", func() {
+						presetValues := []string{"0 * * * *", "0 */2 * * *", "0 */4 * * *", "0 */6 * * *", "0 9 * * *"}
+						presetLabels := []string{"每小时", "每 2 小时", "每 4 小时", "每 6 小时", "每天 09:00"}
+						curLabel := "自定义（高级选项）"
+						for i, v := range presetValues {
+							if strings.TrimSpace(f.Schedule) == v {
+								curLabel = presetLabels[i]
+								break
+							}
+						}
+						options := append([]string(nil), presetLabels...)
+						if curLabel == "自定义（高级选项）" {
+							options = append(options, curLabel)
+						}
+						ui.Column(c).Gap(4).Children(func() {
+							if ui.Select(c, &curLabel, options).MaxWidth(200).Changed() {
+								for i, l := range presetLabels {
+									if l == curLabel {
+										f.Schedule = presetValues[i]
+										break
+									}
+								}
+							}
+							hint(c, "定时调用已连接的浏览器扩展抓取 X 时间线，入库后自动触发 AI 评分筛选。")
+						})
+					})
+					ui.Field(c, "筛选条件", func() {
+						ui.Column(c).Gap(6).Children(func() {
+							ui.Row(c).Gap(10).AlignItems(ui.Center).Children(func() {
+								ui.Text(c, "点赞 ≥").FontSize(12).TextColor(textSoft(c))
+								ui.TextInput(c, &a.sourceMinLikes).Placeholder("如 20").MaxWidth(96)
+								ui.Text(c, "阅读 ≥").FontSize(12).TextColor(textSoft(c))
+								ui.TextInput(c, &a.sourceMinViews).Placeholder("如 100").MaxWidth(110)
+							})
+							hint(c, "留空表示不限制；同时填写时需同时满足，不达标的推文会直接跳过不入库。")
+						})
+					})
+				}
 				ui.Field(c, "主题分组", func() {
 					ui.TextInput(c, &f.Category).Placeholder("AI / 科技新闻 / 设计").MaxWidth(420)
 				})
@@ -405,9 +470,13 @@ func (a *App) sourceDialog(c *ui.Context) {
 							ui.TextInput(c, &a.sourceMaxItems).Placeholder("默认 20").MaxWidth(120)
 						})
 					}
-					if f.Type == "youtube" || f.Type == "podcast" {
+					if f.Type == "youtube" || f.Type == "podcast" || f.Type == "twitter" {
+						maxPlaceholder := "默认 10"
+						if f.Type == "twitter" {
+							maxPlaceholder = "默认 40"
+						}
 						ui.Field(c, "每轮上限", func() {
-							ui.TextInput(c, &a.sourceMaxItems).Placeholder("默认 10").MaxWidth(120)
+							ui.TextInput(c, &a.sourceMaxItems).Placeholder(maxPlaceholder).MaxWidth(120)
 						})
 					}
 					ui.Field(c, "ID", func() {

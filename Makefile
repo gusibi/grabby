@@ -127,11 +127,17 @@ clean-cli:
 # ==================== Desktop App (MyGO) ====================
 
 DESKTOP_BIN := $(GO_SERVER_DIR)/grabby-desktop
+# Version baked into local desktop builds. Development builds default to "dev"
+# and refuse to self-update; pass e.g. DESKTOP_VERSION=0.8.0 to exercise the
+# real update flow against the published releases.
+DESKTOP_VERSION ?= dev
 
 # 构建桌面 APP（界面由 MyGO 原生 UI 绘制，不依赖前端构建产物）
 build-desktop:
-	@echo "==> 构建 Grabby 桌面 APP..."
-	cd $(GO_SERVER_DIR) && go build -tags desktop -o grabby-desktop .
+	@echo "==> 构建 Grabby 桌面 APP (版本: $(DESKTOP_VERSION))..."
+	cd $(GO_SERVER_DIR) && go build -tags desktop \
+		-ldflags "-X go-server/internal/updater.Version=$(DESKTOP_VERSION)" \
+		-o grabby-desktop .
 	@echo "==> 完成: $(DESKTOP_BIN)"
 
 # 构建并启动桌面 APP（前台运行，日志直接打印在终端）
@@ -241,6 +247,7 @@ help:
 	@echo "  make app-log            - 跟踪 APP 日志"
 	@echo "  make build-desktop      - 构建桌面 APP"
 	@echo "  make run-desktop        - 前台运行 APP（日志打在终端，调 bug 用）"
+	@echo "  make app DESKTOP_VERSION=0.8.0 - 用指定版本号构建，可测试自动更新（默认 dev）"
 	@echo "  make package-macos-app  - 打包为可双击的 .app（未签名）"
 	@echo "  make clean-desktop      - 清理桌面 APP 二进制"
 	@echo ""

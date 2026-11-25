@@ -34,6 +34,7 @@ import (
 	"go-server/internal/bootstrap"
 	"go-server/internal/config"
 	"go-server/internal/logging"
+	"go-server/internal/updater"
 	"go-server/nativeui"
 )
 
@@ -56,6 +57,11 @@ func main() {
 	if closer := logging.SetupFileLogging(desktopLogPath()); closer != nil {
 		defer closer.Close()
 	}
+
+	// A previous self-update leaves the old bundle beside the new one as a
+	// rollback backup. Now that the replacement is running, it is safe to
+	// remove.
+	updater.CleanupBackups()
 
 	// All of the server's data paths (grabby.db, browser_registry.json, .env,
 	// raw dumps) are relative to the working directory. Point that at the
@@ -214,6 +220,7 @@ func main() {
 		menu := mygo.NewMenu([]*mygo.MenuItem{
 			{Label: "打开 " + desktopAppName, Click: func(*mygo.MenuItem, *mygo.Window) { openMainWindow() }},
 			mygo.Separator(),
+			{Label: "版本 " + updater.DisplayVersion(), Disabled: true},
 			{Label: "API " + apiAddr, Disabled: true},
 			mygo.Separator(),
 			{Label: "退出 " + desktopAppName, Click: func(*mygo.MenuItem, *mygo.Window) { mygo.App.Quit() }},

@@ -79,6 +79,118 @@ func profileTitle(p ProviderProfile, i int) string {
 	return name
 }
 
+// readerModelsBody configures the dedicated models used by the reader's
+// translate and AI-brief actions. Both may follow the analysis route.
+func (a *App) readerModelsBody(c *ui.Context) {
+	d := a.ensureAIDraft()
+	// The AI section edits the active profile's model list as text; mirror it
+	// so the pickers below offer the models the user just typed.
+	a.setProfileModels(a.aiModelsText)
+	ui.Column(c).Gap(14).Children(func() {
+		ui.Form(c, func() {
+			ui.Field(c, "翻译目标语言", func() {
+				ui.TextInput(c, &d.TranslationTargetLanguage).Placeholder("简体中文").MaxWidth(240)
+			})
+			a.readerModelField(c, "翻译模型", d, &d.TranslationProfileID, &d.TranslationModel)
+			a.readerModelField(c, "解读模型", d, &d.InterpretationProfileID, &d.InterpretationModel)
+		})
+		hint(c, "留空时跟随主配置里选中的配置档和首选模型；这里的模型只用于阅读页的翻译与 AI 解读，不影响自动分析。")
+	})
+}
+
+func (a *App) readerModelField(c *ui.Context, label string, d *AISettings, profileID, model *string) {
+	ui.Field(c, label, func() {
+		ui.Row(c).Gap(8).Wrap().AlignItems(ui.Center).Children(func() {
+			labels := []string{"跟随默认配置"}
+			ids := []string{""}
+			for i, p := range d.Profiles {
+				labels = append(labels, profileTitle(p, i))
+				ids = append(ids, p.ID)
+			}
+			cur := labels[0]
+			profile := a.profileByID(d, *profileID)
+			if profile != nil {
+				for i, p := range d.Profiles {
+					if p.ID == profile.ID {
+						cur = labels[i+1]
+						break
+					}
+				}
+			} else {
+				*profileID = ""
+				*model = ""
+			}
+			if ui.Select(c, &cur, labels).Width(240).Changed() {
+				for i, l := range labels {
+					if l == cur {
+						*profileID = ids[i]
+						*model = ""
+						break
+					}
+				}
+				profile = a.profileByID(d, *profileID)
+			}
+			if profile == nil {
+				return
+			}
+			models := profile.EffectiveModels()
+			if len(models) == 0 {
+				hint(c, "该配置档还没有填写模型。")
+				return
+			}
+			modelLabels := []string{"配置档首选模型"}
+			modelIDs := []string{""}
+			for _, m := range models {
+				modelLabels = append(modelLabels, displayModel(m))
+				modelIDs = append(modelIDs, m)
+			}
+			curModel := "配置档首选模型"
+			matchedModel := false
+			for i, m := range models {
+				if m == *model || (*model != "" && displayModel(m) == displayModel(*model)) {
+					curModel = modelLabels[i+1]
+					*model = m
+					matchedModel = true
+					break
+				}
+			}
+			if !matchedModel {
+				*model = ""
+			}
+			if ui.Select(c, &curModel, modelLabels).Width(210).Changed() {
+				for i, l := range modelLabels {
+					if l == curModel {
+						*model = modelIDs[i]
+						break
+					}
+				}
+			}
+		})
+	})
+}
+
+func (a *App) profileByID(d *AISettings, id string) *ProviderProfile {
+	if d == nil || id == "" {
+		return nil
+	}
+	for i := range d.Profiles {
+		if d.Profiles[i].ID == id {
+			return &d.Profiles[i]
+		}
+	}
+	return nil
+}
+
+// displayModel trims a driver namespace for the picker label.
+func displayModel(model string) string {
+	for _, prefix := range []string{"openai/", "anthropic/", "googleai/", "vertexai/", "ollama/", "custom/"} {
+		if strings.HasPrefix(model, prefix) {
+			return strings.TrimPrefix(model, prefix)
+		}
+	}
+	return model
+}
+
 func (a *App) aiView(c *ui.Context) ui.Element {
 	return ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Grow(1).Padding(24, 30).Gap(16).Children(func() {

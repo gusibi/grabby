@@ -1,6 +1,7 @@
 package nativeui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"time"
@@ -40,6 +41,16 @@ type Reader struct {
 	Loading  bool
 	Err      string
 	seq      int
+
+	// Reader enhancements. Blocks are the translatable paragraphs of the
+	// current document, aligned with Translation.Translations.
+	Blocks        []string
+	detail        ItemDetail
+	Translation   *TranslationResult
+	Translating   bool
+	TranslateErr  string
+	TranslateMode string // off, replace, bilingual, hover
+	translateSeq  int
 }
 
 type Confirm struct {
@@ -48,6 +59,25 @@ type Confirm struct {
 	Message     string
 	ActionLabel string
 	Run         func() error
+}
+
+// ChatSession is the conversation about one article. It outlives the dialog so
+// reopening the reader keeps the follow-up thread.
+type ChatSession struct {
+	Messages  []ChatMessage
+	ModelUsed string
+	Streaming bool
+	Err       string
+	seq       int
+	cancel    context.CancelFunc
+}
+
+// ChatState is the dialog's open state and its current draft.
+type ChatState struct {
+	Open       bool
+	ItemID     int64
+	Draft      string
+	ScrollNext bool
 }
 
 type toastMsg struct {
@@ -111,6 +141,15 @@ type App struct {
 	readerDocs *readerServer
 	appIcon    ui.ImageSource
 
+	// Reader enhancement results are cached per item in memory so switching
+	// back to an article does not spend tokens again.
+	translations map[int64]*TranslationResult
+
+	// Reader AI conversations are kept per item, so the dialog can be closed
+	// and reopened without losing the thread.
+	chat  ChatState
+	chats map[int64]*ChatSession
+
 	dailyDate   string
 	dailyType   string
 	daily       *DailyReport
@@ -135,6 +174,8 @@ type App struct {
 	sourceArticlePattern  string
 	sourceMaxItems        string
 	sourceMaxBackfill     string
+	sourceMinLikes        string
+	sourceMinViews        string
 	sourceConfigExtra     map[string]any
 
 	aiDraft        *AISettings
@@ -153,6 +194,7 @@ type App struct {
 	promptSystem  string
 	promptDaily   string
 	settingsBusy  bool
+	update        updateState
 
 	adapter       string
 	adapterValue  string
@@ -181,6 +223,9 @@ func New(client *Client) *App {
 		adapter:     "extract",
 		confirm:     &Confirm{},
 		splitPct:    52,
+
+		translations: map[int64]*TranslationResult{},
+		chats:        map[int64]*ChatSession{},
 	}
 	for _, v := range []string{"today", "library", "ai"} {
 		a.filters[v] = newFilter()
@@ -472,6 +517,7 @@ func countLabel(n int) string {
 func (a *App) navigate(view string) {
 	if !readerEligible(view) {
 		a.reader.Open = false
+		a.chat.Open = false
 	}
 	a.view = view
 	if f := a.filters[view]; f != nil {
@@ -887,6 +933,17 @@ func (a *App) openReader(it Item) {
 	a.reader.Analysis = nil
 	a.reader.Loading = true
 	a.reader.Err = ""
+	a.reader.Blocks = nil
+	a.reader.Translation = a.translations[it.ID]
+	a.reader.Translating = false
+	a.reader.TranslateErr = ""
+	if a.reader.Translation != nil {
+		a.reader.TranslateMode = "bilingual"
+	} else {
+		a.reader.TranslateMode = "off"
+	}
+	a.chat.Open = false
+	a.chat.Draft = ""
 	a.reader.seq++
 	seq := a.reader.seq
 	id := it.ID
@@ -914,7 +971,14 @@ func (a *App) openReader(it Item) {
 			}
 			a.reader.Item = &item
 			a.reader.Analysis = an
-			a.loadReader(a.buildReaderHTML(item, detail, an), item.URL)
+			a.reader.detail = detail
+			a.reader.Translation = a.translations[item.ID]
+			if a.reader.Translation != nil {
+				a.reader.TranslateMode = "bilingual"
+			}
+			page := a.buildReaderPage(item, detail, an, a.reader.Translation, a.reader.TranslateMode)
+			a.reader.Blocks = page.Blocks
+			a.loadReader(page.HTML, item.URL)
 			if item.ReadStatus == 0 {
 				_ = a.client.markRead(item.ID, true)
 				a.applyLocalRead(item.ID)
@@ -1062,6 +1126,7 @@ func (a *App) dialogs(c *ui.Context) {
 	}
 	a.sourceDialog(c)
 	a.sourceLogsDialog(c)
+	a.readerChatDialog(c)
 }
 
 func (a *App) ask(title, message, action string, run func() error) {

@@ -33,8 +33,11 @@ log() { printf '==> %s\n' "$*"; }
 
 build_binary() {
   local goos="$1" goarch="$2" out="$3" ldflags="$4"
+  # The updater refuses to install releases over a build without a version,
+  # so every packaged binary carries the release version.
+  local version_flag="-X go-server/internal/updater.Version=$VERSION"
   ( cd "$BUILD_SRC" && CGO_ENABLED=0 GOOS="$goos" GOARCH="$goarch" \
-      go build -tags desktop -trimpath -ldflags "$ldflags" -o "$out" . )
+      go build -tags desktop -trimpath -ldflags "$ldflags $version_flag" -o "$out" . )
 }
 
 package_macos() {

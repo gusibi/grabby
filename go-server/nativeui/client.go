@@ -1,7 +1,9 @@
 package nativeui
 
 import (
+	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -15,14 +17,16 @@ import (
 // Client is the loopback HTTP client the native UI uses. Every request comes
 // from 127.0.0.1, which the desktop server trusts without a token.
 type Client struct {
-	base string
-	hc   *http.Client
+	base   string
+	hc     *http.Client
+	hcLong *http.Client
 }
 
 func NewClient(base string) *Client {
 	return &Client{
-		base: strings.TrimRight(base, "/"),
-		hc:   &http.Client{Timeout: 30 * time.Second},
+		base:   strings.TrimRight(base, "/"),
+		hc:     &http.Client{Timeout: 30 * time.Second},
+		hcLong: &http.Client{Timeout: 5 * time.Minute},
 	}
 }
 
@@ -31,6 +35,20 @@ func (c *Client) get(path string, out any) error {
 }
 
 func (c *Client) post(path string, body any, out any) error {
+	return c.do(http.MethodPost, path, body, out)
+}
+
+func (c *Client) put(path string, body any, out any) error {
+	return c.do(http.MethodPut, path, body, out)
+}
+
+func (c *Client) del(path string, out any) error {
+	return c.do(http.MethodDelete, path, nil, out)
+}
+
+// postLong sends a request that may run for minutes, as AI translation of a
+// long article does.
+func (c *Client) postLong(path string, body any, out any) error {
 	var raw []byte
 	if body != nil {
 		var err error
@@ -39,22 +57,22 @@ func (c *Client) post(path string, body any, out any) error {
 			return err
 		}
 	}
-	return c.do(http.MethodPost, path, raw, out)
+	return c.doWith(c.hcLong, http.MethodPost, path, raw, out)
 }
 
-func (c *Client) put(path string, body any, out any) error {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return err
+func (c *Client) do(method, path string, body any, out any) error {
+	var raw []byte
+	if body != nil {
+		var err error
+		raw, err = json.Marshal(body)
+		if err != nil {
+			return err
+		}
 	}
-	return c.do(http.MethodPut, path, raw, out)
+	return c.doWith(c.hc, method, path, raw, out)
 }
 
-func (c *Client) del(path string, out any) error {
-	return c.do(http.MethodDelete, path, nil, out)
-}
-
-func (c *Client) do(method, path string, body []byte, out any) error {
+func (c *Client) doWith(hc *http.Client, method, path string, body []byte, out any) error {
 	var reader io.Reader
 	if body != nil {
 		reader = bytes.NewReader(body)
@@ -66,7 +84,7 @@ func (c *Client) do(method, path string, body []byte, out any) error {
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	resp, err := c.hc.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		return err
 	}
@@ -372,6 +390,111 @@ func (c *Client) star(id int64, starred bool) error {
 
 func (c *Client) reanalyze(id int64) error {
 	return c.post(fmt.Sprintf("/api/ai/reanalyze/%d", id), map[string]any{}, nil)
+}
+
+func (c *Client) translate(id int64, title, target string, blocks []string) (TranslationResult, error) {
+	var r struct {
+		Success      bool     `json:"success"`
+		Title        string   `json:"title"`
+		Translations []string `json:"translations"`
+		ModelUsed    string   `json:"model_used"`
+	}
+	err := c.postLong("/api/ai/translate", map[string]any{
+		"item_id":         id,
+		"title":           title,
+		"target_language": target,
+		"blocks":          blocks,
+	}, &r)
+	return TranslationResult{Title: r.Title, Translations: r.Translations, ModelUsed: r.ModelUsed}, err
+}
+
+// streamChat reads the SSE answer of /api/ai/chat, calling onDelta for each
+// text chunk and returning the model that answered. It does not use the
+// default client timeout because a long answer can take minutes.
+func (c *Client) streamChat(ctx context.Context, id int64, messages []ChatMessage, onDelta func(string)) (string, error) {
+	body, err := json.Marshal(map[string]any{"item_id": id, "messages": messages})
+	if err != nil {
+		return "", err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.base+"/api/ai/chat", bytes.NewReader(body))
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "text/event-stream")
+
+	hc := &http.Client{Timeout: 10 * time.Minute}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 400 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		var e struct {
+			Error  string `json:"error"`
+			Detail string `json:"detail"`
+		}
+		_ = json.Unmarshal(raw, &e)
+		msg := e.Error
+		if msg == "" {
+			msg = e.Detail
+		}
+		if msg == "" {
+			msg = strings.TrimSpace(string(raw))
+		}
+		if msg == "" {
+			msg = resp.Status
+		}
+		return "", fmt.Errorf("%s", msg)
+	}
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Buffer(make([]byte, 64<<10), 2<<20)
+	var model string
+	gotDone := false
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		if payload == "" {
+			continue
+		}
+		var ev struct {
+			Delta     string `json:"delta"`
+			Error     string `json:"error"`
+			Done      bool   `json:"done"`
+			ModelUsed string `json:"model_used"`
+		}
+		if err := json.Unmarshal([]byte(payload), &ev); err != nil {
+			continue
+		}
+		if ev.Error != "" {
+			return "", fmt.Errorf("%s", ev.Error)
+		}
+		if ev.ModelUsed != "" {
+			model = ev.ModelUsed
+		}
+		if ev.Delta != "" {
+			onDelta(ev.Delta)
+		}
+		if ev.Done {
+			gotDone = true
+			return model, nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return "", err
+	}
+	if !gotDone {
+		if ctx.Err() != nil {
+			return "", ctx.Err()
+		}
+		return "", fmt.Errorf("连接中断，未收到完整响应")
+	}
+	return model, nil
 }
 
 func (c *Client) toggleSource(id string, enabled bool) error {

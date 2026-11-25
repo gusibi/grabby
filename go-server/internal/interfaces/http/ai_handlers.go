@@ -420,6 +420,113 @@ func (h *AIHandlers) HandleReanalyze(c echo.Context) error {
 	})
 }
 
+// HandleTranslate translates the body blocks of a reader document. The blocks
+// come from the client so each translated paragraph maps back to the paragraph
+// it came from, even when the stored HTML differs from the plain text.
+func (h *AIHandlers) HandleTranslate(c echo.Context) error {
+	var req struct {
+		ItemID         int64    `json:"item_id"`
+		Title          string   `json:"title"`
+		TargetLanguage string   `json:"target_language"`
+		Blocks         []string `json:"blocks"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return aiErr(c, http.StatusBadRequest, "无效的请求体")
+	}
+	if len(req.Blocks) == 0 && strings.TrimSpace(req.Title) == "" {
+		return aiErr(c, http.StatusBadRequest, "没有可翻译的正文")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 4*time.Minute)
+	defer cancel()
+	result, err := h.aiEngine.TranslateText(ctx, req.Title, req.Blocks, req.TargetLanguage)
+	if err != nil {
+		h.logger.Warn("Reader translation failed", zap.Int64("item_id", req.ItemID), zap.Error(err))
+		return aiErr(c, http.StatusBadGateway, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success":      true,
+		"title":        result.Title,
+		"translations": result.Translations,
+		"model_used":   result.ModelUsed,
+	})
+}
+
+// HandleInterpret returns the structured AI brief for one archived item.
+func (h *AIHandlers) HandleInterpret(c echo.Context) error {
+	var req struct {
+		ItemID int64 `json:"item_id"`
+	}
+	if err := c.Bind(&req); err != nil || req.ItemID <= 0 {
+		return aiErr(c, http.StatusBadRequest, "缺少内容 ID")
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 2*time.Minute)
+	defer cancel()
+	result, err := h.aiEngine.InterpretItem(ctx, req.ItemID)
+	if err != nil {
+		h.logger.Warn("Reader interpretation failed", zap.Int64("item_id", req.ItemID), zap.Error(err))
+		return aiErr(c, http.StatusBadGateway, err.Error())
+	}
+	return c.JSON(http.StatusOK, map[string]any{
+		"success":        true,
+		"interpretation": result,
+		"model_used":     result.ModelUsed,
+	})
+}
+
+// HandleChat streams an answer about one archived article as Server-Sent
+// Events. The client sends the visible conversation, including the first
+// "解读这篇文章" prompt, and receives {"delta":...} chunks then a final
+// {"done":true,"model_used":...}.
+func (h *AIHandlers) HandleChat(c echo.Context) error {
+	var req struct {
+		ItemID   int64               `json:"item_id"`
+		Messages []appai.ChatMessage `json:"messages"`
+	}
+	if err := c.Bind(&req); err != nil {
+		return aiErr(c, http.StatusBadRequest, "无效的请求体")
+	}
+	if req.ItemID <= 0 {
+		return aiErr(c, http.StatusBadRequest, "缺少内容 ID")
+	}
+
+	hdr := c.Response().Header()
+	hdr.Set("Content-Type", "text/event-stream; charset=utf-8")
+	hdr.Set("Cache-Control", "no-cache")
+	hdr.Set("Connection", "keep-alive")
+	hdr.Set("X-Accel-Buffering", "no")
+	c.Response().WriteHeader(http.StatusOK)
+
+	send := func(v any) error {
+		raw, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		if _, err := fmt.Fprintf(c.Response(), "data: %s\n\n", raw); err != nil {
+			return err
+		}
+		c.Response().Flush()
+		return nil
+	}
+
+	ctx, cancel := context.WithTimeout(c.Request().Context(), 5*time.Minute)
+	defer cancel()
+	model, err := h.aiEngine.ChatStream(ctx, req.ItemID, req.Messages, func(delta string) error {
+		return send(map[string]string{"delta": delta})
+	})
+	if err != nil {
+		if c.Request().Context().Err() != nil {
+			return nil
+		}
+		h.logger.Warn("Reader chat failed", zap.Int64("item_id", req.ItemID), zap.Error(err))
+		_ = send(map[string]any{"error": err.Error()})
+		return nil
+	}
+	_ = send(map[string]any{"done": true, "model_used": model})
+	return nil
+}
+
 // HandleStats returns AI processing pipeline statistics.
 func (h *AIHandlers) HandleStats(c echo.Context) error {
 	totalProcessed, err := h.db.CountAIAnalyses()
@@ -857,6 +964,9 @@ func RegisterAIHandlers(openAPI, api *echo.Group, deps Dependencies) {
 	api.GET("/ai/usage", h.HandleUsage)
 	api.POST("/ai/daily/generate", h.HandleDailyGenerate)
 	api.POST("/ai/reanalyze/:id", h.HandleReanalyze)
+	api.POST("/ai/translate", h.HandleTranslate)
+	api.POST("/ai/interpret", h.HandleInterpret)
+	api.POST("/ai/chat", h.HandleChat)
 	api.GET("/ai/settings", h.HandleGetSettings)
 	api.POST("/ai/settings", h.HandleSaveSettings)
 	api.POST("/ai/test", h.HandleTestConnection)

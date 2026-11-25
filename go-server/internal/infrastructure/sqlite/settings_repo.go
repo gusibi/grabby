@@ -303,6 +303,14 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 		s.EveningReportTime = "22:30"
 	}
 
+	// 10b. Reader connection models (translation / interpretation). Empty
+	// values mean "follow the active analysis profile".
+	s.TranslationProfileID, _ = d.GetSetting("ai_translation_profile_id", env.TranslationProfileID)
+	s.TranslationModel, _ = d.GetSetting("ai_translation_model", env.TranslationModel)
+	s.TranslationTargetLanguage, _ = d.GetSetting("ai_translation_target_language", env.TranslationTargetLanguage)
+	s.InterpretationProfileID, _ = d.GetSetting("ai_interpretation_profile_id", env.InterpretationProfileID)
+	s.InterpretationModel, _ = d.GetSetting("ai_interpretation_model", env.InterpretationModel)
+
 	// 11. ASR (Audio/Video Speech-to-Text) settings
 	s.ASRMode, _ = d.GetSetting("asr_mode", env.ASRMode)
 	s.ASRProvider, _ = d.GetSetting("asr_provider", env.ASRProvider)
@@ -344,6 +352,11 @@ func (d *Database) LoadAISettings(env AISettings) (AISettings, error) {
 	_ = d.SaveSetting("ai_evening_report_enabled", eveningEnabledDB)
 	_ = d.SaveSetting("ai_morning_report_time", s.MorningReportTime)
 	_ = d.SaveSetting("ai_evening_report_time", s.EveningReportTime)
+	_ = d.SaveSetting("ai_translation_profile_id", s.TranslationProfileID)
+	_ = d.SaveSetting("ai_translation_model", s.TranslationModel)
+	_ = d.SaveSetting("ai_translation_target_language", s.TranslationTargetLanguage)
+	_ = d.SaveSetting("ai_interpretation_profile_id", s.InterpretationProfileID)
+	_ = d.SaveSetting("ai_interpretation_model", s.InterpretationModel)
 	_ = d.SaveSetting("asr_mode", s.ASRMode)
 	_ = d.SaveSetting("asr_provider", s.ASRProvider)
 	_ = d.SaveSetting("asr_base_url", s.ASRBaseURL)

@@ -157,3 +157,94 @@ func TestMatchesOp(t *testing.T) {
 		t.Error("should not match HomeTimeline for SearchTimeline filter")
 	}
 }
+
+func TestExtractTweetsNoteTweetAndURLs(t *testing.T) {
+	body := `{
+		"result": {
+			"rest_id": "2001",
+			"views": {"count": "15800", "state": "EnabledWithCount"},
+			"core": {"user_results": {"result": {"legacy": {"screen_name": "carol", "name": "Carol"}}}},
+			"legacy": {
+				"full_text": "Truncated preview... https://t.co/short1",
+				"entities": {
+					"urls": [{"url": "https://t.co/short1", "expanded_url": "https://blog.example.com/deep-dive"}]
+				}
+			},
+			"note_tweet": {
+				"note_tweet_results": {
+					"result": {
+						"text": "Full long note tweet with lots of detail and link https://t.co/short1",
+						"entity_set": {
+							"urls": [{"url": "https://t.co/short1", "expanded_url": "https://blog.example.com/deep-dive"}]
+						}
+					}
+				}
+			}
+		}
+	}`
+	tweets := extractTweets(body)
+	if len(tweets) != 1 {
+		t.Fatalf("expected 1 tweet, got %d", len(tweets))
+	}
+	tw := tweets[0]
+	wantText := "Full long note tweet with lots of detail and link https://blog.example.com/deep-dive"
+	if tw.Text != wantText {
+		t.Errorf("Text = %q, want %q", tw.Text, wantText)
+	}
+	if len(tw.Links) != 1 || tw.Links[0] != "https://blog.example.com/deep-dive" {
+		t.Errorf("Links = %+v, want [https://blog.example.com/deep-dive]", tw.Links)
+	}
+	if tw.ViewCount != 15800 {
+		t.Errorf("ViewCount = %d, want 15800", tw.ViewCount)
+	}
+}
+
+func TestExtractTweetsXArticle(t *testing.T) {
+	body := `{
+		"result": {
+			"rest_id": "3001",
+			"core": {"user_results": {"result": {"legacy": {"screen_name": "dave", "name": "Dave"}}}},
+			"legacy": {
+				"full_text": "https://t.co/art1",
+				"entities": {
+					"urls": [{"url": "https://t.co/art1", "expanded_url": "https://x.com/i/article/999"}]
+				}
+			},
+			"article": {
+				"article_results": {
+					"result": {
+						"title": "How Local-First Readers Win",
+						"preview_text": "Short preview",
+						"cover_media": {"media_info": {"original_img_url": "https://pbs.twimg.com/cover.jpg"}},
+						"content_state": {
+							"blocks": [
+								{"type": "header-two", "text": "Introduction"},
+								{"type": "unstyled", "text": "Local-first software keeps your data fast and private."}
+							]
+						}
+					}
+				}
+			}
+		}
+	}`
+	tweets := extractTweets(body)
+	if len(tweets) != 1 {
+		t.Fatalf("expected 1 tweet, got %d", len(tweets))
+	}
+	tw := tweets[0]
+	if !tw.IsArticle {
+		t.Fatal("expected IsArticle = true")
+	}
+	if tw.ArticleTitle != "How Local-First Readers Win" {
+		t.Errorf("ArticleTitle = %q", tw.ArticleTitle)
+	}
+	if tw.ArticleURL != "https://x.com/i/article/999" {
+		t.Errorf("ArticleURL = %q", tw.ArticleURL)
+	}
+	if tw.ArticleText != "## Introduction\n\nLocal-first software keeps your data fast and private." {
+		t.Errorf("ArticleText = %q", tw.ArticleText)
+	}
+	if len(tw.Media) != 1 || tw.Media[0] != "https://pbs.twimg.com/cover.jpg" {
+		t.Errorf("Media = %+v", tw.Media)
+	}
+}

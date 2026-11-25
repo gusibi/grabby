@@ -11,6 +11,7 @@ import (
 	"go.uber.org/zap"
 
 	appai "go-server/internal/application/ai"
+	"go-server/internal/application/render"
 	"go-server/internal/domain/capture"
 	"go-server/internal/domain/item"
 	"go-server/internal/domain/source"
@@ -203,9 +204,10 @@ func (tq *TaskQueue) processTask(ctx context.Context, task ScrapeTask) error {
 		tq.finalizeIfDone(task)
 		return fmt.Errorf("browser extracted empty markdown for %s", task.URL)
 	}
+	_, bodyMarkdown := render.ExtractFrontMatter(markdown)
 
 	if task.ItemID > 0 {
-		if utf8.RuneCountInString(markdown) < 200 {
+		if utf8.RuneCountInString(bodyMarkdown) < 200 {
 			const reason = "浏览器提取正文不足 200 字"
 			tq.recordTaskFailure(task, "extract", reason)
 			tq.finalizeIfDone(task)
@@ -241,7 +243,7 @@ func (tq *TaskQueue) processTask(ctx context.Context, task ScrapeTask) error {
 		OriginSource: origin,
 		Title:        title,
 		URL:          task.URL,
-		Summary:      truncateSummary(markdown, 240),
+		Summary:      truncateSummary(bodyMarkdown, 240),
 		Content:      markdown,
 		Category:     category,
 		PublishedAt:  task.PublishedAt,

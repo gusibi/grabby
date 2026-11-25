@@ -20,6 +20,7 @@ import (
 	"go.uber.org/zap"
 
 	appai "go-server/internal/application/ai"
+	"go-server/internal/application/render"
 	"go-server/internal/application/transcribe"
 	domainai "go-server/internal/domain/ai"
 	"go-server/internal/domain/capture"
@@ -84,6 +85,7 @@ type Scraper struct {
 	transcriber *transcribe.Transcriber
 	youtube     *YouTubeAdapter
 	podcast     *PodcastAdapter
+	twitter     *TwitterAdapter
 	adapters    map[string]SourceAdapter
 
 	// Retry policy. Tests set maxRetries=1 / zero backoff to stay fast; the
@@ -118,9 +120,11 @@ func NewScraper(db *sqlite.Database, wsManager *browserws.WebSocketManager, task
 	}
 	s.youtube = NewYouTubeAdapter(s)
 	s.podcast = NewPodcastAdapter(s)
+	s.twitter = NewTwitterAdapter(s)
 	s.adapters = map[string]SourceAdapter{
 		"youtube": s.youtube,
 		"podcast": s.podcast,
+		"twitter": s.twitter,
 	}
 	return s
 }
@@ -1524,7 +1528,8 @@ func (s *Scraper) ScrapeWebWithRun(ctx context.Context, src *source.Source, run 
 				err = nil
 			}
 		}
-		if err != nil || utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) < 200 {
+		_, bodyMarkdown := render.ExtractFrontMatter(res.Markdown)
+		if err != nil || utf8.RuneCountInString(strings.TrimSpace(bodyMarkdown)) < 200 {
 			reason := "empty or short article text"
 			stage := "extract"
 			if err != nil {
@@ -1539,7 +1544,7 @@ func (s *Scraper) ScrapeWebWithRun(ctx context.Context, src *source.Source, run 
 		}
 
 		title := firstNonEmpty(res.Title, cand.Title, articleURL)
-		summary := truncateSummary(res.Markdown, 240)
+		summary := truncateSummary(bodyMarkdown, 240)
 		it := item.ScrapedItem{
 			SourceID:     src.ID,
 			OriginSource: NewClassifier().ExtractOrigin(articleURL, src.Name),
@@ -1617,7 +1622,8 @@ func (s *Scraper) scrapeSingleWebPage(ctx context.Context, src *source.Source, c
 				URL: src.URL, Reason: err.Error(), Stage: failureStage(err)}}})
 		return 0, err
 	}
-	if utf8.RuneCountInString(strings.TrimSpace(res.Markdown)) == 0 {
+	_, bodyMarkdown := render.ExtractFrontMatter(res.Markdown)
+	if utf8.RuneCountInString(strings.TrimSpace(bodyMarkdown)) == 0 {
 		err := fmt.Errorf("extracted empty content from %s", src.URL)
 		run.add(ItemReport{Title: src.Name, URL: src.URL, Status: "failed",
 			Reason: err.Error(), ErrorStage: "extract"})
@@ -1630,7 +1636,7 @@ func (s *Scraper) scrapeSingleWebPage(ctx context.Context, src *source.Source, c
 		OriginSource: NewClassifier().ExtractOrigin(src.URL, src.Name),
 		Title:        title,
 		URL:          src.URL,
-		Summary:      truncateSummary(res.Markdown, 240),
+		Summary:      truncateSummary(bodyMarkdown, 240),
 		Content:      res.Markdown,
 		Category:     category,
 		PublishedAt:  res.PublishedAt,

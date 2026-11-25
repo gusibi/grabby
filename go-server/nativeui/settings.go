@@ -42,6 +42,10 @@ func (a *App) settingsView(c *ui.Context) ui.Element {
 				a.aiSettingsBody(c)
 			})
 
+			a.settingsSection(c, "阅读增强", "阅读页的全文翻译与 AI 对话（解读与追问）可以使用独立模型；不选则跟随主配置。", func() {
+				a.readerModelsBody(c)
+			})
+
 			a.settingsSection(c, "音视频转文字 (ASR)", "用于无字幕 YouTube 视频和播客音频自动生成文字版；支持本地 CLI 与云端 Whisper 接口。", func() {
 				ui.Form(c, func() {
 					ui.Field(c, "模式", func() {
@@ -149,6 +153,8 @@ func (a *App) settingsView(c *ui.Context) ui.Element {
 				})
 				hint(c, "备份文件包含明文 API Key，请妥善保管。导入时 AI 配置整体覆盖并立即生效；数据源按 ID 新增或更新。")
 			})
+
+			a.updateSection(c)
 		})
 	})
 }

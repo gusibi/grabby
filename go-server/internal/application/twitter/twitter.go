@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"strconv"
 	"strings"
 
 	"go.uber.org/zap"
@@ -32,8 +33,14 @@ type Tweet struct {
 	RetweetCount  int      `json:"retweet_count"`
 	ReplyCount    int      `json:"reply_count"`
 	QuoteCount    int      `json:"quote_count"`
+	ViewCount     int      `json:"view_count,omitempty"`
 	URL           string   `json:"url"`
 	Media         []string `json:"media,omitempty"`
+	Links         []string `json:"links,omitempty"`
+	IsArticle     bool     `json:"is_article,omitempty"`
+	ArticleTitle  string   `json:"article_title,omitempty"`
+	ArticleText   string   `json:"article_text,omitempty"`
+	ArticleURL    string   `json:"article_url,omitempty"`
 }
 
 // capturedRecord mirrors one item produced by the browser intercept hook.
@@ -249,6 +256,22 @@ func tweetFromResult(n map[string]any) (Tweet, bool) {
 		return Tweet{}, false
 	}
 
+	// Long tweets (>280 chars) carry the full, untruncated body in
+	// note_tweet.note_tweet_results.result.text.
+	var noteEntitySet map[string]any
+	if nt, ok := asMap(n["note_tweet"]); ok {
+		if ntr, ok := asMap(nt["note_tweet_results"]); ok {
+			if res, ok := asMap(ntr["result"]); ok {
+				if full := asString(res["text"]); full != "" {
+					text = full
+				}
+				if es, ok := asMap(res["entity_set"]); ok {
+					noteEntitySet = es
+				}
+			}
+		}
+	}
+
 	t := Tweet{
 		Text:          text,
 		CreatedAt:     asString(legacy["created_at"]),
@@ -256,6 +279,9 @@ func tweetFromResult(n map[string]any) (Tweet, bool) {
 		RetweetCount:  asInt(legacy["retweet_count"]),
 		ReplyCount:    asInt(legacy["reply_count"]),
 		QuoteCount:    asInt(legacy["quote_count"]),
+	}
+	if views, ok := asMap(n["views"]); ok {
+		t.ViewCount = asInt(views["count"])
 	}
 
 	t.ID = asString(n["rest_id"])
@@ -288,6 +314,48 @@ func tweetFromResult(n map[string]any) (Tweet, bool) {
 		t.URL = "https://x.com/" + t.Author + "/status/" + t.ID
 	}
 
+	// Expand t.co short links and collect external URLs / X Article links.
+	urlEntities := collectURLEntities(legacy["entities"], noteEntitySet)
+	seenLinks := make(map[string]struct{})
+	for _, ue := range urlEntities {
+		if ue.short != "" && ue.expanded != "" {
+			t.Text = strings.ReplaceAll(t.Text, ue.short, ue.expanded)
+		}
+		if ue.expanded == "" {
+			continue
+		}
+		if isXArticleURL(ue.expanded) {
+			t.IsArticle = true
+			if t.ArticleURL == "" {
+				t.ArticleURL = ue.expanded
+			}
+			continue
+		}
+		if isExternalArticleCandidate(ue.expanded) {
+			if _, dup := seenLinks[ue.expanded]; !dup {
+				seenLinks[ue.expanded] = struct{}{}
+				t.Links = append(t.Links, ue.expanded)
+			}
+		}
+	}
+
+	// X Articles carry structured metadata (and sometimes full Draft.js blocks)
+	// under article.article_results.result.
+	if artRes := extractArticleResult(n); artRes != nil {
+		t.IsArticle = true
+		if title := strings.TrimSpace(asString(artRes["title"])); title != "" {
+			t.ArticleTitle = title
+		}
+		if blocksMD := renderArticleContentState(artRes["content_state"]); blocksMD != "" {
+			t.ArticleText = blocksMD
+		} else if preview := strings.TrimSpace(asString(artRes["preview_text"])); preview != "" {
+			t.ArticleText = preview
+		}
+		if cover := extractArticleCoverURL(artRes); cover != "" {
+			t.Media = append(t.Media, cover)
+		}
+	}
+
 	// Media URLs from extended_entities.media[].media_url_https
 	if ee, ok := asMap(legacy["extended_entities"]); ok {
 		if media, ok := ee["media"].([]any); ok {
@@ -302,6 +370,142 @@ func tweetFromResult(n map[string]any) (Tweet, bool) {
 	}
 
 	return t, true
+}
+
+type urlEntity struct {
+	short    string
+	expanded string
+}
+
+func collectURLEntities(entityMaps ...any) []urlEntity {
+	var out []urlEntity
+	for _, em := range entityMaps {
+		m, ok := asMap(em)
+		if !ok {
+			continue
+		}
+		urls, ok := m["urls"].([]any)
+		if !ok {
+			continue
+		}
+		for _, raw := range urls {
+			u, ok := asMap(raw)
+			if !ok {
+				continue
+			}
+			short := strings.TrimSpace(asString(u["url"]))
+			expanded := strings.TrimSpace(asString(u["expanded_url"]))
+			if expanded == "" {
+				expanded = strings.TrimSpace(asString(u["unwound_url"]))
+			}
+			if short != "" || expanded != "" {
+				out = append(out, urlEntity{short: short, expanded: expanded})
+			}
+		}
+	}
+	return out
+}
+
+func isXArticleURL(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
+	if host != "x.com" && host != "twitter.com" {
+		return false
+	}
+	p := strings.ToLower(u.Path)
+	return strings.HasPrefix(p, "/i/article/") || strings.Contains(p, "/article/")
+}
+
+func isExternalArticleCandidate(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	if scheme != "http" && scheme != "https" {
+		return false
+	}
+	host := strings.ToLower(strings.TrimPrefix(u.Hostname(), "www."))
+	switch host {
+	case "", "x.com", "twitter.com", "t.co", "pic.twitter.com", "pic.x.com", "pbs.twimg.com", "video.twimg.com":
+		return false
+	}
+	return true
+}
+
+func extractArticleResult(n map[string]any) map[string]any {
+	if art, ok := asMap(n["article"]); ok {
+		if ar, ok := asMap(art["article_results"]); ok {
+			if res, ok := asMap(ar["result"]); ok {
+				return res
+			}
+		}
+	}
+	if ar, ok := asMap(n["article_results"]); ok {
+		if res, ok := asMap(ar["result"]); ok {
+			return res
+		}
+	}
+	return nil
+}
+
+func extractArticleCoverURL(artRes map[string]any) string {
+	cm, ok := asMap(artRes["cover_media"])
+	if !ok {
+		return ""
+	}
+	if mi, ok := asMap(cm["media_info"]); ok {
+		if u := strings.TrimSpace(asString(mi["original_img_url"])); u != "" {
+			return u
+		}
+	}
+	return ""
+}
+
+// renderArticleContentState converts X Article Draft.js content_state.blocks
+// into clean Markdown paragraphs/headings when present in the GraphQL payload.
+func renderArticleContentState(raw any) string {
+	cs, ok := asMap(raw)
+	if !ok {
+		return ""
+	}
+	blocks, ok := cs["blocks"].([]any)
+	if !ok || len(blocks) == 0 {
+		return ""
+	}
+	var parts []string
+	for _, b := range blocks {
+		bm, ok := asMap(b)
+		if !ok {
+			continue
+		}
+		text := strings.TrimSpace(asString(bm["text"]))
+		if text == "" {
+			continue
+		}
+		switch asString(bm["type"]) {
+		case "header-one":
+			parts = append(parts, "# "+text)
+		case "header-two":
+			parts = append(parts, "## "+text)
+		case "header-three":
+			parts = append(parts, "### "+text)
+		case "blockquote":
+			parts = append(parts, "> "+text)
+		case "unordered-list-item":
+			parts = append(parts, "- "+text)
+		case "ordered-list-item":
+			parts = append(parts, "1. "+text)
+		case "code-block":
+			parts = append(parts, "```\n"+text+"\n```")
+		default:
+			parts = append(parts, text)
+		}
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 func asMap(v any) (map[string]any, bool) {
@@ -323,6 +527,9 @@ func asInt(v any) int {
 	case json.Number:
 		i, _ := x.Int64()
 		return int(i)
+	case string:
+		i, _ := strconv.Atoi(strings.TrimSpace(x))
+		return i
 	}
 	return 0
 }
