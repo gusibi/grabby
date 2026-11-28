@@ -167,6 +167,7 @@ const jsonLd = JSON.stringify({
               <li data-i18n="setup.read3">阅读面板打开时，左侧列表自动进入 420px 紧凑模式，面板占满剩余宽度；窗口窄于 1120px 时切换为全宽覆盖。</li>
               <li data-i18n="setup.read4">快捷键：Esc 关闭，J / K 下一篇 / 上一篇，/ 聚焦搜索；侧栏底部可直达浏览器插件、项目网站与 Releases。</li>
               <li data-i18n="setup.read5">没抓取到正文的文章仍会显示摘要、AI 分析与来源，并提供「在浏览器打开」兜底。</li>
+              <li data-i18n="setup.read6">阅读面板支持一键全文翻译与 AI 解读 / 追问；没有字幕的 YouTube 视频会自动转写。</li>
             </ul>
           </div>
 
@@ -271,9 +272,10 @@ const jsonLd = JSON.stringify({
         <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
           <p class="text-mute dark:text-[#888] mb-3" data-i18n="setup.aiDesc">打开 App →「设置 → AI 模型」：</p>
           <ol class="list-decimal list-inside space-y-2 text-mute dark:text-[#888]">
-            <li data-i18n="setup.ai1">选择服务商预设（OpenAI / Anthropic / DeepSeek / Gemini / OpenRouter / Ollama / 自定义等），填写 API Key、Base URL 与模型名称；模型可用逗号分隔填写多个。</li>
-            <li data-i18n="setup.ai2">点击「测试模型连通性」确认可用后保存，新任务立即生效。</li>
-            <li data-i18n="setup.ai3">可在「提示词」调整分析与日报提示词，在「日报定时」开关早报和晚报。</li>
+            <li data-i18n="setup.ai1">选择服务商预设（OpenAI / Anthropic / DeepSeek / Gemini / OpenRouter / Ollama / 自定义等），填写 API Key 与 Base URL。</li>
+            <li data-i18n="setup.ai2">在「模型」里搜索并勾选模型（在线目录来自 models.dev，也可以「从服务商获取」当前接口的模型列表）；勾选的第一个就是首选模型。</li>
+            <li data-i18n="setup.ai3">点击「测试模型连通性」确认可用后保存，新任务立即生效；「提示词与日报」Tab 里可以改提示词、开关早报和晚报。</li>
+            <li data-i18n="setup.ai4">「阅读与转写」Tab 可以给翻译、AI 解读单独指定模型，并配置无字幕视频的语音转写（本地 Whisper 或云端接口）。</li>
           </ol>
           <p class="text-sm text-mute dark:text-[#666] mt-4" data-i18n="setup.aiNote">没有配置 AI 也能采集和阅读，只是不会有评分、分类与日报。</p>
         </div>
@@ -283,7 +285,7 @@ const jsonLd = JSON.stringify({
       <section class="fade-in mb-20">
         <h2 class="font-mono font-semibold text-2xl mb-4" data-i18n="setup.step5">5. 只运行服务端（可选）</h2>
         <div class="p-6 rounded-2xl bg-white dark:bg-[#161616] border border-bord dark:border-[#222]">
-          <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.srvDesc">不启动桌面 App 时，也可以直接运行 Go 服务，通过浏览器使用 Web 管理界面，或把它当作纯 API / MCP 服务。两者共用同一套接口与 SQLite 数据。</p>
+          <p class="text-mute dark:text-[#888] mb-4" data-i18n="setup.srvDesc">不启动桌面 App 时，也可以直接运行 Go 服务，把它当作纯 API / MCP 服务或采集中转站；http://localhost:5040 只显示服务状态页，阅读与管理界面在桌面 App 中。两者共用同一套接口与 SQLite 数据。</p>
 
           <pre><code set:html={hlShell(`cd go-server\ncp .env.example .env\n# 编辑 .env 按需修改配置\n\ngo run .\n# 或编译后运行\ngo build -o go-server . && ./go-server`)} /></pre>
           <p class="text-sm text-mute dark:text-[#888] mt-3 mb-2">Web 管理界面：<code>http://localhost:5040</code></p>

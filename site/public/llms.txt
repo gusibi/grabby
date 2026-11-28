@@ -12,7 +12,9 @@ Grabby is a local-first content desk for the desktop. It captures any webpage as
 - Full-page screenshots
 - RSS / API / web source subscriptions with scheduled collection
 - Platform collection for X, Reddit and Xiaohongshu
-- AI scoring, categorization, summaries and tags
-- Scheduled AI morning / evening daily briefings
+- YouTube videos without captions transcribed automatically (local Whisper or cloud ASR)
+- AI scoring, categorization, summaries and tags, with an online models.dev catalog
+- In-app reader with full-text translation and AI insight / follow-up chat
+- Scheduled AI morning / evening daily briefings, capped at 20 must-read items
 - MCP protocol support for AI agents
 - Self-contained Go desktop app with local SQLite storage

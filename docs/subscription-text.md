@@ -6,10 +6,10 @@ Grabby 现在把四类订阅的文本统一归档到同一个内容库，并为�
 | --- | --- | --- |
 | RSS / Atom | `rss` | Feed 自带正文或摘要；可补抓公开原文正文 |
 | 博客列表 / 单篇网页 | `web_scrape` | 列表页发现文章 → 文章标题、正文、来源链接、发布时间 |
-| YouTube 频道 / 视频 | `youtube` | 视频链接、标题、原始简介、公开（人工/自动）字幕 |
+| YouTube 频道 / 视频 | `youtube` | 视频链接、标题、原始简介、公开（人工/自动）字幕；无字幕时可回退到语音转写 |
 | 播客 | `podcast` | 单集链接、节目简介、音频链接、公开文字稿 |
 
-所有能力都在现有桌面端「订阅源」入口和 HTTP API 中，没有新增下载音视频或转写服务。
+订阅抓取本身只读取公开文本；只有 YouTube 没有公开字幕时，才会在「设置 → 阅读与转写」启用 ASR 的前提下按需下载音频并转写（本地 Whisper CLI 或云端 Whisper 接口）。播客音频仍然不下载。
 只采集公开内容；登录墙、付费墙、403/404 等会作为失败原因记录在抓取日志中。
 
 ## 1. 配置订阅
@@ -135,7 +135,7 @@ GET /open/api/items/{item_id}
 
 - RSS / 博客：内容详情与阅读器显示正文；摘要条目也会保留 Feed 摘要和原文链接。
 - PDF：阅读器顶部显示 PDF 文档卡片（页数、打开原文按钮）。能提取文字时正文是 PDF 的文字版；扫描件或加密文件则说明原因并只保留链接。
-- YouTube：正文中分别有「视频简介」和「视频文字稿 (Transcript)」两节；元数据记录 `caption_status`、`caption_source`、`caption_language`、`caption_languages`。
+- YouTube：正文中分别有「视频简介」和「视频文字稿 (Transcript)」两节；元数据记录 `caption_status`、`caption_source`、`caption_language`、`caption_languages`。没有公开字幕、且 ASR 可用时，`caption_source` 为 `asr`，文字稿来自语音转写。
 - 播客：正文中分别有「节目简介 (Show Notes)」和「播客文字稿 (Transcript)」；阅读器根据 `media_url` 提供播放器，音频按需拉取。
 
 ## 5. 自动验收

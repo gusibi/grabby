@@ -41,6 +41,7 @@ const jsonLdApp = JSON.stringify({
     "Real-browser web capture to clean Markdown",
     "RSS and platform feed collection",
     "AI scoring, categorization and summaries",
+    "Speech-to-text for videos without captions",
     "AI morning / evening daily briefing",
     "HTTP API, MCP tools and WebSocket protocol",
     "Local SQLite storage"
@@ -156,18 +157,61 @@ const jsonLdSite = JSON.stringify({
             <img
               src="/screenshot.png"
               width="2364"
-              height="1940"
+              height="1616"
               loading="eager"
               decoding="async"
               class="w-full h-auto"
-              alt="Grabby 桌面端「今天」页面：今日统计、AI 晚报与最新内容"
+              alt="Grabby 桌面端「今天」页面：今日日报、筛选条件与最新内容"
               data-i18n-alt="home.previewAlt"
             />
             <figcaption
               class="px-4 py-3 border-t border-bord dark:border-[#222] text-center font-mono text-xs text-mute-dim dark:text-[#666]"
               data-i18n="home.previewCaption"
             >
-              桌面端 · 今天 / 最新内容 / AI 晚报
+              桌面端 · 今天 / 今日日报 / 最新内容
+            </figcaption>
+          </figure>
+        </div>
+
+        <div class="grid sm:grid-cols-2 gap-6 mt-6 fade-in">
+          <figure
+            class="rounded-2xl overflow-hidden border border-bord dark:border-[#2a2a2a] bg-white dark:bg-[#161616] shadow-[0_12px_40px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+          >
+            <img
+              src="/reader.png"
+              width="1600"
+              height="1094"
+              loading="lazy"
+              decoding="async"
+              class="w-full h-auto"
+              alt="Grabby 内容库与阅读面板：来源筛选、AI 精读与清洗后的正文"
+              data-i18n-alt="home.readerAlt"
+            />
+            <figcaption
+              class="px-4 py-3 border-t border-bord dark:border-[#222] text-center font-mono text-xs text-mute-dim dark:text-[#666]"
+              data-i18n="home.readerCaption"
+            >
+              内容库 · 应用内阅读与 AI 精读
+            </figcaption>
+          </figure>
+          <figure
+            class="rounded-2xl overflow-hidden border border-bord dark:border-[#2a2a2a] bg-white dark:bg-[#161616] shadow-[0_12px_40px_rgba(0,0,0,0.08)] dark:shadow-[0_12px_40px_rgba(0,0,0,0.45)]"
+          >
+            <img
+              src="/settings.png"
+              width="1600"
+              height="1094"
+              loading="lazy"
+              decoding="async"
+              class="w-full h-auto"
+              alt="Grabby 设置页 AI 模型 Tab：在线模型目录与勾选启用"
+              data-i18n-alt="home.settingsAlt"
+            />
+            <figcaption
+              class="px-4 py-3 border-t border-bord dark:border-[#222] text-center font-mono text-xs text-mute-dim dark:text-[#666]"
+              data-i18n="home.settingsCaption"
+            >
+              设置 · 在线模型目录与勾选启用
             </figcaption>
           </figure>
         </div>
@@ -233,7 +277,7 @@ const jsonLdSite = JSON.stringify({
             </div>
             <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f3Title">RSS 与平台订阅</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f3Desc">
-              RSS / API / 网页源定时采集，X、Reddit、小红书按关键词或板块追踪，统一收进内容库。
+              RSS / API / 网页源定时采集，X、Reddit、小红书按关键词或板块追踪；YouTube 没有字幕时自动转写，统一收进内容库。
             </p>
           </div>
 
@@ -248,7 +292,7 @@ const jsonLdSite = JSON.stringify({
             </div>
             <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f4Title">AI 自动分析</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f4Desc">
-              新内容自动评分、分类、生成摘要与点评，按阈值筛出「AI 优质」；支持多家模型和故障转移。
+              新内容自动评分、分类、生成摘要与点评，按阈值筛出「AI 优质」；在线模型目录可选模型，支持多家服务商、轮询与故障转移。
             </p>
           </div>
 
@@ -263,7 +307,7 @@ const jsonLdSite = JSON.stringify({
             </div>
             <h3 class="font-mono font-semibold text-lg mb-3" data-i18n="home.f5Title">AI 日报</h3>
             <p class="text-sm text-mute dark:text-[#888] leading-relaxed" data-i18n="home.f5Desc">
-              早报 / 晚报定时生成，把当天值得读的内容整理成一页；支持回看、补生成和 RSS 订阅。
+              早报 / 晚报定时生成，只挑当天真正不能错过的内容，正文上限 20 条；支持回看、补生成和 RSS 订阅。
             </p>
           </div>
 
