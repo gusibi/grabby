@@ -296,21 +296,36 @@ func (a *App) dailyHistory(c *ui.Context) {
 }
 
 func (a *App) generateDaily() {
+	a.generateReport(a.dailyDate, a.dailyType)
+}
+
+// generateReport starts a background generation and waits for the report to
+// actually land. The server answers as soon as the job is queued, so reloading
+// right away would keep showing the previous report.
+func (a *App) generateReport(date, typ string) {
 	if a.dailyBusy {
 		return
 	}
-	date, typ := a.dailyDate, a.dailyType
 	a.dailyBusy = true
 	go func() {
-		err := a.client.generateDaily(date, typ)
-		if err != nil {
+		// Anything the server writes after this instant is the new report.
+		since := time.Now()
+		if err := a.client.generateDaily(date, typ); err != nil {
 			a.win.Update(func() {
 				a.dailyBusy = false
 				a.toasts = append(a.toasts, toastMsg{Text: err.Error(), Error: true})
 			})
 			return
 		}
-		time.Sleep(1800 * time.Millisecond)
+		if _, err := a.client.waitForDaily(date, typ, since, 20*time.Minute); err != nil {
+			a.win.Update(func() {
+				a.dailyBusy = false
+				a.toasts = append(a.toasts, toastMsg{Text: err.Error(), Error: true})
+				a.reloadView("daily")
+				a.reloadView("today")
+			})
+			return
+		}
 		a.win.Update(func() {
 			a.dailyBusy = false
 			a.toasts = append(a.toasts, toastMsg{Text: "日报已生成"})
@@ -379,7 +394,15 @@ func dailyReportDocument(c *ui.Context, raw string) bool {
 	for k := range doc.Sections {
 		keys = append(keys, k)
 	}
-	sort.Strings(keys)
+	// A digest leads with the editor's top picks; the stats panel belongs at
+	// the bottom, not above the headlines.
+	sort.SliceStable(keys, func(i, j int) bool {
+		ri, rj := dailySectionRank(keys[i]), dailySectionRank(keys[j])
+		if ri != rj {
+			return ri < rj
+		}
+		return keys[i] < keys[j]
+	})
 	ui.Column(c).Gap(16).Children(func() {
 		if editor := strings.TrimSpace(doc.Editor); editor != "" {
 			ui.Text(c, "编辑 · "+editor).FontSize(11.5).TextColor(textSoft(c))
@@ -406,6 +429,19 @@ func dailyReportDocument(c *ui.Context, raw string) bool {
 		}
 	})
 	return true
+}
+
+// dailySectionRank orders sections for reading: the day's headlines first, the
+// stats panel last, everything else in between in key order.
+func dailySectionRank(key string) int {
+	switch key {
+	case "headline":
+		return 0
+	case "dashboard":
+		return 2
+	default:
+		return 1
+	}
 }
 
 // dailyLink matches a markdown link. Report summaries from the generator

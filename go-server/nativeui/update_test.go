@@ -21,6 +21,7 @@ func TestUpdateSectionStates(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			a := fixtureApp()
 			a.view = "settings"
+			a.settingsTab = "about"
 			a.update = tc.state
 			tester := ui.NewTester(a.View, 1280, 840)
 			tester.Frame()

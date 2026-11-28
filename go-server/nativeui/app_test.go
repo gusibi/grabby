@@ -345,6 +345,18 @@ func TestScreenshotsTall(t *testing.T) {
 		}
 		_ = f.Close()
 	}
+
+	// The model tab with a catalog loaded, so the checkbox list is visible.
+	a := pickerFixture()
+	a.view = "settings"
+	a.reader.Open = false
+	tester := ui.NewTester(a.View, 1280, 1400)
+	tester.Frame()
+	f, _ := os.Create(filepath.Join(dir, "settings-models-tall.png"))
+	if err := png.Encode(f, tester.Image()); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
 }
 
 func TestSourceDialogRender(t *testing.T) {

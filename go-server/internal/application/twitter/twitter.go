@@ -45,12 +45,21 @@ type Tweet struct {
 
 // capturedRecord mirrors one item produced by the browser intercept hook.
 type capturedRecord struct {
-	URL    string `json:"url"`
-	Status int    `json:"status"`
-	Method string `json:"method"`
-	Body   string `json:"body"`
-	TS     int64  `json:"ts"`
+	URL           string `json:"url"`
+	Status        int    `json:"status"`
+	Method        string `json:"method"`
+	Body          string `json:"body"`
+	BodyBytes     int    `json:"bodyBytes"`
+	BodyTruncated bool   `json:"bodyTruncated"`
+	TS            int64  `json:"ts"`
 }
+
+// interceptMaxBodyBytes is the per-response body budget for intercepted X
+// responses. Home timeline GraphQL payloads routinely run 250–400 KiB, and the
+// extension's 256 KiB default cuts them mid-JSON — a truncated body cannot be
+// parsed, which surfaces as a misleading "no tweets captured". Keep this below
+// the hook's 5 MiB hard cap (larger bodies are dropped entirely).
+const interceptMaxBodyBytes = 4 << 20
 
 // Sender is the subset of the WebSocket manager this adapter needs.
 type Sender interface {
@@ -135,6 +144,13 @@ func runIntercept(ctx context.Context, wm Sender, logger *zap.Logger, browser, p
 		Params: map[string]any{
 			"scrollRounds": scrollRounds,
 			"maxCaptures":  200,
+			// Only ship the responses we actually parse back over the
+			// WebSocket; the home page also fires large unrelated GraphQL
+			// calls that would otherwise eat capture slots and bandwidth.
+			"patterns": opNames,
+			// A truncated body is invalid JSON, so the extension's 256 KiB
+			// default silently yields zero tweets on large timelines.
+			"maxBodyBytes": interceptMaxBodyBytes,
 		},
 	}
 
@@ -149,6 +165,7 @@ func runIntercept(ctx context.Context, wm Sender, logger *zap.Logger, browser, p
 	tweets := make([]Tweet, 0, limit)
 	seen := make(map[string]struct{})
 	matched := 0
+	truncated := 0
 
 	for _, raw := range resp.Result.Items {
 		rec, ok := toRecord(raw)
@@ -156,6 +173,9 @@ func runIntercept(ctx context.Context, wm Sender, logger *zap.Logger, browser, p
 			continue
 		}
 		matched++
+		if rec.BodyTruncated {
+			truncated++
+		}
 		for _, t := range extractTweets(rec.Body) {
 			if t.ID == "" {
 				continue
@@ -179,14 +199,25 @@ func runIntercept(ctx context.Context, wm Sender, logger *zap.Logger, browser, p
 			zap.String("url", pageURL),
 			zap.Int("captures", len(resp.Result.Items)),
 			zap.Int("matched_ops", matched),
+			zap.Int("truncated_bodies", truncated),
 			zap.Int("tweets", len(tweets)),
 		)
 	}
 
 	if len(tweets) == 0 {
+		if truncated > 0 {
+			return tweets, fmt.Errorf("no tweets captured: %d of %d matched responses were truncated at %d bytes — the capture body budget is too small", truncated, matched, interceptMaxBodyBytes)
+		}
 		// Distinguish "captured nothing relevant" (likely not logged in / page
 		// structure changed) from a genuine empty result.
 		return tweets, fmt.Errorf("no tweets captured (matched %d/%d responses) — check login state or that X page structure still matches", matched, len(resp.Result.Items))
+	}
+	if truncated > 0 && logger != nil {
+		logger.Warn("twitter intercept dropped truncated responses",
+			zap.String("url", pageURL),
+			zap.Int("truncated_bodies", truncated),
+			zap.Int("max_body_bytes", interceptMaxBodyBytes),
+		)
 	}
 	return tweets, nil
 }

@@ -360,6 +360,31 @@ type DiscoverModelsResult struct {
 	Models   []string `json:"models"`
 }
 
+// CatalogModel and CatalogProvider mirror the normalized models.dev snapshot
+// served by /api/ai/catalog. The settings page uses them to offer model
+// checkboxes instead of asking for model IDs by hand.
+type CatalogModel struct {
+	ID           string   `json:"id"`
+	Name         string   `json:"name"`
+	Context      int64    `json:"context,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type CatalogProvider struct {
+	ID     string         `json:"id"`
+	Name   string         `json:"name"`
+	API    string         `json:"api,omitempty"`
+	Driver string         `json:"driver"`
+	Models []CatalogModel `json:"models"`
+}
+
+type CatalogSnapshot struct {
+	Success   bool              `json:"success"`
+	Source    string            `json:"source"`
+	Count     int               `json:"count"`
+	Providers []CatalogProvider `json:"providers"`
+}
+
 type DesktopSettings struct {
 	Success           bool   `json:"success"`
 	DesktopMode       bool   `json:"desktop_mode"`

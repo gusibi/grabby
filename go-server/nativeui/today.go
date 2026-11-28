@@ -118,7 +118,7 @@ func (a *App) todayReport(c *ui.Context) {
 					a.openDaily(r.ReportDate, r.ReportType)
 				}
 				if quietButton(c, "重新生成").Clicked() {
-					a.generateDaily()
+					a.generateReport(r.ReportDate, r.ReportType)
 				}
 			})
 		})

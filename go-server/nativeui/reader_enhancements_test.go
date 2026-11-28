@@ -95,6 +95,7 @@ func TestPlainTextHTMLKeepsParagraphs(t *testing.T) {
 func TestSettingsShowsReaderModelSection(t *testing.T) {
 	a := fixtureApp()
 	a.view, a.reader.Open = "settings", false
+	a.settingsTab = "reading"
 	tester := ui.NewTester(a.View, 1280, 900)
 	tester.Frame()
 	for _, want := range []string{"阅读增强", "翻译模型", "解读模型", "翻译目标语言"} {

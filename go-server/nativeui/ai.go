@@ -13,13 +13,15 @@ func (a *App) initAIDraft() {
 		base = *a.aiSettings
 		base.Profiles = append([]ProviderProfile(nil), a.aiSettings.Profiles...)
 	}
+	for i := range base.Profiles {
+		normalizeProfileModels(&base.Profiles[i])
+	}
 	a.aiDraft = &base
 	a.promptSystem = base.SystemPrompt
 	a.promptDaily = base.DailyPrompt
 	if a.aiProfileIndex >= len(base.Profiles) {
 		a.aiProfileIndex = 0
 	}
-	a.syncModelsText()
 }
 
 func (a *App) ensureAIDraft() *AISettings {
@@ -40,32 +42,75 @@ func (a *App) currentProfile() *ProviderProfile {
 	return &d.Profiles[a.aiProfileIndex]
 }
 
-func (a *App) syncModelsText() {
-	p := a.currentProfile()
-	if p == nil {
-		a.aiModelsText = ""
-		return
-	}
-	a.aiModelsText = strings.Join(p.Models, "\n")
+// modelKey identifies a model regardless of the driver namespace the server
+// stores ("custom/deepseek-chat" and "deepseek-chat" are the same choice).
+func modelKey(model string) string {
+	return strings.ToLower(displayModel(strings.TrimSpace(model)))
 }
 
-func (a *App) setProfileModels(text string) {
-	p := a.currentProfile()
+// hasProfileModel reports whether models already holds model, ignoring the
+// driver namespace.
+func hasProfileModel(models []string, model string) bool {
+	key := modelKey(model)
+	for _, m := range models {
+		if modelKey(m) == key {
+			return true
+		}
+	}
+	return false
+}
+
+// normalizeProfileModels trims and de-dupes a profile's model list, and keeps
+// the preferred model pointing at one of the selected models.
+func normalizeProfileModels(p *ProviderProfile) {
 	if p == nil {
 		return
 	}
-	var models []string
-	for _, line := range strings.Split(text, "\n") {
-		if s := strings.TrimSpace(line); s != "" {
-			models = append(models, s)
+	models := make([]string, 0, len(p.Models))
+	seen := make(map[string]bool, len(p.Models))
+	for _, raw := range p.Models {
+		m := strings.TrimSpace(raw)
+		if m == "" {
+			continue
 		}
+		key := modelKey(m)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		models = append(models, m)
 	}
 	p.Models = models
-	if len(models) > 0 {
-		p.Model = models[0]
-	} else {
+	if len(models) == 0 {
 		p.Model = ""
+		return
 	}
+	if !hasProfileModel(models, p.Model) {
+		p.Model = models[0]
+	}
+}
+
+// toggleProfileModel adds or removes one model from a profile. The first
+// selection becomes the preferred model; removing it falls back to the next.
+func (a *App) toggleProfileModel(p *ProviderProfile, model string, on bool) {
+	if p == nil {
+		return
+	}
+	if on {
+		if !hasProfileModel(p.Models, model) {
+			p.Models = append(p.Models, strings.TrimSpace(model))
+		}
+	} else {
+		kept := make([]string, 0, len(p.Models))
+		key := modelKey(model)
+		for _, m := range p.Models {
+			if modelKey(m) != key {
+				kept = append(kept, m)
+			}
+		}
+		p.Models = kept
+	}
+	normalizeProfileModels(p)
 }
 
 func profileTitle(p ProviderProfile, i int) string {
@@ -83,9 +128,6 @@ func profileTitle(p ProviderProfile, i int) string {
 // translate and AI-brief actions. Both may follow the analysis route.
 func (a *App) readerModelsBody(c *ui.Context) {
 	d := a.ensureAIDraft()
-	// The AI section edits the active profile's model list as text; mirror it
-	// so the pickers below offer the models the user just typed.
-	a.setProfileModels(a.aiModelsText)
 	ui.Column(c).Gap(14).Children(func() {
 		ui.Form(c, func() {
 			ui.Field(c, "翻译目标语言", func() {
@@ -191,6 +233,244 @@ func displayModel(model string) string {
 	return model
 }
 
+// normalizeEndpoint makes base URLs comparable across the settings draft and
+// the catalog snapshot.
+func normalizeEndpoint(s string) string {
+	return strings.TrimRight(strings.ToLower(strings.TrimSpace(s)), "/")
+}
+
+// discoverKey scopes a provider-reported model list to the endpoint that
+// returned it, so changing the base URL does not keep stale options.
+func discoverKey(provider, baseURL string) string {
+	return strings.ToLower(strings.TrimSpace(provider)) + "|" + normalizeEndpoint(baseURL)
+}
+
+// catalogProviderFor finds the catalog provider a draft profile points at.
+// Custom endpoints (relay services and local gateways) are matched by base
+// URL; the recognized providers are matched by their catalog id.
+func (a *App) catalogProviderFor(p *ProviderProfile) *CatalogProvider {
+	if p == nil || len(a.aiCatalog) == 0 {
+		return nil
+	}
+	if base := normalizeEndpoint(p.BaseURL); base != "" {
+		for i := range a.aiCatalog {
+			if normalizeEndpoint(a.aiCatalog[i].API) == base {
+				return &a.aiCatalog[i]
+			}
+		}
+	}
+	provider := strings.ToLower(strings.TrimSpace(p.Provider))
+	switch provider {
+	case "gemini", "googleai":
+		provider = "google"
+	case "claude":
+		provider = "anthropic"
+	case "", "custom", "lmstudio":
+		return nil
+	}
+	for i := range a.aiCatalog {
+		if strings.EqualFold(a.aiCatalog[i].ID, provider) {
+			return &a.aiCatalog[i]
+		}
+	}
+	return nil
+}
+
+// modelCandidates is the union of the profile's own models, the catalog list
+// for its endpoint, and whatever the provider returned on the last fetch.
+func (a *App) modelCandidates(p *ProviderProfile) []string {
+	seen := make(map[string]bool, 32)
+	out := make([]string, 0, 32)
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		key := modelKey(id)
+		if seen[key] {
+			return
+		}
+		seen[key] = true
+		out = append(out, id)
+	}
+	for _, m := range p.Models {
+		add(m)
+	}
+	if cp := a.catalogProviderFor(p); cp != nil {
+		for _, m := range cp.Models {
+			add(m.ID)
+		}
+	}
+	for _, m := range a.aiDiscovered[discoverKey(p.Provider, p.BaseURL)] {
+		add(m)
+	}
+	return out
+}
+
+// modelPicker is the model field: a preferred-model dropdown over the chosen
+// models, a checkbox per available model, and a manual ID entry as the escape
+// hatch for endpoints neither the catalog nor discovery knows.
+func (a *App) modelPicker(c *ui.Context, p *ProviderProfile) {
+	t := c.Theme()
+	candidates := a.modelCandidates(p)
+	meta := map[string]CatalogModel{}
+	if cp := a.catalogProviderFor(p); cp != nil {
+		for _, m := range cp.Models {
+			meta[modelKey(m.ID)] = m
+		}
+	}
+
+	ui.Column(c).Gap(10).Children(func() {
+		// Preferred model: the one used first by the single-model strategy.
+		ui.Row(c).Gap(10).AlignItems(ui.Center).Wrap().Children(func() {
+			if len(p.Models) > 0 {
+				labels := make([]string, len(p.Models))
+				idx := 0
+				for i, m := range p.Models {
+					labels[i] = displayModel(m)
+					if modelKey(m) == modelKey(p.Model) {
+						idx = i
+					}
+				}
+				cur := labels[idx]
+				ui.Text(c, "首选模型").FontSize(11).TextColor(textSoft(c))
+				if ui.Select(c, &cur, labels).Width(240).Changed() {
+					for i, label := range labels {
+						if label == cur {
+							p.Model = p.Models[i]
+							break
+						}
+					}
+				}
+			}
+			ui.Text(c, fmt.Sprintf("已选 %d 个", len(p.Models))).FontSize(11).TextColor(textFaint(c))
+		})
+
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
+			ui.TextInput(c, &a.aiModelSearch).Placeholder("搜索模型").Width(180)
+			busy := a.aiDiscoverBusy
+			if quietButtonDisabled(c, "从服务商获取", busy).Clicked() && !busy {
+				a.discoverModels()
+			}
+			if quietButtonDisabled(c, "刷新在线目录", a.aiCatalogBusy).Clicked() && !a.aiCatalogBusy {
+				a.loadAIModelCatalog(true)
+			}
+			if busy || a.aiCatalogBusy {
+				ui.Spinner(c)
+			}
+		})
+
+		// One status line for both sources; the provider fetch wins because
+		// it is the more specific answer for the current endpoint.
+		msg, isErr := a.aiDiscoverMsg, a.aiDiscoverErr
+		if msg == "" {
+			msg, isErr = a.aiCatalogMsg, a.aiCatalogErr
+		}
+		ui.Row(c).Children(func() {
+			if msg != "" {
+				color := t.TextMuted
+				if isErr {
+					color = t.Danger
+				}
+				ui.Text(c, msg).FontSize(11).TextColor(color).MaxWidth(560).MaxLines(2)
+			} else if len(candidates) == 0 {
+				hint(c, "还没有可选的模型：点击「从服务商获取」，或在下方手动填写模型 ID。")
+			} else {
+				hint(c, "勾选要参与分析的模型；首选模型用于单模型策略。")
+			}
+		})
+
+		if len(candidates) > 0 {
+			query := strings.ToLower(strings.TrimSpace(a.aiModelSearch))
+			matches := make([]string, 0, len(candidates))
+			for _, id := range candidates {
+				if query != "" && !strings.Contains(strings.ToLower(id), query) &&
+					!strings.Contains(strings.ToLower(displayModel(id)), query) {
+					continue
+				}
+				matches = append(matches, id)
+			}
+			const maxShown = 24
+			ui.Column(c).Gap(1).MaxWidth(560).Children(func() {
+				for i, id := range matches {
+					if i >= maxShown {
+						return
+					}
+					id := id
+					checked := hasProfileModel(p.Models, id)
+					box := ui.Checkbox(c, &checked, displayModel(id))
+					if cm, ok := meta[modelKey(id)]; ok && cm.Context > 0 {
+						box.Tooltip(fmt.Sprintf("%s · 上下文 %s", cm.ID, humanTokens(cm.Context)))
+					}
+					if box.Changed() {
+						a.toggleProfileModel(p, id, checked)
+					}
+				}
+			})
+			if len(matches) > maxShown {
+				hint(c, fmt.Sprintf("还有 %d 个模型，用上面的搜索缩小范围。", len(matches)-maxShown))
+			} else if len(matches) == 0 {
+				hint(c, "没有匹配的模型。")
+			}
+		}
+
+		ui.Row(c).Gap(8).AlignItems(ui.Center).Wrap().Children(func() {
+			manual := a.aiManualOpen
+			if ui.Checkbox(c, &manual, "手动填写模型 ID").Changed() {
+				a.aiManualOpen = manual
+			}
+			if !a.aiManualOpen {
+				return
+			}
+			ui.TextInput(c, &a.aiManualModel).Font("monospace").Placeholder("例如 gpt-4o-mini").Width(260)
+			if quietButton(c, "添加此模型").Clicked() {
+				if id := strings.TrimSpace(a.aiManualModel); id != "" {
+					a.toggleProfileModel(p, id, true)
+					a.aiManualModel = ""
+				}
+			}
+		})
+	})
+}
+
+// ensureAIModelCatalog loads the shared model catalog once per session. It is
+// called when the model tab is shown so the first network call never blocks
+// the page.
+func (a *App) ensureAIModelCatalog() {
+	if a.aiCatalogLoaded || a.aiCatalogTried || a.aiCatalogBusy || a.win == nil {
+		return
+	}
+	a.loadAIModelCatalog(false)
+}
+
+func (a *App) loadAIModelCatalog(refresh bool) {
+	if a.aiCatalogBusy || a.win == nil {
+		return
+	}
+	a.aiCatalogBusy = true
+	a.aiCatalogTried = true
+	a.aiCatalogErr = false
+	a.aiCatalogMsg = "正在加载在线模型目录…"
+	go func() {
+		providers, err := a.client.modelCatalog(refresh)
+		a.win.Update(func() {
+			a.aiCatalogBusy = false
+			if err != nil {
+				a.aiCatalogErr = true
+				a.aiCatalogMsg = "在线模型目录不可用：" + err.Error()
+				return
+			}
+			a.aiCatalog = providers
+			a.aiCatalogLoaded = true
+			total := 0
+			for _, p := range providers {
+				total += len(p.Models)
+			}
+			a.aiCatalogMsg = fmt.Sprintf("在线目录：%d 个服务商 · %d 个模型", len(providers), total)
+		})
+	}()
+}
+
 func (a *App) aiView(c *ui.Context) ui.Element {
 	return ui.Scroll(c).Grow(1).Children(func() {
 		ui.Column(c).Grow(1).Padding(24, 30).Gap(16).Children(func() {
@@ -270,7 +550,9 @@ func (a *App) aiSettingsBody(c *ui.Context) {
 						for i, l := range labels {
 							if l == sel {
 								a.aiProfileIndex = i
-								a.syncModelsText()
+								normalizeProfileModels(&d.Profiles[i])
+								a.aiModelSearch = ""
+								a.aiDiscoverMsg = ""
 								break
 							}
 						}
@@ -292,36 +574,22 @@ func (a *App) aiSettingsBody(c *ui.Context) {
 				cur := p.Provider
 				if ui.Select(c, &cur, providers).MaxWidth(240).Changed() {
 					p.Provider = cur
+					a.aiModelSearch = ""
+					a.aiDiscoverMsg = ""
 				}
 			})
 			ui.Field(c, "Base URL", func() {
-				ui.TextInput(c, &p.BaseURL).Placeholder("留空使用官方端点").Font("monospace").MaxWidth(420)
+				placeholder := "留空使用官方端点"
+				if cp := a.catalogProviderFor(p); cp != nil && cp.API != "" {
+					placeholder = cp.API
+				}
+				ui.TextInput(c, &p.BaseURL).Placeholder(placeholder).Font("monospace").MaxWidth(420)
 			})
 			ui.Field(c, "API Key", func() {
 				ui.TextInput(c, &p.APIKey).Password().Placeholder("sk-…").MaxWidth(420)
 			})
 			ui.Field(c, "模型", func() {
-				ui.Column(c).Gap(5).Children(func() {
-					ui.TextArea(c, &a.aiModelsText).Height(86).Font("monospace").Placeholder("一行一个，例如：gpt-4o-mini").MaxWidth(560)
-					ui.Row(c).Gap(8).AlignItems(ui.Center).Children(func() {
-						busy := a.aiDiscoverBusy
-						if quietButton(c, "获取模型").FontSize(11).Disabled(busy).Clicked() && !busy {
-							a.discoverModels()
-						}
-						if busy {
-							ui.Spinner(c)
-						}
-						if a.aiDiscoverMsg != "" {
-							color := t.Success
-							if a.aiDiscoverErr {
-								color = t.Danger
-							}
-							ui.Text(c, a.aiDiscoverMsg).FontSize(11).TextColor(color).Grow(1).MaxLines(2)
-						} else {
-							hint(c, "从服务商拉取可用模型列表，替换上面的内容。")
-						}
-					})
-				})
+				a.modelPicker(c, p)
 			})
 			ui.Field(c, "每分钟请求", func() {
 				rpm := float64(p.RequestsPerMinute)
@@ -396,7 +664,7 @@ func (a *App) addProfile() {
 	if d.ActiveProfileID == "" {
 		d.ActiveProfileID = p.ID
 	}
-	a.syncModelsText()
+	a.aiModelSearch = ""
 }
 
 func (a *App) removeProfile() {
@@ -418,7 +686,7 @@ func (a *App) removeProfile() {
 					d.ActiveProfileID = d.Profiles[0].ID
 				}
 			}
-			a.syncModelsText()
+			a.aiModelSearch = ""
 		})
 		return nil
 	})
@@ -426,7 +694,9 @@ func (a *App) removeProfile() {
 
 func (a *App) saveAIDraft() {
 	d := a.ensureAIDraft()
-	a.setProfileModels(a.aiModelsText)
+	for i := range d.Profiles {
+		normalizeProfileModels(&d.Profiles[i])
+	}
 	d.SystemPrompt = a.promptSystem
 	d.DailyPrompt = a.promptDaily
 	if d.ActiveProfileID == "" && len(d.Profiles) > 0 {
@@ -459,7 +729,7 @@ func (a *App) testAIDraft() {
 		a.notifyErr("请先添加一个配置档")
 		return
 	}
-	a.setProfileModels(a.aiModelsText)
+	normalizeProfileModels(p)
 	prof := *p
 	prompt := a.promptSystem
 	a.aiBusy = true
@@ -607,7 +877,8 @@ func max(a, b int) int {
 	return b
 }
 
-// discoverModels asks the provider for its model list and fills the editor.
+// discoverModels asks the provider for its model list. The result becomes the
+// checkbox candidates for the current endpoint; the selection stays untouched.
 func (a *App) discoverModels() {
 	p := a.currentProfile()
 	if p == nil {
@@ -615,16 +886,17 @@ func (a *App) discoverModels() {
 		return
 	}
 	provider, baseURL, apiKey, profileID := p.Provider, p.BaseURL, p.APIKey, p.ID
+	key := discoverKey(provider, baseURL)
 	a.aiDiscoverBusy = true
 	a.aiDiscoverErr = false
-	a.aiDiscoverMsg = "正在获取模型…"
+	a.aiDiscoverMsg = "正在从服务商获取模型…"
 	go func() {
 		models, err := a.client.discoverModels(provider, baseURL, apiKey, profileID)
 		a.win.Update(func() {
 			a.aiDiscoverBusy = false
 			if err != nil {
 				a.aiDiscoverErr = true
-				a.aiDiscoverMsg = err.Error()
+				a.aiDiscoverMsg = "获取模型失败：" + err.Error()
 				return
 			}
 			if len(models) == 0 {
@@ -632,9 +904,9 @@ func (a *App) discoverModels() {
 				a.aiDiscoverMsg = "服务商没有返回可用模型"
 				return
 			}
-			a.aiModelsText = strings.Join(models, "\n")
-			a.setProfileModels(a.aiModelsText)
-			a.aiDiscoverMsg = fmt.Sprintf("获取到 %d 个模型，保存后生效", len(models))
+			a.aiDiscovered[key] = models
+			a.aiDiscoverErr = false
+			a.aiDiscoverMsg = fmt.Sprintf("服务商返回 %d 个模型，勾选后保存生效", len(models))
 		})
 	}()
 }

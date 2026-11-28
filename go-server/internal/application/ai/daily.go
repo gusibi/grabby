@@ -3,15 +3,38 @@ package ai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
+	"unicode"
 
 	"go.uber.org/zap"
 
 	domainai "go-server/internal/domain/ai"
 	"go-server/internal/infrastructure/sqlite"
 )
+
+const (
+	// dailyCandidateLimit bounds how many qualified items reach the editor
+	// model. A day routinely has 200+ items above the score threshold; feeding
+	// all of them makes the model treat the digest as a list of high scores
+	// instead of a selection of must-reads.
+	dailyCandidateLimit = 40
+	// dailyCandidatePerCategory keeps one busy category (usually tech/AI) from
+	// crowding every other category out of the candidate pool.
+	dailyCandidatePerCategory = 12
+	// maxDailyReportItems is the hard ceiling for a report body, dashboard
+	// excluded. Enforced after generation, not just asked for in the prompt.
+	maxDailyReportItems = 20
+	// dailyDashboardSection is a stats panel, not editorial content, and does
+	// not count against the body budget.
+	dailyDashboardSection = "dashboard"
+)
+
+// errDailyReportOverBudget is returned by normalization when the model lists
+// more items than the report body allows.
+var errDailyReportOverBudget = errors.New("daily report exceeds item budget")
 
 // AIDailyManager handles generating and retrieving AI daily reports.
 type AIDailyManager struct {
@@ -51,19 +74,13 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 		adm.logger.Warn("Failed to get total items count for date", zap.String("date", dateStr), zap.Error(err))
 	}
 
-	categoryCounts := make(map[string]int)
-	var feedText string
-	for i, it := range items {
-		categoryCounts[it.AICategory]++
-		feedText += fmt.Sprintf("【资讯 #%d】\n", i+1)
-		feedText += fmt.Sprintf("标题: %s\n", it.Title)
-		feedText += fmt.Sprintf("分类: %s (%s)\n", it.AICategory, it.AISubcategory)
-		feedText += fmt.Sprintf("来源: %s\n", it.OriginSource)
-		feedText += fmt.Sprintf("评分: %d/10\n", it.QualityScore)
-		feedText += fmt.Sprintf("AI摘要: %s\n", it.AISummary)
-		feedText += fmt.Sprintf("推荐理由: %s\n", it.AIComment)
-		feedText += fmt.Sprintf("链接: %s\n\n", it.URL)
-	}
+	candidates := selectDailyCandidates(items)
+	categoryCounts := dailyCategoryCounts(candidates)
+	feedText := buildDailyFeedText(candidates)
+	adm.logger.Info("Daily report candidates selected",
+		zap.String("date", dateStr),
+		zap.Int("qualified", len(items)),
+		zap.Int("candidates", len(candidates)))
 
 	catJSON, err := json.Marshal(categoryCounts)
 	if err != nil {
@@ -106,7 +123,7 @@ func (adm *AIDailyManager) GenerateDailyReport(ctx context.Context, dateStr stri
 	dailyPrompt = enforceDailyReportJSONContract(dailyPrompt)
 
 	prompt := dailyPrompt
-	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(items)))
+	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(candidates)))
 	prompt = strings.ReplaceAll(prompt, "{{.FeedText}}", feedText)
 	prompt = strings.ReplaceAll(prompt, "{{.TotalItems}}", fmt.Sprintf("%d", totalItems))
 	prompt = strings.ReplaceAll(prompt, "{{.QualityItems}}", fmt.Sprintf("%d", len(items)))
@@ -202,19 +219,13 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 		adm.logger.Warn("Failed to get total items count for time range", zap.Time("start", start), zap.Time("end", end), zap.Error(err))
 	}
 
-	categoryCounts := make(map[string]int)
-	var feedText string
-	for i, it := range items {
-		categoryCounts[it.AICategory]++
-		feedText += fmt.Sprintf("【资讯 #%d】\n", i+1)
-		feedText += fmt.Sprintf("标题: %s\n", it.Title)
-		feedText += fmt.Sprintf("分类: %s (%s)\n", it.AICategory, it.AISubcategory)
-		feedText += fmt.Sprintf("来源: %s\n", it.OriginSource)
-		feedText += fmt.Sprintf("评分: %d/10\n", it.QualityScore)
-		feedText += fmt.Sprintf("AI摘要: %s\n", it.AISummary)
-		feedText += fmt.Sprintf("推荐理由: %s\n", it.AIComment)
-		feedText += fmt.Sprintf("链接: %s\n\n", it.URL)
-	}
+	candidates := selectDailyCandidates(items)
+	categoryCounts := dailyCategoryCounts(candidates)
+	feedText := buildDailyFeedText(candidates)
+	adm.logger.Info("Daily report candidates selected",
+		zap.String("date", dateStr),
+		zap.Int("qualified", len(items)),
+		zap.Int("candidates", len(candidates)))
 
 	catJSON, err := json.Marshal(categoryCounts)
 	if err != nil {
@@ -263,7 +274,7 @@ func (adm *AIDailyManager) GenerateRangedReport(ctx context.Context, dateStr str
 	dailyPrompt = enforceDailyReportJSONContract(dailyPrompt)
 
 	prompt := dailyPrompt
-	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(items)))
+	prompt = strings.ReplaceAll(prompt, "{{.Count}}", fmt.Sprintf("%d", len(candidates)))
 	prompt = strings.ReplaceAll(prompt, "{{.FeedText}}", feedText)
 	prompt = strings.ReplaceAll(prompt, "{{.TotalItems}}", fmt.Sprintf("%d", totalItems))
 	prompt = strings.ReplaceAll(prompt, "{{.QualityItems}}", fmt.Sprintf("%d", len(items)))
@@ -354,6 +365,18 @@ func (adm *AIDailyManager) generateValidatedDailyContent(ctx context.Context, pc
 		}
 
 		lastErr = err
+		if attempt == maxValidationAttempts && errors.Is(err, errDailyReportOverBudget) {
+			// A model that keeps ignoring the budget still must not flood the
+			// day's report: trim the lowest-scored items deterministically.
+			if trimmed, trimErr := normalizeDailyReportContentOverBudget(rawContent, dateStr); trimErr == nil {
+				adm.logger.Warn("Daily report still over budget after repair, trimmed deterministically",
+					zap.String("date", dateStr),
+					zap.Int("max_items", maxDailyReportItems))
+				return trimmed, nil
+			} else {
+				lastErr = trimErr
+			}
+		}
 		adm.logger.Warn("Daily report failed validation",
 			zap.Int("attempt", attempt),
 			zap.String("date", dateStr),
@@ -368,11 +391,17 @@ func buildDailyReportRepairPrompt(rawContent string, validationErr error, dateSt
 	if len(rawContent) > 12000 {
 		rawContent = rawContent[:12000] + "\n...(truncated)"
 	}
-	return fmt.Sprintf(`你刚才生成的 Grabby AI 日报 JSON 没有通过格式校验。
+	fixInstruction := "请只修复格式，不要新增事实，不要改写含义。"
+	if errors.Is(validationErr, errDailyReportOverBudget) {
+		fixInstruction = fmt.Sprintf(
+			"正文条目超过了 %d 条上限。请删除重要性最低、重复或信息增量不足的条目，直到正文条目不超过 %d 条；保留条目的措辞不要改动。",
+			maxDailyReportItems, maxDailyReportItems)
+	}
+	return fmt.Sprintf(`你刚才生成的 Grabby AI 日报 JSON 没有通过校验。
 
 校验错误：%s
 
-请只修复格式，不要新增事实，不要改写含义。必须返回一个合法 JSON 对象，不能使用 Markdown 代码块，不能输出任何解释文字。
+%s必须返回一个合法 JSON 对象，不能使用 Markdown 代码块，不能输出任何解释文字。
 
 必需结构：
 {
@@ -397,7 +426,7 @@ func buildDailyReportRepairPrompt(rawContent string, validationErr error, dateSt
 }
 
 待修复内容：
-%s`, validationErr, dateStr, rawContent)
+%s`, validationErr, fixInstruction, dateStr, rawContent)
 }
 
 func enforceDailyReportJSONContract(prompt string) string {
@@ -408,4 +437,84 @@ func enforceDailyReportJSONContract(prompt string) string {
 
 【强制格式约束】：
 无论前文如何描述，最终只能返回一个合法 JSON 对象，不能使用 Markdown 代码块，不能输出解释文字。JSON 顶层必须包含 title、date、editor、sections；sections 必须是对象；每个 section 必须包含 title 和 items；每个 item 至少包含 title 和 summary。`
+}
+
+// selectDailyCandidates turns the day's qualified items into the bounded,
+// de-duplicated shortlist the editor model chooses from. Items arrive ordered
+// by score, so the shortlist keeps the strongest material while the per-
+// category cap reserves room for other topics.
+func selectDailyCandidates(items []sqlite.ScrapedItemWithAI) []sqlite.ScrapedItemWithAI {
+	seenURL := make(map[string]struct{}, len(items))
+	seenTitle := make(map[string]struct{}, len(items))
+	perCategory := make(map[string]int)
+	candidates := make([]sqlite.ScrapedItemWithAI, 0, dailyCandidateLimit)
+	for _, item := range items {
+		if len(candidates) >= dailyCandidateLimit {
+			break
+		}
+		if url := strings.TrimSpace(item.URL); url != "" {
+			if _, seen := seenURL[url]; seen {
+				continue
+			}
+			seenURL[url] = struct{}{}
+		}
+		if titleKey := dailyTitleKey(item.Title); titleKey != "" {
+			if _, seen := seenTitle[titleKey]; seen {
+				continue
+			}
+			seenTitle[titleKey] = struct{}{}
+		}
+		category := dailyItemCategory(item)
+		if perCategory[category] >= dailyCandidatePerCategory {
+			continue
+		}
+		perCategory[category]++
+		candidates = append(candidates, item)
+	}
+	return candidates
+}
+
+// dailyTitleKey folds a title down to letters and digits so syndicated copies
+// of the same story collapse whether or not punctuation or spacing differs.
+func dailyTitleKey(title string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(strings.TrimSpace(title)) {
+		if unicode.IsLetter(r) || unicode.IsDigit(r) {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func dailyItemCategory(item sqlite.ScrapedItemWithAI) string {
+	if category := strings.TrimSpace(item.AICategory); category != "" {
+		return category
+	}
+	return "其他"
+}
+
+func dailyCategoryCounts(items []sqlite.ScrapedItemWithAI) map[string]int {
+	counts := make(map[string]int, 8)
+	for _, item := range items {
+		counts[dailyItemCategory(item)]++
+	}
+	return counts
+}
+
+func buildDailyFeedText(items []sqlite.ScrapedItemWithAI) string {
+	var b strings.Builder
+	for i, item := range items {
+		fmt.Fprintf(&b, "【资讯 #%d】\n", i+1)
+		fmt.Fprintf(&b, "标题: %s\n", item.Title)
+		fmt.Fprintf(&b, "分类: %s (%s)\n", item.AICategory, item.AISubcategory)
+		fmt.Fprintf(&b, "来源: %s\n", item.OriginSource)
+		if item.PublishedAt != nil {
+			fmt.Fprintf(&b, "发布时间: %s\n", item.PublishedAt.Format("2006-01-02 15:04"))
+		}
+		fmt.Fprintf(&b, "评分: %d/10\n", item.QualityScore)
+		fmt.Fprintf(&b, "AI摘要: %s\n", item.AISummary)
+		fmt.Fprintf(&b, "推荐理由: %s\n", item.AIComment)
+		fmt.Fprintf(&b, "链接: %s\n\n", item.URL)
+	}
+	return b.String()
 }

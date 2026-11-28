@@ -180,13 +180,28 @@ type App struct {
 
 	aiDraft        *AISettings
 	aiProfileIndex int
-	aiModelsText   string
 	aiBusy         bool
 	aiTestMsg      string
 	aiTestErr      bool
 	aiDiscoverBusy bool
 	aiDiscoverMsg  string
 	aiDiscoverErr  bool
+
+	// The model picker builds its checkboxes from the cached models.dev
+	// catalog plus any list the provider itself returned. Both are keyed by
+	// endpoint so switching provider or base URL does not show stale entries.
+	aiCatalog       []CatalogProvider
+	aiCatalogLoaded bool
+	aiCatalogTried  bool
+	aiCatalogBusy   bool
+	aiCatalogMsg    string
+	aiCatalogErr    bool
+	aiDiscovered    map[string][]string
+	aiModelSearch   string
+	aiManualModel   string
+	aiManualOpen    bool
+
+	settingsTab string
 
 	tokenDraft    string
 	externalDraft bool
@@ -223,6 +238,9 @@ func New(client *Client) *App {
 		adapter:     "extract",
 		confirm:     &Confirm{},
 		splitPct:    52,
+
+		settingsTab:  "general",
+		aiDiscovered: map[string][]string{},
 
 		translations: map[int64]*TranslationResult{},
 		chats:        map[int64]*ChatSession{},
@@ -603,6 +621,7 @@ func (a *App) headerActions(c *ui.Context) {
 			iconButton(c, iconRefresh, "刷新").OnClick(func() { a.reloadView("sources") })
 		case "ai":
 			if iconTextButton(c, iconSettings, "模型设置").Clicked() {
+				a.settingsTab = "models"
 				a.navigate("settings")
 			}
 			if iconTextButton(c, iconBolt, "立即评测").Clicked() {

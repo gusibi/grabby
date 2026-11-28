@@ -313,6 +313,36 @@ func (c *Client) daily(date, typ string) (DailyReport, error) {
 	return d, nil
 }
 
+// waitForDaily polls until a report generated after since is available, or the
+// timeout passes. Generation is queued, not run inline, so the previous report
+// keeps being served for a while after the request returns.
+func (c *Client) waitForDaily(date, typ string, since time.Time, timeout time.Duration) (DailyReport, error) {
+	deadline := time.Now().Add(timeout)
+	var last DailyReport
+	var lastErr error
+	for {
+		report, err := c.daily(date, typ)
+		if err == nil {
+			last = report
+			lastErr = nil
+			if report.Success {
+				if generated, parseErr := time.Parse(time.RFC3339Nano, report.GeneratedAt); parseErr == nil && generated.After(since) {
+					return report, nil
+				}
+			}
+		} else {
+			lastErr = err
+		}
+		if time.Now().After(deadline) {
+			if lastErr != nil {
+				return last, fmt.Errorf("等待日报生成超时：%w", lastErr)
+			}
+			return last, fmt.Errorf("等待日报生成超时，请稍后刷新查看")
+		}
+		time.Sleep(2 * time.Second)
+	}
+}
+
 func (c *Client) items(filter Filter, cursor string) (ItemsPage, error) {
 	path := "/open/api/items?limit=" + fmt.Sprint(filter.limit())
 	if cursor != "" {
@@ -542,6 +572,21 @@ func (c *Client) discoverModels(provider, baseURL, apiKey, profileID string) ([]
 		"profile_id": profileID,
 	}, &r)
 	return r.Models, err
+}
+
+// modelCatalog loads the models.dev snapshot the server caches. A refresh asks
+// it to re-fetch from the network first, which can take a while, hence the
+// long-lived HTTP client.
+func (c *Client) modelCatalog(refresh bool) ([]CatalogProvider, error) {
+	var r CatalogSnapshot
+	path := "/api/ai/catalog"
+	if refresh {
+		path += "?refresh=1"
+	}
+	if err := c.doWith(c.hcLong, http.MethodGet, path, nil, &r); err != nil {
+		return nil, err
+	}
+	return r.Providers, nil
 }
 
 func (c *Client) generateDaily(date, typ string) error {

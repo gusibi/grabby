@@ -42,26 +42,135 @@ type rawDailyReportSection struct {
 }
 
 func normalizeDailyReportContent(raw string, dateStr string) (string, error) {
-	jsonText, err := extractFirstJSONObject(raw)
+	payload, err := parseDailyReportPayload(raw, dateStr)
 	if err != nil {
 		return "", err
+	}
+	if err := validateDailyReportBudget(payload); err != nil {
+		return "", err
+	}
+	return marshalDailyReportPayload(payload)
+}
+
+// normalizeDailyReportContentOverBudget is the last-resort path for a model
+// that will not respect the item budget: it keeps the usable report and drops
+// the weakest items instead of failing the whole generation.
+func normalizeDailyReportContentOverBudget(raw string, dateStr string) (string, error) {
+	payload, err := parseDailyReportPayload(raw, dateStr)
+	if err != nil {
+		return "", err
+	}
+	trimDailyReportToBudget(payload)
+	if err := validateDailyReportBudget(payload); err != nil {
+		return "", err
+	}
+	return marshalDailyReportPayload(payload)
+}
+
+func parseDailyReportPayload(raw string, dateStr string) (dailyReportPayload, error) {
+	jsonText, err := extractFirstJSONObject(raw)
+	if err != nil {
+		return dailyReportPayload{}, err
 	}
 
 	var rawPayload rawDailyReportPayload
 	if err := json.Unmarshal([]byte(jsonText), &rawPayload); err != nil {
-		return "", fmt.Errorf("invalid JSON: %w", err)
+		return dailyReportPayload{}, fmt.Errorf("invalid JSON: %w", err)
 	}
 
-	payload, err := normalizeDailyReportPayload(rawPayload, dateStr)
-	if err != nil {
-		return "", err
-	}
+	return normalizeDailyReportPayload(rawPayload, dateStr)
+}
 
+func marshalDailyReportPayload(payload dailyReportPayload) (string, error) {
 	out, err := json.MarshalIndent(payload, "", "  ")
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal normalized daily report: %w", err)
 	}
 	return string(out), nil
+}
+
+func validateDailyReportBudget(payload dailyReportPayload) error {
+	if count := countDailyReportItems(payload.Sections); count > maxDailyReportItems {
+		return fmt.Errorf("%w：正文共 %d 条，上限 %d 条", errDailyReportOverBudget, count, maxDailyReportItems)
+	}
+	return nil
+}
+
+func countDailyReportItems(sections map[string]dailyReportSection) int {
+	count := 0
+	for key, section := range sections {
+		if key == dailyDashboardSection {
+			continue
+		}
+		count += len(section.Items)
+	}
+	return count
+}
+
+// trimDailyReportToBudget removes the lowest-scored body items until the
+// report fits. headline is protected so the editor's top picks survive; if
+// even that cannot get under the budget, the remaining sections are trimmed.
+func trimDailyReportToBudget(payload dailyReportPayload) {
+	for countDailyReportItems(payload.Sections) > maxDailyReportItems {
+		key, index := lowestPriorityReportItem(payload.Sections, true)
+		if key == "" {
+			key, index = lowestPriorityReportItem(payload.Sections, false)
+		}
+		if key == "" {
+			return
+		}
+		section := payload.Sections[key]
+		section.Items = append(section.Items[:index], section.Items[index+1:]...)
+		if len(section.Items) == 0 {
+			delete(payload.Sections, key)
+			continue
+		}
+		payload.Sections[key] = section
+	}
+}
+
+// lowestPriorityReportItem finds the item whose score is lowest. Ties break
+// towards the later section key and the later position, keeping the report's
+// lead material intact. When protectHeadline is set, the headline section is
+// left alone.
+func lowestPriorityReportItem(sections map[string]dailyReportSection, protectHeadline bool) (string, int) {
+	bestKey := ""
+	bestIndex := -1
+	bestScore := 0
+	for key, section := range sections {
+		if key == dailyDashboardSection {
+			continue
+		}
+		if protectHeadline && key == "headline" {
+			continue
+		}
+		for index, item := range section.Items {
+			score := parseReportScore(item.Score)
+			if bestIndex == -1 || score < bestScore ||
+				(score == bestScore && (key > bestKey || (key == bestKey && index > bestIndex))) {
+				bestKey, bestIndex, bestScore = key, index, score
+			}
+		}
+	}
+	return bestKey, bestIndex
+}
+
+// parseReportScore pulls the first number out of the score field, accepting
+// the shapes models actually emit: "9/10", "9", "评分 9".
+func parseReportScore(raw string) int {
+	value := 0
+	seen := false
+	for _, r := range raw {
+		if r >= '0' && r <= '9' {
+			value = value*10 + int(r-'0')
+			seen = true
+			continue
+		}
+		if seen {
+			break
+		}
+	}
+	return value
 }
 
 func normalizeDailyReportPayload(rawPayload rawDailyReportPayload, dateStr string) (dailyReportPayload, error) {

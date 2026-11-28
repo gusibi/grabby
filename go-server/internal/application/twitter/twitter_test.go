@@ -2,6 +2,7 @@ package twitter
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"go-server/internal/domain/capture"
@@ -246,5 +247,61 @@ func TestExtractTweetsXArticle(t *testing.T) {
 	}
 	if len(tw.Media) != 1 || tw.Media[0] != "https://pbs.twimg.com/cover.jpg" {
 		t.Errorf("Media = %+v", tw.Media)
+	}
+}
+
+// cannedSender returns a fixed list of captured items for one request.
+type cannedSender struct {
+	req   *capture.BrowserRequest
+	items []any
+}
+
+func (c *cannedSender) ResolveBrowserConnID(string) (string, error) { return "conn-1", nil }
+
+func (c *cannedSender) SendMessage(_ context.Context, req *capture.BrowserRequest, _ string) (*capture.BrowserResponse, error) {
+	c.req = req
+	return &capture.BrowserResponse{
+		Success: true,
+		Result:  capture.PageResult{Items: c.items},
+	}, nil
+}
+
+func TestTimelineSendsPatternsAndBodyBudget(t *testing.T) {
+	cs := &cannedSender{items: []any{map[string]any{
+		"url":  "https://x.com/i/api/graphql/abc/HomeTimeline",
+		"body": sampleBody,
+	}}}
+	tweets, err := Timeline(context.Background(), cs, nil, "for_you", Options{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(tweets) != 2 {
+		t.Fatalf("expected 2 tweets, got %d", len(tweets))
+	}
+	if cs.req == nil {
+		t.Fatal("expected an intercept request")
+	}
+	patterns, ok := cs.req.Params["patterns"].([]string)
+	if !ok || len(patterns) != 2 || patterns[0] != "HomeTimeline" || patterns[1] != "HomeLatestTimeline" {
+		t.Errorf("patterns = %#v, want [HomeTimeline HomeLatestTimeline]", cs.req.Params["patterns"])
+	}
+	if got := cs.req.Params["maxBodyBytes"]; got != interceptMaxBodyBytes {
+		t.Errorf("maxBodyBytes = %v, want %d", got, interceptMaxBodyBytes)
+	}
+}
+
+func TestTruncatedMatchedBodyReportsBodyLimit(t *testing.T) {
+	cs := &cannedSender{items: []any{map[string]any{
+		"url":           "https://x.com/i/api/graphql/abc/HomeTimeline",
+		"body":          `{"data":{"home":`,
+		"bodyBytes":     400000,
+		"bodyTruncated": true,
+	}}}
+	_, err := Timeline(context.Background(), cs, nil, "for_you", Options{})
+	if err == nil {
+		t.Fatal("expected an error for a truncated body")
+	}
+	if !strings.Contains(err.Error(), "truncated at") || !strings.Contains(err.Error(), "body budget") {
+		t.Errorf("error should explain the body limit, got %q", err)
 	}
 }
